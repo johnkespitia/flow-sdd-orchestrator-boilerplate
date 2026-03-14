@@ -77,6 +77,13 @@ Eso genera un workspace nuevo:
 4. Abre el root en devcontainer
 5. Ejecuta:
 
+Nota:
+
+- `devcontainer.json` añade mounts y variables para que `python3 ./flow stack ...` y
+  `python3 ./flow doctor` funcionen tambien desde dentro del `workspace`
+- si cambias `.devcontainer/**`, usa **Rebuild Container**; un `docker compose up` directo no aplica
+  toda la capa extra que inyecta Cursor/VS Code
+
 ```bash
 python3 ./flow doctor
 python3 ./flow stack doctor

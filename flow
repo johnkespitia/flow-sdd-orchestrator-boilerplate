@@ -66,9 +66,14 @@ REPO_CONFIG = WORKSPACE_CONFIG["repos"]
 PROJECT_NAME = str(PROJECT_CONFIG.get("display_name") or ROOT.name)
 ROOT_REPO = str(PROJECT_CONFIG["root_repo"])
 REPO_NAMES = list(REPO_CONFIG)
-DEFAULT_COMPOSE_PROJECT = env_first("FLOW_COMPOSE_PROJECT", "PLG_COMPOSE_PROJECT", default=f"{ROOT.name}_devcontainer")
 WORKSPACE_SERVICE = env_first("FLOW_WORKSPACE_SERVICE", "PLG_WORKSPACE_SERVICE", default="workspace") or "workspace"
 WORKSPACE_PATH = env_first("FLOW_WORKSPACE_PATH", "PLG_WORKSPACE_PATH", default="/workspace") or "/workspace"
+DEFAULT_COMPOSE_PROJECT = env_first(
+    "FLOW_COMPOSE_PROJECT",
+    "PLG_COMPOSE_PROJECT",
+    default=f"{ROOT_REPO if ROOT.name == Path(WORKSPACE_PATH).name else ROOT.name}_devcontainer",
+)
+HOST_ROOT_HINT = Path(env_first("FLOW_HOST_ROOT", "PLG_HOST_ROOT", default=str(ROOT)) or ROOT).expanduser()
 WORKTREE_ROOT = Path(
     env_first("FLOW_WORKTREE_ROOT", "PLG_WORKTREE_ROOT", default=str(ROOT / ".worktrees")) or (ROOT / ".worktrees")
 ).expanduser()
@@ -953,7 +958,7 @@ def format_findings(findings: list[str]) -> list[str]:
 
 
 def detect_compose_context() -> dict[str, object]:
-    compose_file = DEVCONTAINER_COMPOSE_FILE.resolve()
+    compose_file = compose_control_file().resolve()
     context: dict[str, object] = {
         "project": DEFAULT_COMPOSE_PROJECT,
         "files": [compose_file],
@@ -994,12 +999,36 @@ def detect_compose_context() -> dict[str, object]:
             context["active"] = True
             return context
 
+    if running_inside_workspace():
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get("Name") or "") != str(context["project"]):
+                continue
+            config_files = [
+                Path(raw_path).resolve()
+                for raw_path in str(entry.get("ConfigFiles", "")).split(",")
+                if raw_path
+            ]
+            context["files"] = config_files or context["files"]
+            context["active"] = True
+            return context
+
     return context
 
 
 def compose_base_command() -> list[str]:
     context = detect_compose_context()
-    return ["docker", "compose", "-p", str(context["project"]), "-f", str(DEVCONTAINER_COMPOSE_FILE.resolve())]
+    return [
+        "docker",
+        "compose",
+        "-p",
+        str(context["project"]),
+        "--project-directory",
+        str(compose_control_root().resolve()),
+        "-f",
+        str(compose_control_file().resolve()),
+    ]
 
 
 def tty_enabled() -> bool:
@@ -1010,6 +1039,16 @@ def running_inside_workspace() -> bool:
     workspace_root = WORKSPACE_PATH.rstrip("/")
     root_path = ROOT.as_posix()
     return root_path == workspace_root or root_path.startswith(f"{workspace_root}/")
+
+
+def compose_control_root() -> Path:
+    if running_inside_workspace():
+        return HOST_ROOT_HINT
+    return ROOT
+
+
+def compose_control_file() -> Path:
+    return compose_control_root() / ".devcontainer" / "docker-compose.yml"
 
 
 def compose_exec_args(
@@ -1030,7 +1069,7 @@ def compose_exec_args(
 def run_compose(extra_args: list[str], interactive: Optional[bool] = None) -> int:
     command = compose_base_command() + extra_args
     try:
-        return subprocess.run(command, cwd=ROOT, check=False).returncode
+        return subprocess.run(command, cwd=compose_control_root(), check=False).returncode
     except FileNotFoundError as exc:
         raise SystemExit("No encontre `docker` en PATH para operar el stack del workspace.") from exc
 
@@ -1089,7 +1128,8 @@ def command_stack_doctor(_: argparse.Namespace) -> int:
 
     print(f"{PROJECT_NAME} stack doctor")
     print(f"- docker_cli: {'ok' if docker_ok else 'missing'}")
-    print(f"- compose_file: {DEVCONTAINER_COMPOSE_FILE.resolve()}")
+    print(f"- compose_file: {compose_control_file().resolve()}")
+    print(f"- compose_root: {compose_control_root().resolve()}")
     print(f"- compose_project: {context['project']}")
     print(f"- compose_active: {'yes' if context['active'] else 'no'}")
     print(f"- workspace_service: {WORKSPACE_SERVICE}")
@@ -1238,6 +1278,7 @@ def command_doctor(_: argparse.Namespace) -> int:
     print(f"\nWorkspace root: {ROOT}")
     print(f"Worktree root sugerido: {WORKTREE_ROOT}")
     print(f"Workspace mount path: {WORKSPACE_PATH}")
+    print(f"Compose control root: {compose_control_root().resolve()}")
     print(f"Compose project: {stack_context['project']}")
     print(f"Compose activo: {'yes' if stack_context['active'] else 'no'}")
     print(f"BMAD CLI: {'ok' if bmad_available else 'missing'}")

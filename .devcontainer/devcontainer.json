@@ -6,6 +6,12 @@
   "shutdownAction": "stopCompose",
   "initializeCommand": "git submodule update --init --recursive",
   "postCreateCommand": "cd /workspace && make install",
+  "containerEnv": {
+    "FLOW_HOST_ROOT": "${localWorkspaceFolder}"
+  },
+  "mounts": [
+    "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached"
+  ],
   "customizations": {
     "vscode": {
       "extensions": [
