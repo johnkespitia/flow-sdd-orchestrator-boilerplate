@@ -45,7 +45,7 @@ sh-frontend:
 	$(FLOW) stack sh frontend
 
 sh-db:
-	$(FLOW) stack exec db -- mysql -u plg -pplg plg_dev
+	$(FLOW) stack exec db -- mysql -u app -papp app_dev
 
 # ── Dev servers ──────────────────────────────────────────────────────
 

@@ -346,7 +346,7 @@ Notas:
   contenedor correcto.
 - `flow bmad` resuelve `bmad`, `bmad-method` o `npx bmad-method` y siempre ejecuta desde
   `/workspace`.
-- si BMAD requiere otro ejecutable, se puede ajustar con `PLG_BMAD_COMMAND`.
+- si BMAD requiere otro ejecutable, se puede ajustar con `FLOW_BMAD_COMMAND`.
 - la imagen del devcontainer incluye BMAD CLI; el comando `install` crea el proyecto local en
   `_bmad/`.
 - `_bmad/` es parte versionable del workspace; `_bmad-output/` debe tratarse como artefacto local.
@@ -362,7 +362,7 @@ Justificacion:
 - evita mezclar rutas del host con rutas internas del contenedor
 - mantiene el estado multiagente junto al superproject y fuera de los submodulos
 
-Si hiciera falta otra topologia, se puede sobreescribir con `PLG_WORKTREE_ROOT`.
+Si hiciera falta otra topologia, se puede sobreescribir con `FLOW_WORKTREE_ROOT`.
 
 Ejemplo esperado dentro del devcontainer:
 
@@ -511,10 +511,11 @@ Si. Esta primera implementacion ya puede servir como boilerplate para otros proy
 adaptaciones:
 
 1. reemplazar `backend` y `frontend` por los repos reales del sistema
-2. ajustar `DEFAULT_TARGETS`, `TARGET_ROOTS`, `PLG_WORKSPACE_PATH` y `PLG_BMAD_COMMAND` en [`flow`](../flow)
+2. ajustar `workspace.config.json`, `FLOW_WORKSPACE_PATH` y `FLOW_BMAD_COMMAND`
+   segun tu proyecto
 3. versionar `specs/**`, `.tessl/**`, `.flow/README.md`, `Makefile` y la carpeta `.devcontainer/`
 
-La idea reusable no es el dominio PLG. Es la separacion:
+La idea reusable no es el dominio de ejemplo. Es la separacion:
 
 - `specs/**` como source of truth
 - `flow` como control plane

@@ -10,7 +10,7 @@ services:
     working_dir: /workspace
     command: sleep infinity
     networks:
-      - plg
+      - workspace
 
   # ── Backend: PHP 8.2 + Laravel 11 ─────────────────────────────────
   backend:
@@ -29,14 +29,14 @@ services:
       DB_CONNECTION: mysql
       DB_HOST: db
       DB_PORT: "3306"
-      DB_DATABASE: plg_dev
-      DB_USERNAME: plg
-      DB_PASSWORD: plg
+      DB_DATABASE: app_dev
+      DB_USERNAME: app
+      DB_PASSWORD: app
     depends_on:
       db:
         condition: service_healthy
     networks:
-      - plg
+      - workspace
 
   # ── Frontend: Vite + React ─────────────────────────────────────────
   frontend:
@@ -50,19 +50,19 @@ services:
     ports:
       - "5173:5173"
     networks:
-      - plg
+      - workspace
 
   # ── Base de datos: MySQL 8 ─────────────────────────────────────────
   db:
     image: mysql:8.0
     restart: unless-stopped
     volumes:
-      - mysql-data:/var/lib/mysql
+      - workspace-mysql-data:/var/lib/mysql
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: plg_dev
-      MYSQL_USER: plg
-      MYSQL_PASSWORD: plg
+      MYSQL_DATABASE: app_dev
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app
     ports:
       - "3306:3306"
     healthcheck:
@@ -71,10 +71,10 @@ services:
       timeout: 3s
       retries: 10
     networks:
-      - plg
+      - workspace
 
 volumes:
-  mysql-data:
+  workspace-mysql-data:
 
 networks:
-  plg:
+  workspace:

@@ -199,6 +199,8 @@ def patch_devcontainer(destination: Path, project_name: str, backend_repo: str, 
 
     compose_path = destination / ".devcontainer" / "docker-compose.yml"
     compose_text = compose_path.read_text(encoding="utf-8")
+    compose_text = compose_text.replace("\n  backend:\n", f"\n  {backend_repo}:\n")
+    compose_text = compose_text.replace("\n  frontend:\n", f"\n  {frontend_repo}:\n")
     compose_text = compose_text.replace("../plg-backend:/app:cached", f"../{backend_repo}:/app:cached")
     compose_text = compose_text.replace("../plg-frontend:/app:cached", f"../{frontend_repo}:/app:cached")
     compose_text = compose_text.replace("../backend:/app:cached", f"../{backend_repo}:/app:cached")
@@ -247,6 +249,22 @@ def rewrite_project_texts(
                 continue
             if path.suffix in TEXT_EXTENSIONS or path.name in {"Makefile", "flow", "AGENTS.md"}:
                 rewrite_text_file(path, replacements)
+
+    postprocess_rewritten_texts(destination, backend_repo, frontend_repo)
+
+
+def postprocess_rewritten_texts(destination: Path, backend_repo: str, frontend_repo: str) -> None:
+    targeted_replacements = {
+        f"--{backend_repo}-repo": "--backend-repo",
+        f"--{frontend_repo}-repo": "--frontend-repo",
+        f"{backend_repo}.Dockerfile": "backend.Dockerfile",
+        f"{frontend_repo}.Dockerfile": "frontend.Dockerfile",
+    }
+    for path in destination.rglob("*"):
+        if path.is_dir():
+            continue
+        if path.suffix in TEXT_EXTENSIONS or path.name in {"Makefile", "flow", "AGENTS.md"}:
+            rewrite_text_file(path, targeted_replacements)
 
 
 def git_init(destination: Path) -> None:

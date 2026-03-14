@@ -88,7 +88,7 @@ python3 ./flow bmad -- install --tools none --yes
 
 `flow` usa por defecto `.worktrees/` dentro del workspace para que el comando funcione igual en el
 host y dentro del devcontainer. Si hiciera falta otra ruta, se puede sobreescribir con
-`PLG_WORKTREE_ROOT`.
+`FLOW_WORKTREE_ROOT`.
 
 ## Regla de drift
 

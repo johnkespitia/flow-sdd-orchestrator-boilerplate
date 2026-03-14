@@ -1,12 +1,12 @@
 # Spec-Driven Workspace Boilerplate
 
-Entorno de desarrollo multi-servicio para PLG, orquestado con Docker Compose y devcontainers.
+Boilerplate de workspace spec-driven multi-servicio, orquestado con Docker Compose y devcontainers.
 
 ## Arquitectura del entorno
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Docker Compose (red: plg)             │
+│                Docker Compose (red: workspace)           │
 │                                                         │
 │  ┌─────────────┐  ┌──────────┐  ┌──────────┐  ┌──────┐ │
 │  │  workspace   │  │ backend  │  │ frontend │  │  db  │ │
@@ -25,18 +25,18 @@ Entorno de desarrollo multi-servicio para PLG, orquestado con Docker Compose y d
 │        └── /workspace ─┘──────────────┘           │     │
 │            (repo completo)                        │     │
 │                                              vol: │     │
-│                                           mysql-data    │
+│                              workspace-mysql-data       │
 └─────────────────────────────────────────────────────────┘
 ```
 
 | Servicio | Imagen base | Monta | Puerto | Propósito |
 |---|---|---|---|---|
 | `workspace` | Ubuntu 22.04 + PHP + Node + Tessl + BMAD | Todo el repo en `/workspace` | — | Editar código, CLI, git |
-| `backend` | php:8.2-cli + extensiones | `backend/` en `/app` | 8000 | Ejecutar Laravel |
-| `frontend` | node:20-slim + pnpm | `frontend/` en `/app` | 5173 | Ejecutar Vite |
+| `backend` | php:8.2-cli + extensiones | `backend/` en `/app` | 8000 | Placeholder de backend PHP |
+| `frontend` | node:20-slim + pnpm | `frontend/` en `/app` | 5173 | Placeholder de frontend Node |
 | `db` | mysql:8.0 | Volumen persistente | 3306 | Base de datos MySQL |
 
-Todos los servicios comparten la red `plg` y se comunican por nombre (e.g. `db:3306` desde backend).
+Todos los servicios comparten la red `workspace` y se comunican por nombre (e.g. `db:3306` desde backend).
 
 ## Estructura del devcontainer
 
@@ -55,8 +55,8 @@ Todos los servicios comparten la red `plg` y se comunican por nombre (e.g. `db:3
 
 | Ruta | Tipo | Rol |
 |---|---|---|
-| `backend/` | submódulo | Backend V2 y código de implementación |
-| `frontend/` | submódulo | Frontend V2 y código de implementación |
+| `backend/` | placeholder | Repo backend de implementación |
+| `frontend/` | placeholder | Repo frontend de implementación |
 | `specs/` | root | Fuente de verdad del sistema |
 | `.flow/` | root | Estado operativo del SDLC |
 | `.tessl/` | root | Guías locales de Tessl para SDD |
@@ -106,6 +106,29 @@ node --version     # v20.x
 pnpm --version     # última versión
 tessl --help       # Tessl CLI
 ```
+
+## Crear un proyecto aislado desde este boilerplate
+
+La forma más limpia es usar este repo como template o clonarlo y ejecutar:
+
+```bash
+python3 scripts/bootstrap_workspace.py /ruta/al/nuevo-workspace \
+  --project-name "Acme Platform" \
+  --root-repo acme-dev-env \
+  --backend-repo platform-api \
+  --frontend-repo platform-web \
+  --git-init
+```
+
+Ese comando:
+
+- crea un workspace nuevo sin heredar `.git`
+- genera `workspace.config.json` con los nombres reales del proyecto
+- deja placeholders limpios para los repos de implementación
+- mantiene `specs/**`, `.tessl/**`, `.flow/**`, `flow` y `_bmad/`
+
+Después reemplaza `backend/` y `frontend/` por repos reales o submódulos Git, ajusta el stack si tu
+runtime no es PHP/Node/MySQL y valida con `python3 ./flow doctor`.
 
 ## Tessl en el root
 
@@ -214,15 +237,15 @@ docker compose exec frontend pnpm dev --host 0.0.0.0
 |---|---|
 | Host | `db` (desde los contenedores) o `localhost` (desde el host) |
 | Puerto | `3306` |
-| Base de datos | `plg_dev` |
-| Usuario | `plg` |
-| Contraseña | `plg` |
+| Base de datos | `app_dev` |
+| Usuario | `app` |
+| Contraseña | `app` |
 | Root password | `root` |
 
 Desde el workspace:
 
 ```bash
-mysql -h db -u plg -pplg plg_dev
+mysql -h db -u app -papp app_dev
 ```
 
 ## Tooling local por submódulo
@@ -304,7 +327,7 @@ Ruta sugerida:
 
 - `flow` usa por defecto `.worktrees/` dentro de `workspace-root`
 - esa ruta funciona igual desde el host y dentro del devcontainer
-- si necesitas otra topología, define `PLG_WORKTREE_ROOT`
+- si necesitas otra topología, define `FLOW_WORKTREE_ROOT`
 
 Ejemplo backend dentro del devcontainer:
 
@@ -366,7 +389,9 @@ orquestador local, sigue subordinado a la spec del root.
 ## Ajustes manuales necesarios
 
 1. **`tessl login`** — Ejecutar dentro del workspace para autenticarte con Tessl
-2. **Credenciales de MySQL** — Los valores actuales (`plg/plg`) son para desarrollo local. Si la base legacy necesita otros valores, edita la sección `environment` del servicio `db` en `docker-compose.yml`
+2. **Credenciales de MySQL** — Los valores actuales (`app/app`) son para desarrollo local. Si tu
+   proyecto necesita otros valores, edita la sección `environment` del servicio `db` en
+   `docker-compose.yml`
 3. **Tooling local de código** — Si un repo necesita herramientas de lenguaje o framework, instálalas dentro de ese submódulo, nunca como sustituto del root `specs/**`.
 
 ## Stack
