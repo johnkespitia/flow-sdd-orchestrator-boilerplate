@@ -1,0 +1,80 @@
+services:
+
+  # ── Contenedor principal — Cursor se conecta aquí ──────────────────
+  workspace:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ..:/workspace:cached
+    working_dir: /workspace
+    command: sleep infinity
+    networks:
+      - plg
+
+  # ── Backend: PHP 8.2 + Laravel 11 ─────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+    volumes:
+      - ../backend:/app:cached
+    working_dir: /app
+    command: sleep infinity
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_DATABASE: plg_dev
+      DB_USERNAME: plg
+      DB_PASSWORD: plg
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - plg
+
+  # ── Frontend: Vite + React ─────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend.Dockerfile
+    volumes:
+      - ../frontend:/app:cached
+    working_dir: /app
+    command: sleep infinity
+    ports:
+      - "5173:5173"
+    networks:
+      - plg
+
+  # ── Base de datos: MySQL 8 ─────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    volumes:
+      - mysql-data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: plg_dev
+      MYSQL_USER: plg
+      MYSQL_PASSWORD: plg
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - plg
+
+volumes:
+  mysql-data:
+
+networks:
+  plg:

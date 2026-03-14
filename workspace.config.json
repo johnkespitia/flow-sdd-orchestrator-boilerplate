@@ -1,0 +1,85 @@
+{
+  "project": {
+    "display_name": "Spec-Driven Workspace Boilerplate",
+    "root_repo": "workspace-root"
+  },
+  "repos": {
+    "workspace-root": {
+      "path": ".",
+      "kind": "root",
+      "slice_prefix": "root",
+      "default_targets": [
+        "../../.devcontainer/**",
+        "../../Makefile",
+        "../../README.md"
+      ],
+      "target_roots": [
+        ".devcontainer",
+        ".flow",
+        ".gitignore",
+        ".gitmodules",
+        ".tessl",
+        "AGENTS.md",
+        "Makefile",
+        "README.md",
+        "_bmad",
+        "docs",
+        "flow",
+        "scripts",
+        "specs",
+        "templates",
+        "tessl.json",
+        "workspace.config.json"
+      ],
+      "test_runner": "none"
+    },
+    "backend": {
+      "path": "backend",
+      "kind": "implementation",
+      "slice_prefix": "backend",
+      "default_targets": [
+        "../../backend/app/**",
+        "../../backend/routes/**",
+        "../../backend/tests/**"
+      ],
+      "target_roots": [
+        "AGENTS.md",
+        "app",
+        "artisan",
+        "bootstrap",
+        "composer.json",
+        "config",
+        "database",
+        "public",
+        "resources",
+        "routes",
+        "tests"
+      ],
+      "test_hint": "../../backend/tests/...",
+      "test_runner": "php"
+    },
+    "frontend": {
+      "path": "frontend",
+      "kind": "implementation",
+      "slice_prefix": "frontend",
+      "default_targets": [
+        "../../frontend/src/**",
+        "../../frontend/public/**",
+        "../../frontend/tests/**"
+      ],
+      "target_roots": [
+        "AGENTS.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "public",
+        "src",
+        "tests",
+        "tsconfig.json",
+        "vite.config.ts",
+        "vitest.config.ts"
+      ],
+      "test_hint": "../../frontend/tests/...",
+      "test_runner": "pnpm"
+    }
+  }
+}

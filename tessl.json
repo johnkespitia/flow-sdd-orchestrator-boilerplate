@@ -1,0 +1,9 @@
+{
+  "name": "workspace-root",
+  "mode": "vendored",
+  "dependencies": {
+    "workspace/spec-driven-workspace": {
+      "version": "0.1.0"
+    }
+  }
+}

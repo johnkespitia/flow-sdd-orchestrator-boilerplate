@@ -1,0 +1,41 @@
+{
+  "name": "Spec-Driven Workspace Boilerplate",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "workspace",
+  "workspaceFolder": "/workspace",
+  "shutdownAction": "stopCompose",
+  "initializeCommand": "git submodule update --init --recursive",
+  "postCreateCommand": "cd /workspace && make install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "bmewburn.vscode-intelephense-client",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "mikestead.dotenv",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+  "forwardPorts": [
+    5173,
+    8000,
+    3306
+  ],
+  "portsAttributes": {
+    "5173": {
+      "label": "Frontend (Vite)"
+    },
+    "8000": {
+      "label": "Backend (Laravel)"
+    },
+    "3306": {
+      "label": "MySQL"
+    }
+  },
+  "remoteUser": "vscode"
+}

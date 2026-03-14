@@ -1,0 +1,11 @@
+.DS_Store
+.worktrees/
+_bmad-output/
+.flow/state/*
+.flow/plans/*
+.flow/reports/*
+.flow/runs/*
+!.flow/state/.gitkeep
+!.flow/plans/.gitkeep
+!.flow/reports/.gitkeep
+!.flow/runs/.gitignore

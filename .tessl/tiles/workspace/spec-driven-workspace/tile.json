@@ -1,0 +1,5 @@
+{
+  "name": "workspace/spec-driven-workspace",
+  "version": "0.1.0",
+  "description": "Workspace-local tile for root-centered Spec As Source orchestration."
+}
