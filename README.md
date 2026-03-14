@@ -13,7 +13,7 @@ No es un producto PLG. Es una base reusable para crear workspaces agentic y spec
 
 ## Qué trae
 
-- `flow`: CLI del workspace para `stack`, `tessl`, `bmad`, `spec`, `plan`, `slice`, `status`
+- `flow`: CLI del workspace para `stack`, `tessl`, `bmad`, `add-project`, `spec`, `plan`, `slice`, `status`
 - `workspace.config.json`: routing configurable de repos, targets y test runners
 - `.tessl/**`: tile local de SDD centrado en root
 - `_bmad/`: instalación versionada del runtime BMAD del proyecto
@@ -84,6 +84,15 @@ python3 ./flow tessl -- --help
 python3 ./flow bmad -- status
 ```
 
+Si necesitas un tercer proyecto de implementación, puedes registrarlo desde el control plane:
+
+```bash
+python3 ./flow add-project mobile --runtime pnpm --port 4173
+```
+
+Eso actualiza `workspace.config.json`, crea el directorio placeholder y, si el runtime lo soporta,
+agrega un servicio al `docker-compose` del devcontainer.
+
 ## Modelo operativo
 
 La separación de responsabilidades es esta:
@@ -130,6 +139,7 @@ Ese stack es solo una base de arranque. Si tu proyecto usa otra topología, cám
 
 ```bash
 python3 ./flow --help
+python3 ./flow add-project mobile --runtime pnpm --port 4173
 python3 ./flow stack ps
 python3 ./flow tessl -- --help
 python3 ./flow bmad -- --help

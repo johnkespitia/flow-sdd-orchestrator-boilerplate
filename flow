@@ -95,6 +95,83 @@ TEST_HINTS = {
     if config.get("test_hint")
 }
 
+RUNTIME_DEFAULTS = {
+    "generic": {
+        "target_roots": ["AGENTS.md", "README.md", "src", "tests"],
+        "default_targets": ["../../{path}/src/**", "../../{path}/tests/**"],
+        "test_runner": "none",
+        "test_hint": None,
+        "placeholder_dirs": ["src", "tests"],
+        "placeholder_files": {},
+        "compose_template": None,
+    },
+    "php": {
+        "target_roots": [
+            "AGENTS.md",
+            "app",
+            "artisan",
+            "bootstrap",
+            "composer.json",
+            "config",
+            "database",
+            "public",
+            "resources",
+            "routes",
+            "tests",
+        ],
+        "default_targets": [
+            "../../{path}/app/**",
+            "../../{path}/routes/**",
+            "../../{path}/tests/**",
+        ],
+        "test_runner": "php",
+        "test_hint": "../../{path}/tests/...",
+        "placeholder_dirs": ["app", "routes", "tests"],
+        "placeholder_files": {
+            "composer.json": {
+                "name": "workspace/{name}",
+                "type": "project",
+                "require": {
+                    "php": "^8.2"
+                }
+            }
+        },
+        "compose_template": "php",
+    },
+    "pnpm": {
+        "target_roots": [
+            "AGENTS.md",
+            "package.json",
+            "pnpm-lock.yaml",
+            "public",
+            "src",
+            "tests",
+            "tsconfig.json",
+            "vite.config.ts",
+            "vitest.config.ts",
+        ],
+        "default_targets": [
+            "../../{path}/src/**",
+            "../../{path}/public/**",
+            "../../{path}/tests/**",
+        ],
+        "test_runner": "pnpm",
+        "test_hint": "../../{path}/tests/...",
+        "placeholder_dirs": ["public", "src", "tests"],
+        "placeholder_files": {
+            "package.json": {
+                "name": "{name}",
+                "private": True,
+                "version": "0.0.0",
+                "scripts": {
+                    "test": "echo \"add tests for {name}\""
+                }
+            }
+        },
+        "compose_template": "pnpm",
+    },
+}
+
 REQUIRED_FRONTMATTER_FIELDS = ("name", "description", "status", "owner", "targets")
 TEST_REF_RE = re.compile(r"\[@test\]\s+([^\s`]+)")
 TODO_RE = re.compile(r"\bTODO\b")
@@ -137,6 +214,377 @@ def repo_slice_prefix(repo: str) -> str:
         return slugify(configured)
     path_name = str(repo_config(repo).get("path", repo)).strip("/.")
     return slugify(path_name or repo)
+
+
+def normalize_repo_path(value: str) -> str:
+    raw = value.strip()
+    candidate = Path(raw)
+    if not raw or candidate.is_absolute():
+        raise SystemExit("Debes indicar un path relativo valido para el proyecto.")
+    normalized = candidate.as_posix().strip("/")
+    if not normalized or normalized in {".", ".."}:
+        raise SystemExit("Debes indicar un path relativo valido para el proyecto.")
+    parts = Path(normalized).parts
+    if any(part in {"", ".", ".."} for part in parts):
+        raise SystemExit("El path del proyecto no puede salir del workspace ni usar segmentos vacios.")
+    return "/".join(parts)
+
+
+def validate_identifier(value: str, label: str) -> str:
+    candidate = value.strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", candidate):
+        raise SystemExit(f"El {label} debe usar solo letras, numeros, guiones o guiones bajos.")
+    return candidate
+
+
+def repo_path_conflicts(repo_path: str) -> Optional[str]:
+    for repo, config in REPO_CONFIG.items():
+        existing_raw = str(config.get("path", ".")).strip()
+        if existing_raw in {"", "."}:
+            continue
+        existing = normalize_repo_path(existing_raw)
+        if repo_path == existing:
+            return f"El path `{repo_path}` ya pertenece al repo `{repo}`."
+        if repo_path.startswith(existing + "/"):
+            return f"El path `{repo_path}` queda dentro del repo existente `{repo}` ({existing})."
+        if existing.startswith(repo_path + "/"):
+            return f"El path `{repo_path}` contendria al repo existente `{repo}` ({existing})."
+    return None
+
+
+def write_workspace_config(payload: dict[str, object]) -> None:
+    WORKSPACE_CONFIG_FILE.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def render_runtime_file(content: object, repo_name: str) -> str:
+    if isinstance(content, dict):
+        text = json.dumps(content, indent=2, ensure_ascii=True) + "\n"
+    else:
+        text = str(content)
+    return text.replace("{name}", repo_name)
+
+
+def load_compose_text() -> str:
+    if not DEVCONTAINER_COMPOSE_FILE.is_file():
+        raise SystemExit(f"Falta {rel(DEVCONTAINER_COMPOSE_FILE)}.")
+    return DEVCONTAINER_COMPOSE_FILE.read_text(encoding="utf-8")
+
+
+def write_compose_text(text: str) -> None:
+    DEVCONTAINER_COMPOSE_FILE.write_text(text, encoding="utf-8")
+
+
+def infer_compose_network_name(compose_text: str) -> str:
+    match = re.search(r"^networks:\n(?:\s*\n)*  ([A-Za-z0-9_-]+):\s*$", compose_text, flags=re.MULTILINE)
+    if match:
+        return match.group(1)
+    return "workspace"
+
+
+def compose_service_exists(compose_text: str, service_name: str) -> bool:
+    return re.search(rf"^  {re.escape(service_name)}:\s*$", compose_text, flags=re.MULTILINE) is not None
+
+
+def extract_service_block(compose_text: str, service_name: str) -> str:
+    start = re.search(rf"^  {re.escape(service_name)}:\n", compose_text, flags=re.MULTILINE)
+    if not start:
+        return ""
+
+    remainder = compose_text[start.end() :]
+    next_service = re.search(r"^  [A-Za-z0-9_-]+:\n", remainder, flags=re.MULTILINE)
+    next_volumes = re.search(r"^volumes:\n", remainder, flags=re.MULTILINE)
+    cut_points = [match.start() for match in [next_service, next_volumes] if match]
+    end = min(cut_points) if cut_points else len(remainder)
+    return remainder[:end]
+
+
+def extract_service_scalar(block: str, key: str, default: str) -> str:
+    match = re.search(rf"^\s+{re.escape(key)}:\s*(.+?)\s*$", block, flags=re.MULTILINE)
+    if not match:
+        return default
+    return match.group(1).strip().strip('"').strip("'")
+
+
+def extract_service_mount_target(block: str, default: str) -> str:
+    match = re.search(
+        r"^\s+- \.\./[^:]+:(?P<target>[^:\n]+)(?::[A-Za-z]+)?\s*$",
+        block,
+        flags=re.MULTILINE,
+    )
+    if not match:
+        return default
+    return match.group("target").strip()
+
+
+def infer_runtime_service_settings(compose_text: str, runtime: str) -> dict[str, object]:
+    if runtime == "php":
+        block = extract_service_block(compose_text, "backend")
+        settings = {
+            "dockerfile": extract_service_scalar(block, "dockerfile", "backend.Dockerfile"),
+            "working_dir": extract_service_scalar(block, "working_dir", "/app"),
+            "command": extract_service_scalar(block, "command", "sleep infinity"),
+            "mount_target": extract_service_mount_target(block, "/app"),
+            "environment": {
+                "APP_ENV": extract_service_scalar(block, "APP_ENV", "local"),
+                "APP_DEBUG": extract_service_scalar(block, "APP_DEBUG", "true"),
+                "DB_CONNECTION": extract_service_scalar(block, "DB_CONNECTION", "mysql"),
+                "DB_HOST": extract_service_scalar(block, "DB_HOST", "db"),
+                "DB_PORT": extract_service_scalar(block, "DB_PORT", "3306"),
+                "DB_DATABASE": extract_service_scalar(block, "DB_DATABASE", "app_dev"),
+                "DB_USERNAME": extract_service_scalar(block, "DB_USERNAME", "app"),
+                "DB_PASSWORD": extract_service_scalar(block, "DB_PASSWORD", "app"),
+            },
+        }
+        return settings
+
+    if runtime == "pnpm":
+        block = extract_service_block(compose_text, "frontend")
+        return {
+            "dockerfile": extract_service_scalar(block, "dockerfile", "frontend.Dockerfile"),
+            "working_dir": extract_service_scalar(block, "working_dir", "/app"),
+            "command": extract_service_scalar(block, "command", "sleep infinity"),
+            "mount_target": extract_service_mount_target(block, "/app"),
+        }
+
+    raise SystemExit(f"No conozco el runtime `{runtime}`.")
+
+
+def render_compose_service(
+    service_name: str,
+    repo_path: str,
+    runtime: str,
+    port: Optional[int],
+    network_name: str,
+    compose_text: str,
+) -> str:
+    template = RUNTIME_DEFAULTS[runtime]["compose_template"]
+    if template is None:
+        raise SystemExit(f"El runtime `{runtime}` no tiene template de servicio Compose.")
+
+    if template == "php":
+        settings = infer_runtime_service_settings(compose_text, "php")
+        env = settings["environment"]
+        lines = [
+            f"  # ── Added project: {service_name} ({runtime}) ───────────────────────────",
+            f"  {service_name}:",
+            "    build:",
+            "      context: .",
+            f"      dockerfile: {settings['dockerfile']}",
+            "    volumes:",
+            f"      - ../{repo_path}:{settings['mount_target']}:cached",
+            f"    working_dir: {settings['working_dir']}",
+            f"    command: {settings['command']}",
+        ]
+        if port:
+            lines.extend(["    ports:", f'      - "{port}:{port}"'])
+        lines.extend(
+            [
+                "    environment:",
+                f"      APP_ENV: {env['APP_ENV']}",
+                f'      APP_DEBUG: "{env["APP_DEBUG"]}"',
+                f"      DB_CONNECTION: {env['DB_CONNECTION']}",
+                f"      DB_HOST: {env['DB_HOST']}",
+                f'      DB_PORT: "{env["DB_PORT"]}"',
+                f"      DB_DATABASE: {env['DB_DATABASE']}",
+                f"      DB_USERNAME: {env['DB_USERNAME']}",
+                f"      DB_PASSWORD: {env['DB_PASSWORD']}",
+                "    depends_on:",
+                "      db:",
+                "        condition: service_healthy",
+                "    networks:",
+                f"      - {network_name}",
+            ]
+        )
+        return "\n".join(lines) + "\n\n"
+
+    if template == "pnpm":
+        settings = infer_runtime_service_settings(compose_text, "pnpm")
+        lines = [
+            f"  # ── Added project: {service_name} ({runtime}) ───────────────────────────",
+            f"  {service_name}:",
+            "    build:",
+            "      context: .",
+            f"      dockerfile: {settings['dockerfile']}",
+            "    volumes:",
+            f"      - ../{repo_path}:{settings['mount_target']}:cached",
+            f"    working_dir: {settings['working_dir']}",
+            f"    command: {settings['command']}",
+        ]
+        if port:
+            lines.extend(["    ports:", f'      - "{port}:{port}"'])
+        lines.extend(
+            [
+                "    networks:",
+                f"      - {network_name}",
+            ]
+        )
+        return "\n".join(lines) + "\n\n"
+
+    raise SystemExit(f"No conozco el template Compose `{template}`.")
+
+
+def add_service_to_compose(service_name: str, repo_path: str, runtime: str, port: Optional[int]) -> None:
+    compose_text = load_compose_text()
+    if compose_service_exists(compose_text, service_name):
+        raise SystemExit(f"El servicio `{service_name}` ya existe en {rel(DEVCONTAINER_COMPOSE_FILE)}.")
+
+    comment_marker = re.search(r"\n  # [^\n]*\n  db:\n", compose_text)
+    service_marker = re.search(r"\n  db:\n", compose_text)
+    volumes_marker = re.search(r"\nvolumes:\n", compose_text)
+    insertion_match = comment_marker or service_marker or volumes_marker
+    if insertion_match is None:
+        raise SystemExit(f"No pude encontrar un punto de insercion valido en {rel(DEVCONTAINER_COMPOSE_FILE)}.")
+
+    network_name = infer_compose_network_name(compose_text)
+    service_block = render_compose_service(service_name, repo_path, runtime, port, network_name, compose_text)
+    head = compose_text[: insertion_match.start()].rstrip("\n")
+    tail = compose_text[insertion_match.start() :].lstrip("\n")
+    updated = f"{head}\n\n{service_block}{tail}"
+    write_compose_text(updated)
+
+
+def repo_placeholder_text(root_repo_name: str, repo_name: str) -> tuple[str, str]:
+    agents = "\n".join(
+        [
+            "# AGENTS.md",
+            "",
+            "## Scope",
+            "",
+            f"Estas reglas aplican a `{repo_name}/**`.",
+            "",
+            "## Role",
+            "",
+            f"`{repo_name}` es un repo de implementacion de codigo.",
+            "",
+            "## Required reading order",
+            "",
+            "1. la spec del root que dispara el trabajo",
+            f"2. `{root_repo_name}/specs/000-foundation/**` relevantes",
+            "3. este archivo",
+            "",
+            "## Rules",
+            "",
+            "- no crear specs locales como fuente de verdad paralela",
+            "- implementar solo lo que este cubierto por `targets` del root",
+            "- mantener tests y codigo alineados con la spec del root",
+            "- si el cambio requiere ampliar alcance, actualizar primero la spec del root",
+            "",
+        ]
+    )
+    readme = "\n".join(
+        [
+            f"# {repo_name}",
+            "",
+            "Placeholder del repo de implementacion.",
+            "",
+            "Reemplazalo por un repo real o por un submodulo Git cuando conectes este workspace a un producto.",
+            "",
+        ]
+    )
+    return agents, readme
+
+
+def ensure_project_directory(path: Path, use_existing: bool) -> None:
+    if path.exists():
+        if not path.is_dir():
+            raise SystemExit(f"{rel(path)} existe pero no es un directorio.")
+        if any(path.iterdir()) and not use_existing:
+            raise SystemExit(
+                f"{rel(path)} ya existe y no esta vacio. Usa `--use-existing-dir` si quieres registrarlo igual."
+            )
+        return
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def runtime_defaults(runtime: str, repo_name: str, repo_path: str) -> dict[str, object]:
+    template = RUNTIME_DEFAULTS[runtime]
+    default_targets = [pattern.format(path=repo_path, name=repo_name) for pattern in template["default_targets"]]
+    test_hint = template["test_hint"]
+    if isinstance(test_hint, str):
+        test_hint = test_hint.format(path=repo_path, name=repo_name)
+    placeholder_files = {
+        relative_path: render_runtime_file(content, repo_name)
+        for relative_path, content in template["placeholder_files"].items()
+    }
+    return {
+        "target_roots": list(template["target_roots"]),
+        "default_targets": default_targets,
+        "test_runner": template["test_runner"],
+        "test_hint": test_hint,
+        "placeholder_dirs": list(template["placeholder_dirs"]),
+        "placeholder_files": placeholder_files,
+        "compose_template": template["compose_template"],
+    }
+
+
+def command_add_project(args: argparse.Namespace) -> int:
+    require_dirs()
+    repo_name = validate_identifier(args.name, "nombre del proyecto")
+    if repo_name in REPO_CONFIG:
+        raise SystemExit(f"El proyecto `{repo_name}` ya existe en {WORKSPACE_CONFIG_FILE.name}.")
+
+    repo_path = normalize_repo_path(args.path or repo_name)
+    path_conflict = repo_path_conflicts(repo_path)
+    if path_conflict:
+        raise SystemExit(path_conflict)
+
+    runtime = args.runtime
+    defaults = runtime_defaults(runtime, repo_name, repo_path)
+    target_roots = list(args.target_root or defaults["target_roots"])
+    default_targets = list(args.default_target or defaults["default_targets"])
+    test_runner = args.test_runner or str(defaults["test_runner"])
+    test_hint = args.test_hint if args.test_hint is not None else defaults["test_hint"]
+    if args.port is not None and not 1 <= args.port <= 65535:
+        raise SystemExit("`--port` debe estar entre 1 y 65535.")
+    compose_enabled = not args.no_compose and defaults["compose_template"] is not None
+    service_name = validate_identifier(args.service_name or repo_name, "nombre del servicio")
+
+    destination = ROOT / repo_path
+    ensure_project_directory(destination, use_existing=args.use_existing_dir)
+
+    agents_text, readme_text = repo_placeholder_text(ROOT_REPO, repo_name)
+    if not (destination / "AGENTS.md").exists():
+        (destination / "AGENTS.md").write_text(agents_text, encoding="utf-8")
+    if not (destination / "README.md").exists():
+        (destination / "README.md").write_text(readme_text, encoding="utf-8")
+
+    for directory in defaults["placeholder_dirs"]:
+        target_dir = destination / directory
+        target_dir.mkdir(parents=True, exist_ok=True)
+        gitkeep = target_dir / ".gitkeep"
+        if not gitkeep.exists():
+            gitkeep.write_text("", encoding="utf-8")
+
+    for relative_path, content in defaults["placeholder_files"].items():
+        target_file = destination / relative_path
+        if not target_file.exists():
+            target_file.write_text(content, encoding="utf-8")
+
+    updated_config = json.loads(json.dumps(WORKSPACE_CONFIG))
+    updated_config["repos"][repo_name] = {
+        "path": repo_path,
+        "kind": "implementation",
+        "slice_prefix": slugify(repo_name),
+        "default_targets": default_targets,
+        "target_roots": target_roots,
+        "test_runner": test_runner,
+    }
+    if test_hint:
+        updated_config["repos"][repo_name]["test_hint"] = test_hint
+    write_workspace_config(updated_config)
+
+    if compose_enabled:
+        add_service_to_compose(service_name, repo_path, runtime, args.port)
+
+    print(f"Proyecto agregado: {repo_name}")
+    print(f"- path: {repo_path}")
+    print(f"- runtime: {runtime}")
+    print(f"- compose_service: {service_name if compose_enabled else 'skipped'}")
+    print(f"- config: {WORKSPACE_CONFIG_FILE.name}")
+    return 0
 
 
 def utc_now() -> str:
@@ -1454,6 +1902,48 @@ def build_parser() -> argparse.ArgumentParser:
     bmad = subparsers.add_parser("bmad", help="Run BMAD through the canonical workspace environment.")
     bmad.add_argument("args", nargs=argparse.REMAINDER, help="Arguments passed to the BMAD command.")
     bmad.set_defaults(func=command_bmad)
+
+    add_project = subparsers.add_parser(
+        "add-project",
+        help="Register a new implementation repo and optional service in the workspace.",
+    )
+    add_project.add_argument("name", help="Project id used by flow and by `--repo` in specs.")
+    add_project.add_argument("--path", help="Relative path from the workspace root. Defaults to the project id.")
+    add_project.add_argument(
+        "--runtime",
+        choices=sorted(RUNTIME_DEFAULTS),
+        default="generic",
+        help="Starter template for targets, roots, placeholder files, and compose scaffolding.",
+    )
+    add_project.add_argument("--service-name", help="Compose service name. Defaults to the project id.")
+    add_project.add_argument("--port", type=int, help="Optional port to expose for the new compose service.")
+    add_project.add_argument(
+        "--no-compose",
+        action="store_true",
+        help="Skip compose service scaffolding even if the runtime provides a template.",
+    )
+    add_project.add_argument(
+        "--use-existing-dir",
+        action="store_true",
+        help="Allow registering an existing non-empty directory instead of requiring a fresh placeholder.",
+    )
+    add_project.add_argument(
+        "--target-root",
+        action="append",
+        help="Override target roots. Repeat to define multiple roots.",
+    )
+    add_project.add_argument(
+        "--default-target",
+        action="append",
+        help="Override default target patterns. Repeat to define multiple patterns.",
+    )
+    add_project.add_argument(
+        "--test-runner",
+        choices=["none", "php", "pnpm", "pytest"],
+        help="Override the test runner used by `flow slice verify`.",
+    )
+    add_project.add_argument("--test-hint", help="Override the default `[@test]` hint for this project.")
+    add_project.set_defaults(func=command_add_project)
 
     spec = subparsers.add_parser("spec", help="Manage canonical specs.")
     spec_subparsers = spec.add_subparsers(dest="spec_command", required=True)
