@@ -1,0 +1,39 @@
+{
+  "release": {
+    "default_provider": "local-hooks",
+    "providers": {
+      "local-hooks": {
+        "enabled": true,
+        "entrypoint": "scripts/providers/release/local_hooks.sh",
+        "requires": []
+      },
+      "github-actions": {
+        "enabled": false,
+        "entrypoint": "scripts/providers/release/github_actions.sh",
+        "requires": [
+          "gh"
+        ],
+        "env": {
+          "FLOW_GITHUB_RELEASE_WORKFLOW": "release-promote.yml"
+        }
+      }
+    }
+  },
+  "infra": {
+    "default_provider": "local-hooks",
+    "providers": {
+      "local-hooks": {
+        "enabled": true,
+        "entrypoint": "scripts/providers/infra/local_hooks.sh",
+        "requires": []
+      },
+      "terraform-cli": {
+        "enabled": false,
+        "entrypoint": "scripts/providers/infra/terraform_cli.sh",
+        "requires": [
+          "terraform"
+        ]
+      }
+    }
+  }
+}

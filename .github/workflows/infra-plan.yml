@@ -11,6 +11,11 @@ on:
         description: Target environment
         required: true
         type: string
+      provider:
+        description: Optional infra provider id
+        required: false
+        default: local-hooks
+        type: string
 
 jobs:
   infra-plan:
@@ -27,7 +32,7 @@ jobs:
           python-version: "3.11"
 
       - name: Create infra plan
-        run: python3 ./flow infra plan "${{ inputs.spec }}" --env "${{ inputs.environment }}"
+        run: python3 ./flow infra plan "${{ inputs.spec }}" --env "${{ inputs.environment }}" --provider "${{ inputs.provider }}"
 
       - name: Upload infra reports
         uses: actions/upload-artifact@v4

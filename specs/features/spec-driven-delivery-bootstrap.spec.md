@@ -59,3 +59,29 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - `python3 ./flow infra plan spec-driven-delivery-bootstrap --env preview` genera un plan registrable
 - `python3 ./flow infra apply spec-driven-delivery-bootstrap --env preview` ejecuta el hook por defecto y deja evidencia
 - `backend` y `frontend` exponen CI mínimo reproducible aunque todavía sean placeholders
+
+## Contratos derivados
+
+```json contract
+{
+  "name": "Release Manifest Envelope",
+  "type": "json-schema",
+  "repo": "workspace-root",
+  "match": [
+    "flow"
+  ],
+  "contains": [
+    "def command_release_cut",
+    "RELEASE_MANIFEST_ROOT"
+  ],
+  "schema": {
+    "type": "object",
+    "required": [
+      "version",
+      "generated_at",
+      "root_sha",
+      "repos"
+    ]
+  }
+}
+```

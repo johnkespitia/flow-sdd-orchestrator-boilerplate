@@ -1,0 +1,29 @@
+{
+  "target_roots": [
+    ".github",
+    "AGENTS.md",
+    "README.md",
+    "src",
+    "tests"
+  ],
+  "default_targets": [
+    "../../{path}/src/**",
+    "../../{path}/tests/**"
+  ],
+  "test_runner": "none",
+  "test_hint": null,
+  "test_required_roots": [
+    "src",
+    "tests"
+  ],
+  "placeholder_dirs": [
+    "src",
+    "tests"
+  ],
+  "placeholder_files": {},
+  "agent_skill_refs": [
+    "workspace/spec-driven-workspace"
+  ],
+  "compose": null,
+  "notes": "Runtime base agnóstico para repos sin scaffolding de lenguaje."
+}

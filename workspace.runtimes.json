@@ -1,0 +1,16 @@
+{
+  "runtimes": {
+    "generic": {
+      "enabled": true,
+      "source": "runtimes/generic.runtime.json"
+    },
+    "php": {
+      "enabled": true,
+      "source": "runtimes/php.runtime.json"
+    },
+    "pnpm": {
+      "enabled": true,
+      "source": "runtimes/pnpm.runtime.json"
+    }
+  }
+}

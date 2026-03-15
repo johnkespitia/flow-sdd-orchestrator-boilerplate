@@ -102,6 +102,18 @@ def build_repo_config(repo_id: str, path: str, kind: str, source_repo: dict[str,
     if kind == "root":
         if "workspace.config.json" not in target_roots:
             target_roots.append("workspace.config.json")
+        if "workspace.providers.json" not in target_roots:
+            target_roots.append("workspace.providers.json")
+        if "workspace.runtimes.json" not in target_roots:
+            target_roots.append("workspace.runtimes.json")
+        if "workspace.secrets.json" not in target_roots:
+            target_roots.append("workspace.secrets.json")
+        if "workspace.skills.json" not in target_roots:
+            target_roots.append("workspace.skills.json")
+        if "flowctl" not in target_roots:
+            target_roots.append("flowctl")
+        if "runtimes" not in target_roots:
+            target_roots.append("runtimes")
         if "scripts" not in target_roots:
             target_roots.append("scripts")
 
@@ -380,7 +392,7 @@ def rewrite_project_texts(
     if len(source_impl) >= 2:
         replacements[source_impl[1]] = frontend_repo
 
-    for relative_root in ["README.md", "templates", "specs", "docs", ".tessl", ".github", "scripts", "Makefile"]:
+    for relative_root in ["README.md", "templates", "specs", "docs", ".tessl", ".github", "scripts", "flowctl", "runtimes", "Makefile"]:
         target = destination / relative_root
         if target.is_file():
             rewrite_text_file(target, replacements)

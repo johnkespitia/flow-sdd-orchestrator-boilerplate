@@ -2,12 +2,15 @@ FLOW = python3 ./flow
 
 # ── Init ─────────────────────────────────────────────────────────────
 
-.PHONY: init submodules
+.PHONY: init submodules hooks-install
 
-init: submodules up install ## Bootstrap completo: submódulos + servicios + dependencias
+init: submodules hooks-install up install ## Bootstrap completo: submódulos + hooks + servicios + dependencias
 
 submodules:
 	git submodule update --init --recursive
+
+hooks-install:
+	git config core.hooksPath scripts/git-hooks
 
 # ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -86,7 +89,7 @@ nuke: ## Borra contenedores, volúmenes e imágenes del proyecto
 # ── Help ─────────────────────────────────────────────────────────────
 
 .PHONY: help
-.PHONY: flow flow-doctor flow-status stack tessl bmad skills ci release infra
+.PHONY: flow flow-doctor flow-status stack tessl bmad skills providers submodule-doctor submodule-sync secrets drift ci release infra
 
 flow:
 	$(FLOW) $(ARGS)
@@ -109,6 +112,21 @@ bmad:
 skills:
 	$(FLOW) skills $(ARGS)
 
+providers:
+	$(FLOW) providers $(ARGS)
+
+submodule-doctor:
+	$(FLOW) submodule doctor $(ARGS)
+
+submodule-sync:
+	$(FLOW) submodule sync $(ARGS)
+
+secrets:
+	$(FLOW) secrets $(ARGS)
+
+drift:
+	$(FLOW) drift $(ARGS)
+
 ci:
 	$(FLOW) ci $(ARGS)
 
@@ -124,8 +142,9 @@ help:
 	@echo "  ─────────────────────────────────────────"
 	@echo ""
 	@echo "  Init:"
-	@echo "    make init            Bootstrap completo (submódulos + up + install)"
+	@echo "    make init            Bootstrap completo (submódulos + hooks + up + install)"
 	@echo "    make submodules      Inicializa/actualiza submódulos git"
+	@echo "    make hooks-install   Configura hooks versionados del workspace"
 	@echo ""
 	@echo "  Lifecycle:"
 	@echo "    make up              Levanta todos los servicios"
@@ -160,6 +179,11 @@ help:
 	@echo "    make tessl ARGS='whoami'        Ejecuta Tessl via flow"
 	@echo "    make bmad ARGS='--help'         Ejecuta BMAD via flow"
 	@echo "    make skills ARGS='doctor'       Gestiona skills versionadas del workspace"
+	@echo "    make providers ARGS='doctor'    Gestiona providers de release e infra"
+	@echo "    make submodule-doctor           Valida estado/punteros de submódulos"
+	@echo "    make submodule-sync             Sincroniza submódulos y stagea gitlinks"
+	@echo "    make secrets ARGS='doctor'      Gestiona secrets por adapters agnósticos"
+	@echo "    make drift ARGS='check --all'   Ejecuta drift detection estático"
 	@echo "    make ci ARGS='spec --all'       Ejecuta CI spec-driven"
 	@echo "    make release ARGS='status --version v1' Gestiona manifests/promotions"
 	@echo "    make infra ARGS='status feature' Gestiona plan/apply de infraestructura"

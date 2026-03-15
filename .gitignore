@@ -1,6 +1,10 @@
 .DS_Store
 .worktrees/
 _bmad-output/
+.secrets/
+.devcontainer/.env.generated
+backend/.env.local.generated
+frontend/.env.local.generated
 .flow/state/*
 .flow/plans/*
 .flow/reports/*
@@ -11,5 +15,7 @@ _bmad-output/
 !.flow/runs/.gitignore
 releases/manifests/*
 releases/promotions/*
+contracts/generated/*
 !releases/manifests/.gitkeep
 !releases/promotions/.gitkeep
+!contracts/generated/.gitkeep

@@ -15,6 +15,11 @@ on:
           - preview
           - staging
           - production
+      provider:
+        description: Optional infra provider id
+        required: false
+        default: local-hooks
+        type: string
       approver:
         description: Required for staging and production
         required: false
@@ -39,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          args=(infra apply "${{ inputs.spec }}" --env "${{ inputs.environment }}")
+          args=(infra apply "${{ inputs.spec }}" --env "${{ inputs.environment }}" --provider "${{ inputs.provider }}")
           if [ -n "${{ inputs.approver }}" ]; then
             args+=(--approver "${{ inputs.approver }}")
           fi

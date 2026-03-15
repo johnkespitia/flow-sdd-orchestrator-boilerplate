@@ -23,27 +23,32 @@ jobs:
       - name: Flow doctor
         run: python3 ./flow doctor
 
+      - name: Repo/Submodule doctor
+        run: python3 ./flow submodule doctor --json
+
+      - name: Secrets doctor
+        run: python3 ./flow secrets doctor --json
+
       - name: Spec-driven CI
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             python3 ./flow ci spec --changed --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.sha }}"
+            python3 ./flow drift check --changed --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.sha }}" --json
           else
             python3 ./flow ci spec --all
+            python3 ./flow drift check --all --json
           fi
 
-      - name: Repo CI backend
-        run: python3 ./flow ci repo backend
-
-      - name: Repo CI frontend
-        run: python3 ./flow ci repo frontend
+      - name: Repo CI
+        run: python3 ./flow ci repo --all
 
       - name: Upload CI reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: flow-ci-reports
-          path: .flow/reports/ci/
+          path: .flow/reports/
 
   integration-smoke:
     runs-on: ubuntu-latest
@@ -74,4 +79,4 @@ jobs:
         if: always()
         with:
           name: flow-integration-reports
-          path: .flow/reports/ci/
+          path: .flow/reports/

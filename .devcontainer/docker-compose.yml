@@ -10,6 +10,7 @@ services:
     volumes:
       - ..:/workspace:cached
       - /var/run/docker.sock:/var/run/docker.sock
+      - workspace-pnpm-store:/home/vscode/.local/share/pnpm/store
     working_dir: /workspace
     command: sleep infinity
     networks:
@@ -22,6 +23,7 @@ services:
       dockerfile: backend.Dockerfile
     volumes:
       - ../backend:/app:cached
+      - backend-vendor:/app/vendor
     working_dir: /app
     command: sleep infinity
     ports:
@@ -48,6 +50,8 @@ services:
       dockerfile: frontend.Dockerfile
     volumes:
       - ../frontend:/app:cached
+      - frontend-node-modules:/app/node_modules
+      - frontend-pnpm-store:/home/node/.local/share/pnpm/store
     working_dir: /app
     command: sleep infinity
     ports:
@@ -78,6 +82,10 @@ services:
 
 volumes:
   workspace-mysql-data:
+  backend-vendor:
+  frontend-node-modules:
+  frontend-pnpm-store:
+  workspace-pnpm-store:
 
 networks:
   workspace:

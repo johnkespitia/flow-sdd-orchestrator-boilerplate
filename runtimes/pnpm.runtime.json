@@ -1,0 +1,59 @@
+{
+  "target_roots": [
+    ".github",
+    "AGENTS.md",
+    "package.json",
+    "pnpm-lock.yaml",
+    "public",
+    "src",
+    "tests",
+    "tsconfig.json",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ],
+  "default_targets": [
+    "../../{path}/src/**",
+    "../../{path}/public/**",
+    "../../{path}/tests/**"
+  ],
+  "test_runner": "pnpm",
+  "test_hint": "../../{path}/tests/...",
+  "test_required_roots": [
+    "package.json",
+    "pnpm-lock.yaml",
+    "public",
+    "src",
+    "tests",
+    "tsconfig.json",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ],
+  "placeholder_dirs": [
+    "public",
+    "src",
+    "tests"
+  ],
+  "placeholder_files": {
+    "package.json": {
+      "name": "{name}",
+      "private": true,
+      "version": "0.0.0",
+      "scripts": {
+        "test": "echo \"add tests for {name}\""
+      }
+    }
+  },
+  "agent_skill_refs": [
+    "workspace/spec-driven-workspace"
+  ],
+  "compose": {
+    "dockerfile": "frontend.Dockerfile",
+    "mount_target": "/app",
+    "working_dir": "/app",
+    "command": "sleep infinity",
+    "networks": [
+      "{network_name}"
+    ]
+  },
+  "notes": "Runtime para apps Node/pnpm con contrato de src/public/tests."
+}

@@ -13,9 +13,13 @@ No es un producto específico. Es una base reusable para crear workspaces agenti
 
 ## Qué trae
 
-- `flow`: CLI del workspace para `stack`, `tessl`, `skills`, `bmad`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `status`
+- `flow`: CLI del workspace para `stack`, `tessl`, `skills`, `bmad`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `submodule`, `secrets`, `drift`, `status`
 - `workspace.config.json`: routing configurable de repos, targets y test runners
-- `workspace.skills.json`: manifest versionado de skills y tiles del workspace
+- `flowctl/`: módulos internos del control plane para el refactor incremental
+- `workspace.skills.json`: capacidades del agente, separadas del scaffolding
+- `workspace.runtimes.json`: catálogo versionado de runtime packs
+- `workspace.providers.json`: manifest versionado de providers de release e infraestructura
+- `workspace.secrets.json`: manifest versionado de providers de secrets y archivos generados
 - `.tessl/**`: tile local de SDD centrado en root
 - `_bmad/`: instalación versionada del runtime BMAD del proyecto
 - `.flow/**`: estado operativo local del SDLC
@@ -84,14 +88,21 @@ Nota:
   `python3 ./flow doctor` funcionen tambien desde dentro del `workspace`
 - si cambias `.devcontainer/**`, usa **Rebuild Container**; un `docker compose up` directo no aplica
   toda la capa extra que inyecta Cursor/VS Code
+- en macOS, activa **VirtioFS**; el boilerplate ya usa volúmenes nombrados para `vendor/`,
+  `node_modules/` y el store de `pnpm`
 
 ```bash
 python3 ./flow doctor
 python3 ./flow stack doctor
 python3 ./flow tessl -- --help
 python3 ./flow skills doctor
+python3 ./flow secrets doctor
+python3 ./flow providers doctor
 python3 ./flow bmad -- status
+python3 ./flow submodule doctor --json
 python3 ./flow ci spec --all
+python3 ./flow drift check --all --json
+python3 ./flow spec generate-contracts spec-driven-delivery-bootstrap --json
 python3 ./flow release --help
 python3 ./flow infra --help
 ```
@@ -112,6 +123,32 @@ python3 ./flow skills doctor
 python3 ./flow skills list
 python3 ./flow skills sync --dry-run
 python3 ./flow skills add team-review --provider skills-sh --source your-org/agent-skills --arg=--copy
+```
+
+Los runtimes de `flow add-project` se resuelven desde `workspace.runtimes.json` y `runtimes/*.runtime.json`,
+dejando `workspace.skills.json` reservado para capacidades del agente:
+
+```bash
+python3 ./flow add-project mobile --runtime pnpm --port 4173
+```
+
+Los providers de CD e infraestructura se gobiernan igual:
+
+```bash
+python3 ./flow providers doctor
+python3 ./flow providers list
+python3 ./flow release promote --version 2026.03.14-1 --env preview --provider local-hooks
+python3 ./flow infra plan spec-driven-delivery-bootstrap --env preview --provider local-hooks
+```
+
+Los secrets y guardrails de repos también entran por el control plane:
+
+```bash
+python3 ./flow secrets list
+python3 ./flow secrets sync --dry-run
+python3 ./flow submodule doctor --json
+python3 ./flow drift check --all --json
+make hooks-install
 ```
 
 ## Modelo operativo
@@ -176,6 +213,7 @@ make help
 ## Documentación
 
 - [docs/spec-driven-orchestration.md](docs/spec-driven-orchestration.md)
+- [docs/flow-json-contract.md](docs/flow-json-contract.md)
 - [docs/spec-driven-sdlc-map.md](docs/spec-driven-sdlc-map.md)
 - [docs/sdd-implementation-guide.md](docs/sdd-implementation-guide.md)
 - [specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md](specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md)

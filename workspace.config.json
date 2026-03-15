@@ -8,11 +8,22 @@
       "path": ".",
       "compose_service": "workspace",
       "kind": "root",
+      "repo_strategy": "plain",
       "slice_prefix": "root",
       "default_targets": [
         "../../.devcontainer/**",
         "../../Makefile",
         "../../README.md"
+      ],
+      "contract_roots": [
+        ".devcontainer",
+        ".github",
+        "docs",
+        "flow",
+        "flowctl",
+        "runtimes",
+        "scripts",
+        "specs"
       ],
       "test_required_roots": [],
       "target_roots": [
@@ -28,12 +39,17 @@
         "_bmad",
         "docs",
         "flow",
+        "flowctl",
         "releases",
+        "runtimes",
         "scripts",
         "specs",
         "templates",
         "tessl.json",
         "workspace.config.json",
+        "workspace.providers.json",
+        "workspace.runtimes.json",
+        "workspace.secrets.json",
         "workspace.skills.json"
       ],
       "test_runner": "none"
@@ -42,11 +58,16 @@
       "path": "backend",
       "compose_service": "backend",
       "kind": "implementation",
+      "repo_strategy": "plain",
       "slice_prefix": "backend",
       "default_targets": [
         "../../backend/app/**",
         "../../backend/routes/**",
         "../../backend/tests/**"
+      ],
+      "contract_roots": [
+        "app",
+        "routes"
       ],
       "test_required_roots": [
         "app",
@@ -81,11 +102,16 @@
       "path": "frontend",
       "compose_service": "frontend",
       "kind": "implementation",
+      "repo_strategy": "plain",
       "slice_prefix": "frontend",
       "default_targets": [
         "../../frontend/src/**",
         "../../frontend/public/**",
         "../../frontend/tests/**"
+      ],
+      "contract_roots": [
+        "src",
+        "public"
       ],
       "test_required_roots": [
         "package.json",
