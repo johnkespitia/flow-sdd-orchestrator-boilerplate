@@ -21,6 +21,7 @@ No es un producto específico. Es una base reusable para crear workspaces agenti
 - `workspace.capabilities.json`: catálogo versionado de capabilities como GraphQL
 - `workspace.stack.json`: manifiesto declarativo del stack inferido o planeado
 - `workspace.providers.json`: manifest versionado de providers de release e infraestructura
+- `gateway/`: ingress FastAPI del SoftOS para Jira, Slack y GitHub
 - `workspace.secrets.json`: manifest versionado de providers de secrets y archivos generados
 - `.tessl/**`: tile local de SDD centrado en root
 - `_bmad/`: instalación versionada del runtime BMAD del proyecto
@@ -136,6 +137,35 @@ Ese flujo:
 - agrega servicios standalone como `postgres` o `mongo` sin crear repos falsos
 - crea proyectos reales de implementacion con runtime packs como `go-api`
 - genera foundation specs derivadas desde `workspace.capabilities.json`, por ejemplo GraphQL
+
+## Gateway de Integraciones
+
+El boilerplate ya incluye `gateway/` como ingress module del SoftOS. Reutiliza `python3 ./flow`
+como kernel y expone adapters inbound para Jira, Slack y GitHub sin duplicar la logica del SDLC.
+
+Superficie expuesta:
+
+- `GET /healthz`
+- `POST /v1/intents`
+- `GET /v1/tasks/{task_id}`
+- `POST /webhooks/slack/commands`
+- `POST /webhooks/github`
+- `POST /webhooks/jira`
+
+Notas:
+
+- el gateway es parte del core del boilerplate, pero no reemplaza `flow`
+- la cola es secuencial y persiste en `gateway/data/tasks.db`
+- el feedback usa `workspace.providers.json`
+- si Slack, GitHub o Jira no tienen credenciales reales, el feedback cae en `local-log`
+
+Arranque basico:
+
+```bash
+python3 ./flow secrets sync
+python3 ./flow stack up
+docker compose exec gateway curl -fsSL http://127.0.0.1:8010/healthz
+```
 
 Las skills y tiles del workspace también se gobiernan desde el control plane:
 

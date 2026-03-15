@@ -35,5 +35,36 @@
         ]
       }
     }
+  },
+  "feedback": {
+    "default_provider": "local-log",
+    "providers": {
+      "local-log": {
+        "enabled": true,
+        "entrypoint": "scripts/providers/feedback/local_log.sh",
+        "requires": []
+      },
+      "slack-webhook": {
+        "enabled": false,
+        "entrypoint": "scripts/providers/feedback/slack_webhook.sh",
+        "requires": [
+          "curl"
+        ]
+      },
+      "github-comment": {
+        "enabled": false,
+        "entrypoint": "scripts/providers/feedback/github_comment.sh",
+        "requires": [
+          "curl"
+        ]
+      },
+      "jira-comment": {
+        "enabled": false,
+        "entrypoint": "scripts/providers/feedback/jira_comment.sh",
+        "requires": [
+          "curl"
+        ]
+      }
+    }
   }
 }

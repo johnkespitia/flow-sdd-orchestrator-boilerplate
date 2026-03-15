@@ -21,6 +21,7 @@
         "docs",
         "flow",
         "flowctl",
+        "gateway",
         "runtimes",
         "scripts",
         "specs"
@@ -40,6 +41,7 @@
         "docs",
         "flow",
         "flowctl",
+        "gateway",
         "capabilities",
         "releases",
         "runtimes",

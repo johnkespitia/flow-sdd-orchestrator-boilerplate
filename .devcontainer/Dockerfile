@@ -24,6 +24,7 @@ RUN apt-get update \
         php8.2-mysql \
         php8.2-bcmath \
         golang-go \
+        python3-pip \
         unzip \
     && rm -rf /var/lib/apt/lists/*
 
@@ -45,6 +46,9 @@ RUN npm install -g @tessl/cli
 
 # ── BMAD CLI ─────────────────────────────────────────────────────────
 RUN npm install -g bmad-method
+
+# ── Gateway deps ─────────────────────────────────────────────────────
+RUN python3 -m pip install --no-cache-dir fastapi uvicorn httpx python-multipart
 
 COPY workspace-entrypoint.sh /usr/local/share/flow/workspace-entrypoint.sh
 RUN chmod +x /usr/local/share/flow/workspace-entrypoint.sh
