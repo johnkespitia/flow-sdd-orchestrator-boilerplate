@@ -84,8 +84,10 @@ def build_repo_config(repo_id: str, path: str, kind: str, source_repo: dict[str,
     repo_config["kind"] = kind
     if kind == "root":
         repo_config["slice_prefix"] = repo_config.get("slice_prefix", "root")
+        repo_config["compose_service"] = str(repo_config.get("compose_service", "workspace"))
     else:
         repo_config["slice_prefix"] = path.replace("_", "-")
+        repo_config["compose_service"] = path
 
     default_targets = list(repo_config.get("default_targets", []))
     target_roots = list(repo_config.get("target_roots", []))
@@ -144,7 +146,140 @@ def rewrite_workspace_config(
     )
 
 
-def create_placeholder_repo(destination: Path, repo_name: str, root_repo: str) -> None:
+def placeholder_ci_workflow(repo_name: str, test_runner: str) -> tuple[str, str] | None:
+    workflow_id = repo_name.replace("_", "-")
+    display_name = repo_name.replace("-", " ").replace("_", " ").title()
+
+    if test_runner == "php":
+        content = "\n".join(
+            [
+                f"name: {display_name} CI",
+                "",
+                "on:",
+                "  pull_request:",
+                "  push:",
+                "    branches:",
+                "      - main",
+                "",
+                "permissions:",
+                "  contents: read",
+                "",
+                "jobs:",
+                "  repo-ci:",
+                "    runs-on: ubuntu-latest",
+                "    steps:",
+                "      - name: Checkout",
+                "        uses: actions/checkout@v4",
+                "",
+                "      - name: Setup PHP",
+                "        if: ${{ hashFiles('composer.json') != '' }}",
+                "        uses: shivammathur/setup-php@v2",
+                "        with:",
+                "          php-version: \"8.2\"",
+                "          tools: composer",
+                "          coverage: none",
+                "",
+                "      - name: Install dependencies",
+                "        if: ${{ hashFiles('composer.json') != '' }}",
+                "        run: composer install --no-interaction --prefer-dist --no-progress",
+                "",
+                "      - name: Repo checks",
+                "        shell: bash",
+                "        run: |",
+                "          set -euo pipefail",
+                "",
+                "          if [ ! -f composer.json ]; then",
+                "            test -f AGENTS.md",
+                f"            echo \"Placeholder repo {repo_name}: no composer.json yet.\"",
+                "            exit 0",
+                "          fi",
+                "",
+                "          if [ -f artisan ]; then",
+                "            php artisan test",
+                "            exit 0",
+                "          fi",
+                "",
+                "          if [ -x vendor/bin/phpunit ]; then",
+                "            vendor/bin/phpunit",
+                "            exit 0",
+                "          fi",
+                "",
+                "          if [ -f vendor/bin/phpunit ]; then",
+                "            php vendor/bin/phpunit",
+                "            exit 0",
+                "          fi",
+                "",
+                "          echo \"No Laravel or PHPUnit runner detected; CI completed without a test runner.\"",
+                "",
+            ]
+        )
+        return f"{workflow_id}-ci.yml", content
+
+    if test_runner == "pnpm":
+        content = "\n".join(
+            [
+                f"name: {display_name} CI",
+                "",
+                "on:",
+                "  pull_request:",
+                "  push:",
+                "    branches:",
+                "      - main",
+                "",
+                "permissions:",
+                "  contents: read",
+                "",
+                "jobs:",
+                "  repo-ci:",
+                "    runs-on: ubuntu-latest",
+                "    steps:",
+                "      - name: Checkout",
+                "        uses: actions/checkout@v4",
+                "",
+                "      - name: Setup Node",
+                "        uses: actions/setup-node@v4",
+                "        with:",
+                "          node-version: \"20\"",
+                "",
+                "      - name: Setup pnpm",
+                "        uses: pnpm/action-setup@v4",
+                "        with:",
+                "          version: \"9\"",
+                "",
+                "      - name: Install dependencies",
+                "        if: ${{ hashFiles('package.json') != '' }}",
+                "        shell: bash",
+                "        run: |",
+                "          set -euo pipefail",
+                "          if [ -f pnpm-lock.yaml ]; then",
+                "            pnpm install --frozen-lockfile",
+                "          else",
+                "            pnpm install --no-frozen-lockfile",
+                "          fi",
+                "",
+                "      - name: Repo checks",
+                "        shell: bash",
+                "        run: |",
+                "          set -euo pipefail",
+                "",
+                "          if [ ! -f package.json ]; then",
+                "            test -f AGENTS.md",
+                f"            echo \"Placeholder repo {repo_name}: no package.json yet.\"",
+                "            exit 0",
+                "          fi",
+                "",
+                "          pnpm lint --if-present",
+                "          pnpm test --if-present",
+                "          pnpm build --if-present",
+                "",
+            ]
+        )
+        return f"{workflow_id}-ci.yml", content
+
+    return None
+
+
+def create_placeholder_repo(destination: Path, repo_name: str, root_repo: str, repo_config: dict[str, object]) -> None:
     repo_dir = destination / repo_name
     repo_dir.mkdir(parents=True, exist_ok=True)
     agents = "\n".join(
@@ -189,6 +324,13 @@ def create_placeholder_repo(destination: Path, repo_name: str, root_repo: str) -
         ),
         encoding="utf-8",
     )
+
+    workflow = placeholder_ci_workflow(repo_name, str(repo_config.get("test_runner", "none")))
+    if workflow is not None:
+        workflow_name, workflow_content = workflow
+        workflow_path = repo_dir / ".github" / "workflows" / workflow_name
+        workflow_path.parent.mkdir(parents=True, exist_ok=True)
+        workflow_path.write_text(workflow_content, encoding="utf-8")
 
 
 def patch_devcontainer(destination: Path, project_name: str, backend_repo: str, frontend_repo: str) -> None:
@@ -238,7 +380,7 @@ def rewrite_project_texts(
     if len(source_impl) >= 2:
         replacements[source_impl[1]] = frontend_repo
 
-    for relative_root in ["README.md", "templates", "specs", "docs", ".tessl", "Makefile"]:
+    for relative_root in ["README.md", "templates", "specs", "docs", ".tessl", ".github", "scripts", "Makefile"]:
         target = destination / relative_root
         if target.is_file():
             rewrite_text_file(target, replacements)
@@ -302,8 +444,19 @@ def main() -> int:
         backend_repo=args.backend_repo,
         frontend_repo=args.frontend_repo,
     )
-    create_placeholder_repo(destination, args.backend_repo, args.root_repo)
-    create_placeholder_repo(destination, args.frontend_repo, args.root_repo)
+    destination_config = load_config(destination / "workspace.config.json")
+    create_placeholder_repo(
+        destination,
+        args.backend_repo,
+        args.root_repo,
+        destination_config["repos"][args.backend_repo],
+    )
+    create_placeholder_repo(
+        destination,
+        args.frontend_repo,
+        args.root_repo,
+        destination_config["repos"][args.frontend_repo],
+    )
     patch_devcontainer(destination, args.project_name, args.backend_repo, args.frontend_repo)
     rewrite_project_texts(
         destination,

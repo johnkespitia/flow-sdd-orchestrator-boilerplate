@@ -40,6 +40,10 @@ python3 ./flow spec approve identity-bootstrap
 python3 ./flow plan identity-bootstrap
 python3 ./flow slice start identity-bootstrap backend-main
 python3 ./flow slice verify identity-bootstrap backend-main
+python3 ./flow ci spec --all
+python3 ./flow ci integration --profile smoke
+python3 ./flow release status --version 2026.03.14-1
+python3 ./flow infra status identity-bootstrap
 python3 ./flow status
 ```
 
@@ -59,7 +63,8 @@ python3 ./flow bmad -- install --tools none --yes
 4. generar plan por repo o slice
 5. arrancar slice en worktree
 6. verificar slice con checks estructurales reales
-7. mergear cuando pase review y QA
+7. correr CI del root y del repo afectado
+8. cortar release y promover desde el root cuando corresponda
 
 ## Stack y adapters
 

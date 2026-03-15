@@ -6,6 +6,7 @@
   "repos": {
     "workspace-root": {
       "path": ".",
+      "compose_service": "workspace",
       "kind": "root",
       "slice_prefix": "root",
       "default_targets": [
@@ -13,7 +14,9 @@
         "../../Makefile",
         "../../README.md"
       ],
+      "test_required_roots": [],
       "target_roots": [
+        ".github",
         ".devcontainer",
         ".flow",
         ".gitignore",
@@ -25,6 +28,7 @@
         "_bmad",
         "docs",
         "flow",
+        "releases",
         "scripts",
         "specs",
         "templates",
@@ -35,6 +39,7 @@
     },
     "backend": {
       "path": "backend",
+      "compose_service": "backend",
       "kind": "implementation",
       "slice_prefix": "backend",
       "default_targets": [
@@ -42,7 +47,20 @@
         "../../backend/routes/**",
         "../../backend/tests/**"
       ],
+      "test_required_roots": [
+        "app",
+        "artisan",
+        "bootstrap",
+        "composer.json",
+        "config",
+        "database",
+        "public",
+        "resources",
+        "routes",
+        "tests"
+      ],
       "target_roots": [
+        ".github",
         "AGENTS.md",
         "app",
         "artisan",
@@ -60,6 +78,7 @@
     },
     "frontend": {
       "path": "frontend",
+      "compose_service": "frontend",
       "kind": "implementation",
       "slice_prefix": "frontend",
       "default_targets": [
@@ -67,7 +86,18 @@
         "../../frontend/public/**",
         "../../frontend/tests/**"
       ],
+      "test_required_roots": [
+        "package.json",
+        "pnpm-lock.yaml",
+        "public",
+        "src",
+        "tests",
+        "tsconfig.json",
+        "vite.config.ts",
+        "vitest.config.ts"
+      ],
       "target_roots": [
+        ".github",
         "AGENTS.md",
         "package.json",
         "pnpm-lock.yaml",

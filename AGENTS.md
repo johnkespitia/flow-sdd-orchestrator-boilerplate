@@ -6,8 +6,8 @@ This is a multi-project workspace. Use the nearest `AGENTS.md` plus parent `AGEN
 
 ## Project routing
 
-- Use `plg-backend/AGENTS.md` for backend specs, backend architecture, Tessl workflow, or files under `plg-backend/**`.
-- Use `plg-frontend/AGENTS.md` for frontend specs, design-system work, routing migration, or files under `plg-frontend/**`.
+- Use `backend/AGENTS.md` for backend specs, backend architecture, Tessl workflow, or files under `backend/**`.
+- Use `frontend/AGENTS.md` for frontend specs, design-system work, routing migration, or files under `frontend/**`.
 - Use root `specs/**` as the canonical source of truth for system-level features, cross-repo behavior, and orchestration rules.
 
 ## Default repo behavior

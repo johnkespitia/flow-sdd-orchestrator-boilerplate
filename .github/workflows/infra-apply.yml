@@ -1,0 +1,53 @@
+name: Infra Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: Spec slug or path with an existing infra plan
+        required: true
+        type: string
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - preview
+          - staging
+          - production
+      approver:
+        description: Required for staging and production
+        required: false
+        type: string
+
+jobs:
+  infra-apply:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Apply infra plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(infra apply "${{ inputs.spec }}" --env "${{ inputs.environment }}")
+          if [ -n "${{ inputs.approver }}" ]; then
+            args+=(--approver "${{ inputs.approver }}")
+          fi
+          python3 ./flow "${args[@]}"
+
+      - name: Upload infra artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: infra-apply-${{ inputs.spec }}-${{ inputs.environment }}
+          path: .flow/reports/infra/

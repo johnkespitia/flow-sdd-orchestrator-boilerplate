@@ -1,0 +1,37 @@
+name: Infra Plan
+
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: Spec slug or path with infra_targets
+        required: true
+        type: string
+      environment:
+        description: Target environment
+        required: true
+        type: string
+
+jobs:
+  infra-plan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create infra plan
+        run: python3 ./flow infra plan "${{ inputs.spec }}" --env "${{ inputs.environment }}"
+
+      - name: Upload infra reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: infra-plan-${{ inputs.spec }}-${{ inputs.environment }}
+          path: .flow/reports/infra/

@@ -9,3 +9,7 @@ _bmad-output/
 !.flow/plans/.gitkeep
 !.flow/reports/.gitkeep
 !.flow/runs/.gitignore
+releases/manifests/*
+releases/promotions/*
+!releases/manifests/.gitkeep
+!releases/promotions/.gitkeep

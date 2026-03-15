@@ -9,11 +9,11 @@ Template repo para levantar un workspace de `Spec As Source` con:
 - devcontainer reproducible para el equipo
 - repos de implementación separados del root del workspace
 
-No es un producto PLG. Es una base reusable para crear workspaces agentic y spec-driven.
+No es un producto específico. Es una base reusable para crear workspaces agentic y spec-driven.
 
 ## Qué trae
 
-- `flow`: CLI del workspace para `stack`, `tessl`, `bmad`, `add-project`, `spec`, `plan`, `slice`, `status`
+- `flow`: CLI del workspace para `stack`, `tessl`, `bmad`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `status`
 - `workspace.config.json`: routing configurable de repos, targets y test runners
 - `.tessl/**`: tile local de SDD centrado en root
 - `_bmad/`: instalación versionada del runtime BMAD del proyecto
@@ -89,6 +89,9 @@ python3 ./flow doctor
 python3 ./flow stack doctor
 python3 ./flow tessl -- --help
 python3 ./flow bmad -- status
+python3 ./flow ci spec --all
+python3 ./flow release --help
+python3 ./flow infra --help
 ```
 
 Si necesitas un tercer proyecto de implementación, puedes registrarlo desde el control plane:
@@ -128,6 +131,9 @@ python3 ./flow spec approve identity-bootstrap
 python3 ./flow plan identity-bootstrap
 python3 ./flow slice start identity-bootstrap backend-main
 python3 ./flow slice verify identity-bootstrap backend-main
+python3 ./flow ci spec --all
+python3 ./flow release status --version 2026.03.14-1
+python3 ./flow infra status spec-driven-delivery-bootstrap
 python3 ./flow status
 ```
 
@@ -150,13 +156,18 @@ python3 ./flow add-project mobile --runtime pnpm --port 4173
 python3 ./flow stack ps
 python3 ./flow tessl -- --help
 python3 ./flow bmad -- --help
+python3 ./flow ci spec --all
+python3 ./flow release cut --version 2026.03.14-1 --spec spec-driven-delivery-bootstrap
+python3 ./flow infra plan spec-driven-delivery-bootstrap --env preview
 make help
 ```
 
 ## Documentación
 
 - [docs/spec-driven-orchestration.md](docs/spec-driven-orchestration.md)
+- [docs/spec-driven-sdlc-map.md](docs/spec-driven-sdlc-map.md)
 - [docs/sdd-implementation-guide.md](docs/sdd-implementation-guide.md)
+- [specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md](specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md)
 - [specs/000-foundation/spec-as-source-operating-model.spec.md](specs/000-foundation/spec-as-source-operating-model.spec.md)
 - [specs/000-foundation/repo-routing-and-worktree-orchestration.spec.md](specs/000-foundation/repo-routing-and-worktree-orchestration.spec.md)
 

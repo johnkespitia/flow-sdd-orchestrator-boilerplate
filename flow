@@ -22,10 +22,15 @@ FLOW_ROOT = ROOT / ".flow"
 STATE_ROOT = FLOW_ROOT / "state"
 PLAN_ROOT = FLOW_ROOT / "plans"
 REPORT_ROOT = FLOW_ROOT / "reports"
+CI_REPORT_ROOT = REPORT_ROOT / "ci"
+INFRA_REPORT_ROOT = REPORT_ROOT / "infra"
 SPECS_ROOT = ROOT / "specs"
 FEATURE_SPECS = SPECS_ROOT / "features"
 DEVCONTAINER_COMPOSE_FILE = ROOT / ".devcontainer" / "docker-compose.yml"
 WORKSPACE_CONFIG_FILE = ROOT / "workspace.config.json"
+RELEASE_ROOT = ROOT / "releases"
+RELEASE_MANIFEST_ROOT = RELEASE_ROOT / "manifests"
+RELEASE_PROMOTION_ROOT = RELEASE_ROOT / "promotions"
 
 
 def env_first(*names: str, default: Optional[str] = None) -> Optional[str]:
@@ -88,6 +93,11 @@ TARGET_ROOTS = {
     for repo, config in REPO_CONFIG.items()
 }
 
+TEST_REQUIRED_ROOTS = {
+    repo: set(config.get("test_required_roots", config.get("target_roots", [])))
+    for repo, config in REPO_CONFIG.items()
+}
+
 REPO_PREFIXES = {
     repo: f"../../{config['path'].strip('/')}/"
     for repo, config in REPO_CONFIG.items()
@@ -102,16 +112,18 @@ TEST_HINTS = {
 
 RUNTIME_DEFAULTS = {
     "generic": {
-        "target_roots": ["AGENTS.md", "README.md", "src", "tests"],
+        "target_roots": [".github", "AGENTS.md", "README.md", "src", "tests"],
         "default_targets": ["../../{path}/src/**", "../../{path}/tests/**"],
         "test_runner": "none",
         "test_hint": None,
+        "test_required_roots": ["src", "tests"],
         "placeholder_dirs": ["src", "tests"],
         "placeholder_files": {},
         "compose_template": None,
     },
     "php": {
         "target_roots": [
+            ".github",
             "AGENTS.md",
             "app",
             "artisan",
@@ -131,6 +143,18 @@ RUNTIME_DEFAULTS = {
         ],
         "test_runner": "php",
         "test_hint": "../../{path}/tests/...",
+        "test_required_roots": [
+            "app",
+            "artisan",
+            "bootstrap",
+            "composer.json",
+            "config",
+            "database",
+            "public",
+            "resources",
+            "routes",
+            "tests",
+        ],
         "placeholder_dirs": ["app", "routes", "tests"],
         "placeholder_files": {
             "composer.json": {
@@ -145,6 +169,7 @@ RUNTIME_DEFAULTS = {
     },
     "pnpm": {
         "target_roots": [
+            ".github",
             "AGENTS.md",
             "package.json",
             "pnpm-lock.yaml",
@@ -162,6 +187,16 @@ RUNTIME_DEFAULTS = {
         ],
         "test_runner": "pnpm",
         "test_hint": "../../{path}/tests/...",
+        "test_required_roots": [
+            "package.json",
+            "pnpm-lock.yaml",
+            "public",
+            "src",
+            "tests",
+            "tsconfig.json",
+            "vite.config.ts",
+            "vitest.config.ts",
+        ],
         "placeholder_dirs": ["public", "src", "tests"],
         "placeholder_files": {
             "package.json": {
@@ -206,6 +241,29 @@ def implementation_repos() -> list[str]:
         for repo, config in REPO_CONFIG.items()
         if str(config.get("kind", "implementation")) != "root"
     ]
+
+
+def repo_compose_service(repo: str) -> str:
+    config = repo_config(repo)
+    explicit = str(config.get("compose_service", "")).strip()
+    if explicit:
+        return explicit
+    path = str(config.get("path", ".")).strip().strip("/")
+    if path and path != ".":
+        return Path(path).name
+    return repo
+
+
+def runtime_template_service(runtime: str) -> str:
+    for repo, config in REPO_CONFIG.items():
+        if str(config.get("test_runner", "")).strip() == runtime:
+            return repo_compose_service(repo)
+
+    if runtime == "php":
+        return "backend"
+    if runtime == "pnpm":
+        return "frontend"
+    raise SystemExit(f"No conozco el runtime `{runtime}`.")
 
 
 def repo_prefix_examples() -> str:
@@ -326,8 +384,8 @@ def extract_service_mount_target(block: str, default: str) -> str:
 
 def infer_runtime_service_settings(compose_text: str, runtime: str) -> dict[str, object]:
     if runtime == "php":
-        block = extract_service_block(compose_text, "backend")
-        settings = {
+        block = extract_service_block(compose_text, runtime_template_service("php"))
+        return {
             "dockerfile": extract_service_scalar(block, "dockerfile", "backend.Dockerfile"),
             "working_dir": extract_service_scalar(block, "working_dir", "/app"),
             "command": extract_service_scalar(block, "command", "sleep infinity"),
@@ -343,10 +401,9 @@ def infer_runtime_service_settings(compose_text: str, runtime: str) -> dict[str,
                 "DB_PASSWORD": extract_service_scalar(block, "DB_PASSWORD", "app"),
             },
         }
-        return settings
 
     if runtime == "pnpm":
-        block = extract_service_block(compose_text, "frontend")
+        block = extract_service_block(compose_text, runtime_template_service("pnpm"))
         return {
             "dockerfile": extract_service_scalar(block, "dockerfile", "frontend.Dockerfile"),
             "working_dir": extract_service_scalar(block, "working_dir", "/app"),
@@ -608,7 +665,12 @@ def require_dirs() -> None:
         STATE_ROOT,
         PLAN_ROOT,
         REPORT_ROOT,
+        CI_REPORT_ROOT,
+        INFRA_REPORT_ROOT,
         FLOW_ROOT / "runs",
+        RELEASE_ROOT,
+        RELEASE_MANIFEST_ROOT,
+        RELEASE_PROMOTION_ROOT,
         SPECS_ROOT / "000-foundation",
         SPECS_ROOT / "domains",
         FEATURE_SPECS,
@@ -709,6 +771,37 @@ def write_state(slug: str, payload: dict[str, object]) -> None:
     state_path(slug).write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
 
 
+def all_spec_paths() -> list[Path]:
+    return sorted(SPECS_ROOT.rglob("*.spec.md"))
+
+
+def git_diff_name_only(repo_path: Path, base: Optional[str] = None, head: Optional[str] = None) -> tuple[list[str], Optional[str]]:
+    command = ["git", "-C", str(repo_path), "diff", "--name-only"]
+    if base and head:
+        command.append(f"{base}...{head}")
+    elif base:
+        command.append(f"{base}...HEAD")
+    elif head:
+        command.extend([head])
+
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or "git diff fallo"
+        return [], stderr
+
+    changed = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return changed, None
+
+
+def release_default_version() -> str:
+    return datetime.now(timezone.utc).strftime("%Y.%m.%d-%H%M%S")
+
+
 def classify_routed_path(raw_path: str) -> tuple[str, str]:
     value = raw_path.strip()
     if not value:
@@ -769,6 +862,36 @@ def require_routed_paths(paths: list[str], label: str) -> dict[str, list[dict[st
         raise SystemExit(f"{label.capitalize()} invalidos:\n{joined}")
 
     return indexed
+
+
+def repo_entries_require_tests(repo: str, entries: list[dict[str, str]]) -> bool:
+    required_roots = TEST_REQUIRED_ROOTS.get(repo, set())
+    if not required_roots:
+        return False
+
+    for entry in entries:
+        relative = str(entry.get("relative", "")).strip("/")
+        if not relative:
+            continue
+        if Path(relative).parts[0] in required_roots:
+            return True
+
+    return False
+
+
+def repos_missing_test_refs(
+    target_index: dict[str, list[dict[str, str]]],
+    test_index: dict[str, list[dict[str, str]]],
+) -> list[str]:
+    missing: list[str] = []
+    for repo, entries in target_index.items():
+        if repo == ROOT_REPO:
+            continue
+        if not repo_entries_require_tests(repo, entries):
+            continue
+        if not test_index.get(repo):
+            missing.append(repo)
+    return missing
 
 
 def extract_test_references(text: str) -> list[str]:
@@ -835,8 +958,7 @@ def ensure_spec_ready_for_approval(spec_path: Path) -> dict[str, object]:
 
     target_index = analysis["target_index"]
     test_index = analysis["test_index"]
-    implementation_repos = [repo for repo in target_index if repo != ROOT_REPO]
-    missing_repo_tests = [repo for repo in implementation_repos if not test_index.get(repo)]
+    missing_repo_tests = repos_missing_test_refs(target_index, test_index)
     if missing_repo_tests:
         blockers.append(
             "Faltan referencias `[@test]` para: " + ", ".join(sorted(missing_repo_tests)) + "."
@@ -957,6 +1079,175 @@ def format_findings(findings: list[str]) -> list[str]:
     return [f"- {finding}" for finding in findings]
 
 
+def frontmatter_list(frontmatter: dict[str, object], key: str) -> list[str]:
+    value = frontmatter.get(key)
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return [str(value)]
+
+
+def select_spec_paths(
+    spec_identifier: Optional[str] = None,
+    *,
+    all_specs: bool = False,
+    changed: bool = False,
+    base: Optional[str] = None,
+    head: Optional[str] = None,
+) -> list[Path]:
+    if spec_identifier:
+        return [resolve_spec(spec_identifier)]
+
+    if all_specs:
+        return all_spec_paths()
+
+    if changed:
+        changed_files, error = git_diff_name_only(ROOT, base=base, head=head)
+        if error:
+            raise SystemExit(f"No pude resolver specs cambiadas: {error}")
+        spec_paths = [
+            (ROOT / relative_path).resolve()
+            for relative_path in changed_files
+            if relative_path.endswith(".spec.md") and (ROOT / relative_path).exists()
+        ]
+        return sorted(dict.fromkeys(spec_paths))
+
+    return all_spec_paths()
+
+
+def write_json(path: Path, payload: dict[str, object]) -> None:
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
+def capture_command(command: list[str], cwd: Path) -> dict[str, object]:
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    combined = (result.stdout + "\n" + result.stderr).strip()
+    tail = "\n".join(combined.splitlines()[-40:]) if combined else ""
+    return {
+        "command": command,
+        "cwd": str(cwd),
+        "returncode": result.returncode,
+        "output_tail": tail,
+    }
+
+
+def repo_ci_commands(repo: str, repo_path: Path, skip_install: bool) -> list[tuple[str, list[str]]]:
+    runner = str(repo_config(repo).get("test_runner", "none")).strip().lower()
+
+    if repo == ROOT_REPO or runner == "none":
+        return []
+
+    if runner == "php":
+        composer_json = repo_path / "composer.json"
+        if not composer_json.exists():
+            return []
+
+        commands: list[tuple[str, list[str]]] = []
+        if not skip_install:
+            commands.append(("Install", ["composer", "install", "--no-interaction", "--prefer-dist"]))
+
+        artisan = repo_path / "artisan"
+        phpunit = repo_path / "vendor" / "bin" / "phpunit"
+        if artisan.exists():
+            commands.append(("Tests", ["php", "artisan", "test"]))
+        elif phpunit.exists():
+            commands.append(("Tests", [str(phpunit)]))
+        return commands
+
+    if runner == "pnpm":
+        package_json = repo_path / "package.json"
+        if not package_json.exists():
+            return []
+
+        try:
+            package = json.loads(package_json.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return []
+
+        scripts = package.get("scripts", {})
+        if not isinstance(scripts, dict):
+            scripts = {}
+
+        commands = []
+        if not skip_install:
+            install_command = ["pnpm", "install", "--frozen-lockfile"] if (repo_path / "pnpm-lock.yaml").exists() else ["pnpm", "install"]
+            commands.append(("Install", install_command))
+
+        for script_name, label in [("lint", "Lint"), ("test", "Tests"), ("build", "Build")]:
+            if script_name in scripts:
+                commands.append((label, ["pnpm", script_name]))
+        return commands
+
+    if runner == "pytest":
+        if shutil.which("pytest"):
+            return [("Tests", ["pytest"])]
+
+    return []
+
+
+def release_manifest_path(version: str) -> Path:
+    return RELEASE_MANIFEST_ROOT / f"{version}.json"
+
+
+def release_promotion_path(version: str, environment: str) -> Path:
+    return RELEASE_PROMOTION_ROOT / f"{version}-{environment}.json"
+
+
+def load_release_manifest(version: str) -> dict[str, object]:
+    path = release_manifest_path(version)
+    if not path.exists():
+        raise SystemExit(f"No existe manifest de release para `{version}`.")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def repo_head_sha(repo: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo_root(repo)), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"No pude resolver el SHA actual de `{repo}`.")
+    return result.stdout.strip()
+
+
+def releasable_feature_specs() -> list[Path]:
+    selected: list[Path] = []
+    for spec_path in sorted(FEATURE_SPECS.glob("*.spec.md")):
+        analysis = analyze_spec(spec_path)
+        if analysis["frontmatter"].get("status") != "approved":
+            continue
+        state = read_state(spec_slug(spec_path))
+        if str(state.get("status", "")) == "released":
+            continue
+        selected.append(spec_path)
+    return selected
+
+
+def release_hook(environment: str) -> Optional[Path]:
+    specific = ROOT / "scripts" / "release" / f"promote_{environment}.sh"
+    generic = ROOT / "scripts" / "release" / "promote.sh"
+    for candidate in [specific, generic]:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def infra_hook(action: str) -> Optional[Path]:
+    specific = ROOT / "scripts" / "infra" / f"{action}.sh"
+    if specific.is_file():
+        return specific
+    return None
+
+
 def detect_compose_context() -> dict[str, object]:
     compose_file = compose_control_file().resolve()
     context: dict[str, object] = {
@@ -1025,7 +1316,7 @@ def compose_base_command() -> list[str]:
         "-p",
         str(context["project"]),
         "--project-directory",
-        str(compose_control_root().resolve()),
+        str(compose_control_file().resolve().parent),
         "-f",
         str(compose_control_file().resolve()),
     ]
@@ -1072,6 +1363,29 @@ def run_compose(extra_args: list[str], interactive: Optional[bool] = None) -> in
         return subprocess.run(command, cwd=compose_control_root(), check=False).returncode
     except FileNotFoundError as exc:
         raise SystemExit("No encontre `docker` en PATH para operar el stack del workspace.") from exc
+
+
+def capture_compose(extra_args: list[str]) -> dict[str, object]:
+    command = compose_base_command() + extra_args
+    try:
+        result = subprocess.run(
+            command,
+            cwd=compose_control_root(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise SystemExit("No encontre `docker` en PATH para operar el stack del workspace.") from exc
+
+    combined = (result.stdout + "\n" + result.stderr).strip()
+    tail = "\n".join(combined.splitlines()[-40:]) if combined else ""
+    return {
+        "command": command,
+        "returncode": result.returncode,
+        "output_tail": tail,
+        "stdout": result.stdout,
+    }
 
 
 def normalize_passthrough(args: list[str]) -> list[str]:
@@ -1434,10 +1748,7 @@ def command_spec_review(args: argparse.Namespace) -> int:
     if not description or description.startswith("todo"):
         medium_priority.append("`description` sigue en placeholder y no describe el resultado observable.")
 
-    implementation_repos = [
-        repo for repo in analysis["target_index"] if repo != ROOT_REPO
-    ]
-    missing_repo_tests = [repo for repo in implementation_repos if not analysis["test_index"].get(repo)]
+    missing_repo_tests = repos_missing_test_refs(analysis["target_index"], analysis["test_index"])
     if missing_repo_tests:
         medium_priority.append(
             "Faltan referencias `[@test]` para: " + ", ".join(sorted(missing_repo_tests)) + "."
@@ -1876,6 +2187,568 @@ def command_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_ci_spec(args: argparse.Namespace) -> int:
+    require_dirs()
+    spec_paths = select_spec_paths(
+        args.spec,
+        all_specs=args.all,
+        changed=args.changed,
+        base=args.base,
+        head=args.head,
+    )
+    if not spec_paths:
+        print("No hay specs seleccionadas para CI.")
+        return 0
+
+    failures = 0
+    items: list[dict[str, object]] = []
+    report_lines = [
+        "# CI Spec Governance",
+        "",
+        f"- Scope: `{args.spec or ('changed' if args.changed else 'all')}`",
+        f"- Base: `{args.base or 'n/a'}`",
+        f"- Head: `{args.head or 'n/a'}`",
+        "",
+    ]
+
+    for spec_path in spec_paths:
+        analysis = analyze_spec(spec_path)
+        frontmatter = analysis["frontmatter"]
+        findings: list[str] = []
+
+        for field in analysis["missing_frontmatter"]:
+            findings.append(f"Falta el campo `{field}`.")
+        findings.extend(str(error) for error in analysis["target_errors"])
+        findings.extend(str(error) for error in analysis["test_errors"])
+        if analysis["todo_count"]:
+            findings.append("La spec contiene `TODO`.")
+        if frontmatter.get("status") != "approved":
+            findings.append("La spec debe estar en estado `approved` para pasar CI.")
+
+        missing_repo_tests = repos_missing_test_refs(analysis["target_index"], analysis["test_index"])
+        if missing_repo_tests:
+            findings.append(
+                "Faltan referencias `[@test]` para: " + ", ".join(sorted(missing_repo_tests)) + "."
+            )
+
+        passed = not findings
+        failures += 0 if passed else 1
+        items.append(
+            {
+                "spec": rel(spec_path),
+                "status": "passed" if passed else "failed",
+                "frontmatter_status": frontmatter.get("status", ""),
+                "repos": list(analysis["target_index"]),
+                "findings": findings,
+            }
+        )
+        report_lines.append(f"## {rel(spec_path)}")
+        report_lines.append("")
+        report_lines.append(f"- Resultado: `{'passed' if passed else 'failed'}`")
+        report_lines.append(f"- Estado frontmatter: `{frontmatter.get('status', 'missing')}`")
+        report_lines.append("")
+        report_lines.extend(format_findings(findings))
+        report_lines.append("")
+
+    report_key = slugify(args.spec or ("changed" if args.changed else "all")) or "all"
+    json_path = CI_REPORT_ROOT / f"spec-{report_key}.json"
+    md_path = CI_REPORT_ROOT / f"spec-{report_key}.md"
+    write_json(
+        json_path,
+        {
+            "generated_at": utc_now(),
+            "base": args.base,
+            "head": args.head,
+            "scope": args.spec or ("changed" if args.changed else "all"),
+            "items": items,
+        },
+    )
+    md_path.write_text("\n".join(report_lines) + "\n", encoding="utf-8")
+    print(rel(json_path))
+    print(rel(md_path))
+    return 1 if failures else 0
+
+
+def command_ci_repo(args: argparse.Namespace) -> int:
+    require_dirs()
+    repo_name = args.repo
+    repo_path = repo_root(repo_name)
+    commands = repo_ci_commands(repo_name, repo_path, skip_install=args.skip_install)
+
+    related_targets: list[str] = []
+    if args.spec:
+        analysis = analyze_spec(resolve_spec(args.spec))
+        related_targets = [item["raw"] for item in analysis["target_index"].get(repo_name, [])]
+
+    changed_files: list[str] = []
+    diff_error: Optional[str] = None
+    if args.base or args.head:
+        changed_files, diff_error = git_diff_name_only(repo_path, base=args.base, head=args.head)
+    else:
+        changed_files, diff_error = git_changed_files(repo_path)
+
+    executions: list[dict[str, object]] = []
+    findings: list[str] = []
+
+    if diff_error:
+        findings.append(f"No pude resolver diff del repo: {diff_error}")
+
+    for label, command in commands:
+        execution = capture_command(command, repo_path)
+        execution["label"] = label
+        executions.append(execution)
+        if execution["returncode"] != 0:
+            findings.append(f"`{label}` fallo en `{repo_name}`.")
+
+    if not commands:
+        findings.append(f"No hay comandos CI configurados o detectables para `{repo_name}`.")
+
+    report_payload = {
+        "generated_at": utc_now(),
+        "repo": repo_name,
+        "repo_path": str(repo_path),
+        "spec": args.spec,
+        "related_targets": related_targets,
+        "changed_files": changed_files,
+        "executions": executions,
+        "findings": findings,
+    }
+    json_path = CI_REPORT_ROOT / f"repo-{slugify(repo_name)}.json"
+    md_path = CI_REPORT_ROOT / f"repo-{slugify(repo_name)}.md"
+    write_json(json_path, report_payload)
+
+    lines = [
+        f"# CI Repo Report: {repo_name}",
+        "",
+        f"- Repo path: `{repo_path}`",
+        f"- Spec: `{args.spec or 'n/a'}`",
+        "",
+        "## Related targets",
+        "",
+    ]
+    lines.extend([f"- `{target}`" for target in related_targets] or ["- No especificados."])
+    lines.extend(["", "## Changed files", ""])
+    lines.extend([f"- `{path}`" for path in changed_files] or ["- Ninguno detectado."])
+    lines.extend(["", "## Executions", ""])
+    if executions:
+        for execution in executions:
+            lines.append(
+                f"- `{execution['label']}`: returncode `{execution['returncode']}` "
+                f"con `{ ' '.join(shlex.quote(part) for part in execution['command']) }`"
+            )
+            if execution["output_tail"]:
+                lines.extend(["", "```text", str(execution["output_tail"]), "```", ""])
+    else:
+        lines.append("- Ninguna.")
+    lines.extend(["", "## Findings", ""])
+    lines.extend(format_findings(findings))
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    print(rel(json_path))
+    print(rel(md_path))
+    failures = [item for item in executions if int(item["returncode"]) != 0]
+    if failures:
+        return 1
+    return 0
+
+
+def command_ci_integration(args: argparse.Namespace) -> int:
+    require_dirs()
+    checks: list[tuple[str, str, str]] = []
+    findings: list[str] = []
+
+    if shutil.which("docker") is None:
+        raise SystemExit("No encontre `docker` en PATH para ejecutar CI de integracion.")
+
+    config_check = capture_compose(["config", "--quiet"])
+    if int(config_check["returncode"]) == 0:
+        checks.append(("PASS", "Compose config", "La configuracion Compose es valida."))
+    else:
+        checks.append(("FAIL", "Compose config", "La configuracion Compose no pudo validarse."))
+        findings.append("`docker compose config --quiet` fallo.")
+
+    context = detect_compose_context()
+    if not context["active"] and args.auto_up:
+        up_args = ["up", "-d"]
+        if args.build:
+            up_args.append("--build")
+        up_rc = run_compose(up_args)
+        context = detect_compose_context()
+        if up_rc != 0:
+            findings.append("No pude levantar el stack para la smoke suite.")
+            checks.append(("FAIL", "Stack bootstrap", "El stack no pudo arrancar."))
+        elif context["active"]:
+            checks.append(("PASS", "Stack bootstrap", "El stack se levanto para ejecutar la smoke suite."))
+
+    if context["active"]:
+        ps_check = capture_compose(["ps"])
+        if int(ps_check["returncode"]) == 0:
+            checks.append(("PASS", "Stack status", "Se pudo inspeccionar el estado de los servicios."))
+        else:
+            findings.append("`docker compose ps` fallo durante la smoke suite.")
+            checks.append(("FAIL", "Stack status", "No se pudo inspeccionar el stack."))
+
+        services_check = capture_compose(["config", "--services"])
+        service_names = [line.strip() for line in str(services_check["stdout"]).splitlines() if line.strip()]
+
+        smoke_commands = {
+            WORKSPACE_SERVICE: ["sh", "-lc", "tessl --help >/dev/null && bmad --help >/dev/null"],
+            "db": ["sh", "-lc", "mysqladmin ping -h localhost -u root -proot >/dev/null"],
+        }
+        for repo in implementation_repos():
+            runner = str(repo_config(repo).get("test_runner", "")).strip()
+            service_name = repo_compose_service(repo)
+            if runner == "php":
+                smoke_commands[service_name] = ["sh", "-lc", "php --version >/dev/null"]
+            elif runner == "pnpm":
+                smoke_commands[service_name] = ["sh", "-lc", "node --version >/dev/null && pnpm --version >/dev/null"]
+        for service_name, smoke_command in smoke_commands.items():
+            if service_name not in service_names:
+                continue
+            execution = capture_compose(compose_exec_args(service_name, interactive=False) + smoke_command)
+            if int(execution["returncode"]) == 0:
+                checks.append(("PASS", f"Smoke {service_name}", f"El servicio `{service_name}` respondio al smoke check."))
+            else:
+                findings.append(f"El smoke check de `{service_name}` fallo.")
+                checks.append(("FAIL", f"Smoke {service_name}", "El comando del smoke check devolvio error."))
+    else:
+        findings.append("El stack no esta activo; usa `--auto-up` o levanta Compose antes de integrar.")
+        checks.append(("FAIL", "Stack active", "No hay proyecto Compose activo para la smoke suite."))
+
+    report_path = CI_REPORT_ROOT / f"integration-{slugify(args.profile)}.md"
+    report = textwrap.dedent(
+        f"""\
+        # CI Integration Report
+
+        - Profile: `{args.profile}`
+        - Generated at: `{utc_now()}`
+
+        ## Checks
+
+        {chr(10).join(f"- [{status}] **{name}**: {detail}" for status, name, detail in checks)}
+
+        ## Findings
+
+        {chr(10).join(format_findings(findings))}
+        """
+    )
+    report_path.write_text(report, encoding="utf-8")
+    print(rel(report_path))
+    return 1 if any(status == "FAIL" for status, _, _ in checks) else 0
+
+
+def command_release_cut(args: argparse.Namespace) -> int:
+    require_dirs()
+    version = args.version or release_default_version()
+    manifest_path = release_manifest_path(version)
+    if manifest_path.exists() and not args.force:
+        raise SystemExit(f"Ya existe un manifest para `{version}`. Usa `--force` para regenerarlo.")
+
+    if args.spec:
+        spec_paths = [resolve_spec(identifier) for identifier in args.spec]
+    elif args.all_approved:
+        spec_paths = releasable_feature_specs()
+    else:
+        raise SystemExit("Debes indicar `--spec` o `--all-approved` para cortar un release.")
+
+    if not spec_paths:
+        raise SystemExit("No encontre specs aprobadas para incluir en el release.")
+
+    features: list[dict[str, object]] = []
+    repos_involved = {ROOT_REPO}
+
+    for spec_path in spec_paths:
+        analysis = ensure_spec_ready_for_approval(spec_path)
+        if analysis["frontmatter"].get("status") != "approved":
+            raise SystemExit(f"La spec `{rel(spec_path)}` debe estar en `approved` para entrar en un release.")
+        repos = sorted(analysis["target_index"])
+        repos_involved.update(repos)
+        slug = spec_slug(spec_path)
+        state = read_state(slug)
+        features.append(
+            {
+                "slug": slug,
+                "spec_path": rel(spec_path),
+                "state_status": state.get("status", "unknown"),
+                "repos": repos,
+                "targets": analysis["targets"],
+                "test_refs": analysis["test_refs"],
+            }
+        )
+
+    manifest = {
+        "version": version,
+        "generated_at": utc_now(),
+        "root_sha": repo_head_sha(ROOT_REPO),
+        "repos": {
+            repo: {
+                "path": str(repo_root(repo)),
+                "sha": repo_head_sha(repo),
+            }
+            for repo in sorted(repos_involved)
+        },
+        "features": features,
+        "promotions": [],
+    }
+    write_json(manifest_path, manifest)
+
+    summary_path = RELEASE_MANIFEST_ROOT / f"{version}.md"
+    lines = [
+        f"# Release Manifest {version}",
+        "",
+        f"- Root SHA: `{manifest['root_sha']}`",
+        "",
+        "## Repos",
+        "",
+    ]
+    for repo, payload in manifest["repos"].items():
+        lines.append(f"- `{repo}`: `{payload['sha']}`")
+    lines.extend(["", "## Features", ""])
+    for feature in features:
+        lines.append(
+            f"- `{feature['slug']}`: `{feature['state_status']}` "
+            f"({', '.join(feature['repos'])})"
+        )
+    summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    for feature in features:
+        state = read_state(feature["slug"])
+        if state:
+            state["release_candidate"] = version
+            if "created_at" not in state:
+                state["created_at"] = utc_now()
+            write_state(feature["slug"], state)
+
+    print(rel(manifest_path))
+    print(rel(summary_path))
+    return 0
+
+
+def command_release_manifest(args: argparse.Namespace) -> int:
+    manifest = load_release_manifest(args.version)
+    if args.json:
+        print(json.dumps(manifest, indent=2, ensure_ascii=True))
+        return 0
+
+    print(rel(release_manifest_path(args.version)))
+    return 0
+
+
+def command_release_status(args: argparse.Namespace) -> int:
+    manifest = load_release_manifest(args.version)
+    print(f"- version: {manifest.get('version')}")
+    print(f"- root_sha: {manifest.get('root_sha')}")
+    print(f"- features: {len(manifest.get('features', []))}")
+    promotions = manifest.get("promotions", [])
+    if promotions:
+        for promotion in promotions:
+            print(
+                f"- promotion {promotion.get('environment')}: "
+                f"{promotion.get('status')} at {promotion.get('promoted_at')}"
+            )
+    else:
+        print("- promotions: none")
+    return 0
+
+
+def command_release_promote(args: argparse.Namespace) -> int:
+    manifest = load_release_manifest(args.version)
+    if args.environment in {"staging", "production"} and not args.approver:
+        raise SystemExit("`--approver` es obligatorio para staging y production.")
+
+    hook = release_hook(args.environment)
+    promotion_payload = {
+        "version": args.version,
+        "environment": args.environment,
+        "promoted_at": utc_now(),
+        "approver": args.approver,
+        "status": "recorded",
+        "hook": rel(hook) if hook else None,
+    }
+
+    if hook:
+        env = os.environ.copy()
+        env["FLOW_RELEASE_VERSION"] = args.version
+        env["FLOW_RELEASE_ENV"] = args.environment
+        env["FLOW_RELEASE_MANIFEST"] = str(release_manifest_path(args.version).resolve())
+        execution = subprocess.run(
+            ["bash", str(hook.resolve())],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        combined = (execution.stdout + "\n" + execution.stderr).strip()
+        promotion_payload["output_tail"] = "\n".join(combined.splitlines()[-40:]) if combined else ""
+        if execution.returncode != 0:
+            promotion_payload["status"] = "failed"
+            write_json(release_promotion_path(args.version, args.environment), promotion_payload)
+            raise SystemExit(f"La promocion `{args.environment}` fallo con `{rel(hook)}`.")
+
+        promotion_payload["status"] = "executed"
+
+    promotions = manifest.setdefault("promotions", [])
+    if isinstance(promotions, list):
+        promotions.append(promotion_payload)
+    write_json(release_manifest_path(args.version), manifest)
+    write_json(release_promotion_path(args.version, args.environment), promotion_payload)
+
+    if args.environment == "production":
+        for feature in manifest.get("features", []):
+            slug = str(feature.get("slug", ""))
+            if not slug:
+                continue
+            state = read_state(slug)
+            if not state:
+                continue
+            state["status"] = "released"
+            state["released_in"] = args.version
+            write_state(slug, state)
+
+    print(rel(release_promotion_path(args.version, args.environment)))
+    return 0
+
+
+def command_infra_plan(args: argparse.Namespace) -> int:
+    require_dirs()
+    spec_path = resolve_spec(args.spec)
+    slug = spec_slug(spec_path)
+    analysis = analyze_spec(spec_path)
+    infra_targets = frontmatter_list(analysis["frontmatter"], "infra_targets")
+    if not infra_targets:
+        raise SystemExit(f"La spec `{rel(spec_path)}` no declara `infra_targets`.")
+
+    infra_index = require_routed_paths(infra_targets, "infra targets")
+    hook = infra_hook("plan")
+    payload = {
+        "generated_at": utc_now(),
+        "feature": slug,
+        "environment": args.environment,
+        "spec_path": rel(spec_path),
+        "infra_targets": infra_targets,
+        "repos": {
+            repo: [item["relative"] for item in items]
+            for repo, items in infra_index.items()
+        },
+        "hook": rel(hook) if hook else None,
+        "status": "planned",
+    }
+
+    if hook:
+        env = os.environ.copy()
+        env["FLOW_INFRA_ENV"] = args.environment
+        env["FLOW_INFRA_SPEC"] = rel(spec_path)
+        execution = subprocess.run(
+            ["bash", str(hook.resolve())],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        combined = (execution.stdout + "\n" + execution.stderr).strip()
+        payload["output_tail"] = "\n".join(combined.splitlines()[-40:]) if combined else ""
+        if execution.returncode != 0:
+            payload["status"] = "failed"
+
+    json_path = INFRA_REPORT_ROOT / f"{slug}-{args.environment}-plan.json"
+    md_path = INFRA_REPORT_ROOT / f"{slug}-{args.environment}-plan.md"
+    write_json(json_path, payload)
+    lines = [
+        f"# Infra Plan: {slug}",
+        "",
+        f"- Environment: `{args.environment}`",
+        f"- Spec: `{rel(spec_path)}`",
+        f"- Hook: `{payload['hook'] or 'none'}`",
+        "",
+        "## Infra targets",
+        "",
+    ]
+    lines.extend([f"- `{target}`" for target in infra_targets])
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(rel(json_path))
+    print(rel(md_path))
+    return 1 if payload["status"] == "failed" else 0
+
+
+def command_infra_apply(args: argparse.Namespace) -> int:
+    slug = slugify(args.spec)
+    plan_path = INFRA_REPORT_ROOT / f"{slug}-{args.environment}-plan.json"
+    if not plan_path.exists():
+        raise SystemExit(
+            f"No existe plan para `{slug}` en `{args.environment}`. Ejecuta `python3 ./flow infra plan {slug} --env {args.environment}`."
+        )
+    if args.environment in {"staging", "production"} and not args.approver:
+        raise SystemExit("`--approver` es obligatorio para staging y production.")
+
+    hook = infra_hook("apply")
+    if hook is None:
+        raise SystemExit("No existe `scripts/infra/apply.sh`; registra primero un executor de infraestructura.")
+
+    payload = {
+        "generated_at": utc_now(),
+        "feature": slug,
+        "environment": args.environment,
+        "plan_path": rel(plan_path),
+        "approver": args.approver,
+        "hook": rel(hook),
+        "status": "executed",
+    }
+    env = os.environ.copy()
+    env["FLOW_INFRA_ENV"] = args.environment
+    env["FLOW_INFRA_PLAN"] = str(plan_path.resolve())
+    execution = subprocess.run(
+        ["bash", str(hook.resolve())],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    combined = (execution.stdout + "\n" + execution.stderr).strip()
+    payload["output_tail"] = "\n".join(combined.splitlines()[-40:]) if combined else ""
+    if execution.returncode != 0:
+        payload["status"] = "failed"
+
+    json_path = INFRA_REPORT_ROOT / f"{slug}-{args.environment}-apply.json"
+    md_path = INFRA_REPORT_ROOT / f"{slug}-{args.environment}-apply.md"
+    write_json(json_path, payload)
+    md_path.write_text(
+        "\n".join(
+            [
+                f"# Infra Apply: {slug}",
+                "",
+                f"- Environment: `{args.environment}`",
+                f"- Plan: `{rel(plan_path)}`",
+                f"- Hook: `{rel(hook)}`",
+                f"- Status: `{payload['status']}`",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(rel(json_path))
+    print(rel(md_path))
+    return 1 if payload["status"] == "failed" else 0
+
+
+def command_infra_status(args: argparse.Namespace) -> int:
+    slug = slugify(args.spec)
+    plans = sorted(INFRA_REPORT_ROOT.glob(f"{slug}-*-plan.json"))
+    applies = sorted(INFRA_REPORT_ROOT.glob(f"{slug}-*-apply.json"))
+    if not plans and not applies:
+        raise SystemExit(f"No existe estado de infra para `{slug}`.")
+
+    for path in plans + applies:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        print(
+            f"- {path.name}: {payload.get('status', 'unknown')} "
+            f"({payload.get('environment', 'n/a')})"
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Workspace flow CLI for spec-driven orchestration.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1943,6 +2816,74 @@ def build_parser() -> argparse.ArgumentParser:
     bmad = subparsers.add_parser("bmad", help="Run BMAD through the canonical workspace environment.")
     bmad.add_argument("args", nargs=argparse.REMAINDER, help="Arguments passed to the BMAD command.")
     bmad.set_defaults(func=command_bmad)
+
+    ci = subparsers.add_parser("ci", help="Run spec-driven CI checks from the control plane.")
+    ci_subparsers = ci.add_subparsers(dest="ci_command", required=True)
+
+    ci_spec = ci_subparsers.add_parser("spec", help="Validate canonical specs for CI.")
+    ci_spec.add_argument("spec", nargs="?", help="Optional spec path or slug.")
+    ci_spec.add_argument("--all", action="store_true", help="Validate every spec under `specs/**`.")
+    ci_spec.add_argument("--changed", action="store_true", help="Validate only specs changed in git diff.")
+    ci_spec.add_argument("--base", help="Base git ref for `--changed`.")
+    ci_spec.add_argument("--head", help="Head git ref for `--changed`.")
+    ci_spec.set_defaults(func=command_ci_spec)
+
+    ci_repo = ci_subparsers.add_parser("repo", help="Run repo-level CI checks.")
+    ci_repo.add_argument("repo", choices=REPO_NAMES, help="Repo id from `workspace.config.json`.")
+    ci_repo.add_argument("--spec", help="Optional spec slug to scope the report.")
+    ci_repo.add_argument("--base", help="Optional git base ref.")
+    ci_repo.add_argument("--head", help="Optional git head ref.")
+    ci_repo.add_argument("--skip-install", action="store_true", help="Skip dependency installation before CI commands.")
+    ci_repo.set_defaults(func=command_ci_repo)
+
+    ci_integration = ci_subparsers.add_parser("integration", help="Run stack-level smoke checks.")
+    ci_integration.add_argument("--profile", default="smoke", help="Integration profile label.")
+    ci_integration.add_argument("--auto-up", action="store_true", help="Start the stack if it is not active.")
+    ci_integration.add_argument("--build", action="store_true", help="Build images if `--auto-up` starts the stack.")
+    ci_integration.set_defaults(func=command_ci_integration)
+
+    release = subparsers.add_parser("release", help="Manage release manifests and promotions.")
+    release_subparsers = release.add_subparsers(dest="release_command", required=True)
+
+    release_cut = release_subparsers.add_parser("cut", help="Create a release manifest.")
+    release_cut.add_argument("--version", help="Explicit release version. Defaults to a UTC timestamp.")
+    release_cut.add_argument("--spec", action="append", help="Feature spec slug or path to include. Repeatable.")
+    release_cut.add_argument("--all-approved", action="store_true", help="Include every approved unreleased feature spec.")
+    release_cut.add_argument("--force", action="store_true", help="Overwrite an existing manifest for the same version.")
+    release_cut.set_defaults(func=command_release_cut)
+
+    release_manifest = release_subparsers.add_parser("manifest", help="Show or print a release manifest.")
+    release_manifest.add_argument("--version", required=True, help="Release version.")
+    release_manifest.add_argument("--json", action="store_true", help="Print the manifest payload as JSON.")
+    release_manifest.set_defaults(func=command_release_manifest)
+
+    release_status = release_subparsers.add_parser("status", help="Summarize a release manifest.")
+    release_status.add_argument("--version", required=True, help="Release version.")
+    release_status.set_defaults(func=command_release_status)
+
+    release_promote = release_subparsers.add_parser("promote", help="Promote a release to an environment.")
+    release_promote.add_argument("--version", required=True, help="Release version.")
+    release_promote.add_argument("--env", dest="environment", required=True, choices=["preview", "staging", "production"])
+    release_promote.add_argument("--approver", help="Required for staging and production promotions.")
+    release_promote.set_defaults(func=command_release_promote)
+
+    infra = subparsers.add_parser("infra", help="Plan and apply infrastructure governed by specs.")
+    infra_subparsers = infra.add_subparsers(dest="infra_command", required=True)
+
+    infra_plan = infra_subparsers.add_parser("plan", help="Create an infrastructure plan from a spec.")
+    infra_plan.add_argument("spec", help="Spec path or slug.")
+    infra_plan.add_argument("--env", dest="environment", required=True, help="Target environment.")
+    infra_plan.set_defaults(func=command_infra_plan)
+
+    infra_apply = infra_subparsers.add_parser("apply", help="Apply a previously generated infrastructure plan.")
+    infra_apply.add_argument("spec", help="Spec path or slug.")
+    infra_apply.add_argument("--env", dest="environment", required=True, help="Target environment.")
+    infra_apply.add_argument("--approver", help="Required for staging and production environments.")
+    infra_apply.set_defaults(func=command_infra_apply)
+
+    infra_status = infra_subparsers.add_parser("status", help="Show recorded infra plans/applies for a feature.")
+    infra_status.add_argument("spec", help="Spec path or slug.")
+    infra_status.set_defaults(func=command_infra_status)
 
     add_project = subparsers.add_parser(
         "add-project",

@@ -1,0 +1,60 @@
+name: Release Cut
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version to cut
+        required: true
+        type: string
+      all_approved:
+        description: Include every approved unreleased feature
+        required: true
+        default: true
+        type: boolean
+      specs:
+        description: Optional comma-separated feature specs when all_approved is false
+        required: false
+        type: string
+
+jobs:
+  release-cut:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cut release manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(release cut --version "${{ inputs.version }}")
+
+          if [ "${{ inputs.all_approved }}" = "true" ]; then
+            args+=(--all-approved)
+          else
+            IFS=',' read -ra SPECS <<< "${{ inputs.specs }}"
+            for spec in "${SPECS[@]}"; do
+              trimmed="$(echo "$spec" | xargs)"
+              if [ -n "$trimmed" ]; then
+                args+=(--spec "$trimmed")
+              fi
+            done
+          fi
+
+          python3 ./flow "${args[@]}"
+          python3 ./flow release status --version "${{ inputs.version }}"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-manifest-${{ inputs.version }}
+          path: releases/

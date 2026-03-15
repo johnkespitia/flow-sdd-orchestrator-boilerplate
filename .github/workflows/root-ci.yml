@@ -1,0 +1,77 @@
+name: Root CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  spec-governance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Flow doctor
+        run: python3 ./flow doctor
+
+      - name: Spec-driven CI
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python3 ./flow ci spec --changed --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.sha }}"
+          else
+            python3 ./flow ci spec --all
+          fi
+
+      - name: Repo CI backend
+        run: python3 ./flow ci repo backend
+
+      - name: Repo CI frontend
+        run: python3 ./flow ci repo frontend
+
+      - name: Upload CI reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flow-ci-reports
+          path: .flow/reports/ci/
+
+  integration-smoke:
+    runs-on: ubuntu-latest
+    needs:
+      - spec-governance
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build stack
+        run: python3 ./flow stack build
+
+      - name: Start stack
+        run: python3 ./flow stack up
+
+      - name: Integration smoke
+        run: python3 ./flow ci integration --profile smoke
+
+      - name: Upload integration reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flow-integration-reports
+          path: .flow/reports/ci/

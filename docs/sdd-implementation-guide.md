@@ -37,8 +37,10 @@ Estos archivos describen el modelo actual y son la referencia principal:
 - [README.md](../README.md)
 - [AGENTS.md](../AGENTS.md)
 - [docs/spec-driven-orchestration.md](./spec-driven-orchestration.md)
+- [docs/spec-driven-sdlc-map.md](./spec-driven-sdlc-map.md)
 - [specs/000-foundation/spec-as-source-operating-model.spec.md](../specs/000-foundation/spec-as-source-operating-model.spec.md)
 - [specs/000-foundation/repo-routing-and-worktree-orchestration.spec.md](../specs/000-foundation/repo-routing-and-worktree-orchestration.spec.md)
+- [specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md](../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md)
 - [tessl.json](../tessl.json)
 - [`.tessl/RULES.md`](../.tessl/RULES.md)
 - [`.tessl/tiles/workspace/spec-driven-workspace/index.md`](../.tessl/tiles/workspace/spec-driven-workspace/index.md)
@@ -139,6 +141,9 @@ La primera implementacion busca que `flow` sea el punto de entrada unico del wor
 - `flow tessl ...` para ejecutar Tessl en el entorno canonico
 - `flow bmad ...` para ejecutar BMAD desde el mismo control plane y bootstrappear `_bmad/`
 - `flow spec|plan|slice|status` para el SDLC spec-driven
+- `flow ci ...` para gobernanza de spec, CI por repo e integracion
+- `flow release ...` para manifests y promociones
+- `flow infra ...` para planes y applies gobernados por spec
 
 `make` queda como capa de conveniencia para humanos, no como otra fuente de verdad operativa.
 
@@ -160,16 +165,8 @@ Justificacion:
 
 Nota importante:
 
-Algunos submodulos todavia pueden contener artefactos tecnicos locales o transicionales. Por
-ejemplo, hoy `backend` aun conserva referencias utiles para migracion:
-
-- [backend/specs/features/wave-1-identity-bootstrap.spec.md](../backend/specs/features/wave-1-identity-bootstrap.spec.md)
-- [backend/specs/000-foundation/database-migration-strategy.spec.md](../backend/specs/000-foundation/database-migration-strategy.spec.md)
-- [backend/specs/000-foundation/legacy-to-v2-integration.spec.md](../backend/specs/000-foundation/legacy-to-v2-integration.spec.md)
-- [backend/specs/000-foundation/shared-database-migration.spec.md](../backend/specs/000-foundation/shared-database-migration.spec.md)
-- [backend/docs/legacy-db/schema-snapshot-2026-03-12.md](../backend/docs/legacy-db/schema-snapshot-2026-03-12.md)
-
-Esos documentos pueden servir como referencia local o material de migracion, pero no deben competir
+Los repos de implementación pueden contener documentación técnica local, snapshots o notas de
+migración. Esos artefactos pueden servir como referencia de implementación, pero no deben competir
 con `specs/**` del root como fuente de verdad del SDLC del sistema.
 
 ## Arquitectura de capas
@@ -196,6 +193,8 @@ El SDLC quedo modelado asi:
 8. `slice verify`
 9. merge por repo
 10. actualizacion del puntero del submodulo en el root
+11. `flow release cut|promote`
+12. `flow infra plan|apply` cuando la spec lo requiera
 
 Los estados vigentes estan definidos en
 [spec-as-source-operating-model.spec.md](../specs/000-foundation/spec-as-source-operating-model.spec.md).
@@ -326,6 +325,9 @@ make stack ARGS='ps'
 make tessl ARGS='whoami'
 make flow ARGS='spec create identity-bootstrap --title "Identity Bootstrap" --repo backend'
 make flow-status
+make ci ARGS='spec --all'
+make release ARGS='status --version 2026.03.14-1'
+make infra ARGS='status spec-driven-delivery-bootstrap'
 ```
 
 `make` no implementa logica propia del stack ni de Tessl. Solo delega en `flow`.
@@ -338,6 +340,9 @@ python3 ./flow tessl -- whoami
 python3 ./flow bmad -- --help
 python3 ./flow bmad -- status
 python3 ./flow bmad -- install --tools none --yes
+python3 ./flow ci spec --all
+python3 ./flow release status --version 2026.03.14-1
+python3 ./flow infra status spec-driven-delivery-bootstrap
 ```
 
 Notas:
@@ -430,6 +435,7 @@ root cuando el tema pertenece al sistema, al routing o al SDLC global.
 - mejor acoplamiento entre specs, slices y handoffs
 - worktrees por repo sin perder coordinacion global
 - artifacts operativos locales sin ensuciar Git
+- CI, release e infraestructura entran por la misma interfaz versionada
 
 ### Costos
 
@@ -437,8 +443,9 @@ root cuando el tema pertenece al sistema, al routing o al SDLC global.
 - los submodulos pierden autonomia para definir requerimientos canónicos
 - los merges son en dos pasos: submodulo y luego root
 - algunos detalles muy locales de implementacion requieren subir primero a la spec del root
-- el CLI `flow` hoy no automatiza merge ni release de forma end-to-end
+- el merge tecnico sigue siendo manual entre submodulo y root
 - BMAD agrega bootstrap propio en `_bmad/`, asi que introduce artefactos adicionales cuando se activa
+- release e infraestructura dependen de hooks del proyecto hasta conectar proveedores reales
 
 ### Tradeoff principal
 
@@ -473,10 +480,11 @@ No se uso como columna vertebral principal porque:
 
 ## Limitaciones actuales
 
-- `flow` todavia no automatiza merge ni release de forma end-to-end
+- `flow` todavia no automatiza merge de submodulos y root de forma end-to-end
 - `.flow/**` usa archivos simples, no una maquina de estados transaccional
 - la ejecucion real de slices sigue requiriendo intervencion humana
 - el workflow asume que el equipo entiende Git submodules y worktrees
+- los hooks por defecto de `release` e `infra` son stubs hasta integrar plataformas reales
 
 Estas limitaciones son aceptables para una v1 porque mantienen el sistema simple y auditable.
 
@@ -512,10 +520,10 @@ adaptaciones:
 
 1. reemplazar `backend` y `frontend` por los repos reales del sistema
 2. ajustar `workspace.config.json`, `FLOW_WORKSPACE_PATH` y `FLOW_BMAD_COMMAND`
-   segun tu proyecto
+   segun el proyecto
 3. versionar `specs/**`, `.tessl/**`, `.flow/README.md`, `Makefile` y la carpeta `.devcontainer/`
 
-La idea reusable no es el dominio de ejemplo. Es la separacion:
+La idea reusable no es el dominio PLG. Es la separacion:
 
 - `specs/**` como source of truth
 - `flow` como control plane
