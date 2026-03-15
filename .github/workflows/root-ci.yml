@@ -29,15 +29,20 @@ jobs:
       - name: Secrets doctor
         run: python3 ./flow secrets doctor --json
 
+      - name: Secret scan
+        run: python3 ./flow secrets scan --all --json
+
       - name: Spec-driven CI
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             python3 ./flow ci spec --changed --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.sha }}"
             python3 ./flow drift check --changed --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.sha }}" --json
+            python3 ./flow contract verify --changed --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.sha }}" --json
           else
             python3 ./flow ci spec --all
             python3 ./flow drift check --all --json
+            python3 ./flow contract verify --all --json
           fi
 
       - name: Repo CI

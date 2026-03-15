@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from typing import Callable
+
+
+SECRET_SCAN_BINARY_SUFFIXES = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".pdf",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".zip",
+    ".gz",
+    ".tar",
+    ".tgz",
+    ".jar",
+    ".pyc",
+}
+SECRET_SCAN_ALLOWED_ENV_NAMES = {
+    ".env.example",
+    ".env.sample",
+    ".env.template",
+    ".env.generated",
+}
+SECRET_SCAN_FILENAME_RE = re.compile(r"(^|/)\.env(\.[^/]+)?$", flags=re.IGNORECASE)
+SECRET_SCAN_CONTENT_PATTERNS = [
+    ("private-key", re.compile(r"-----BEGIN (?:[A-Z ]+)?PRIVATE KEY-----")),
+    ("github-token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b")),
+    ("openai-key", re.compile(r"\bsk-[A-Za-z0-9]{20,}\b")),
+    ("aws-access-key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    (
+        "generic-secret",
+        re.compile(
+            r"(?i)\b(api[_-]?key|secret|token|password|passwd|private[_-]?key)\b\s*[:=]\s*['\"]?([^\s'\"`]{8,})"
+        ),
+    ),
+]
+
+
+def secret_value_looks_placeholder(value: str) -> bool:
+    normalized = value.strip().strip("'\"")
+    lower = normalized.lower()
+    if not normalized:
+        return True
+    if normalized.startswith("${") or normalized.startswith("op://") or normalized.startswith("sops://"):
+        return True
+    placeholders = ("example", "sample", "changeme", "replace", "dummy", "placeholder", "fake", "test")
+    return any(token in lower for token in placeholders)
+
+
+def candidate_secret_file_findings(relative_path: str) -> list[str]:
+    path = Path(relative_path)
+    name = path.name.lower()
+    findings: list[str] = []
+    if SECRET_SCAN_FILENAME_RE.search(relative_path.replace("\\", "/")) and name not in SECRET_SCAN_ALLOWED_ENV_NAMES:
+        findings.append("archivo `.env` real detectado")
+    if path.suffix.lower() in {".pem", ".p12", ".pfx", ".key"}:
+        findings.append(f"archivo sensible `{path.suffix.lower()}` detectado")
+    return findings
+
+
+def content_secret_findings(text: str) -> list[str]:
+    findings: list[str] = []
+    for label, pattern in SECRET_SCAN_CONTENT_PATTERNS:
+        for match in pattern.finditer(text):
+            if label == "generic-secret":
+                secret_value = match.group(2) if match.lastindex and match.lastindex >= 2 else match.group(0)
+                if secret_value_looks_placeholder(secret_value):
+                    continue
+            findings.append(f"patron `{label}` detectado")
+            break
+    return findings
+
+
+def scan_secret_paths(
+    repo: str,
+    repo_path: Path,
+    relative_paths: list[str],
+    *,
+    read_text: Callable[[Path], str],
+) -> list[dict[str, object]]:
+    findings: list[dict[str, object]] = []
+    for relative_path in sorted(dict.fromkeys(relative_paths)):
+        absolute_path = repo_path / relative_path
+        file_findings = candidate_secret_file_findings(relative_path)
+        if absolute_path.is_file() and absolute_path.suffix.lower() not in SECRET_SCAN_BINARY_SUFFIXES:
+            file_findings.extend(content_secret_findings(read_text(absolute_path)))
+        if file_findings:
+            findings.append(
+                {
+                    "repo": repo,
+                    "path": relative_path,
+                    "findings": sorted(dict.fromkeys(file_findings)),
+                }
+            )
+    return findings

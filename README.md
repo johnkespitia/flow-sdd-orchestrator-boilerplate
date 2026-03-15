@@ -97,11 +97,13 @@ python3 ./flow stack doctor
 python3 ./flow tessl -- --help
 python3 ./flow skills doctor
 python3 ./flow secrets doctor
+python3 ./flow secrets scan --all --json
 python3 ./flow providers doctor
 python3 ./flow bmad -- status
 python3 ./flow submodule doctor --json
 python3 ./flow ci spec --all
 python3 ./flow drift check --all --json
+python3 ./flow contract verify --all --json
 python3 ./flow spec generate-contracts spec-driven-delivery-bootstrap --json
 python3 ./flow release --help
 python3 ./flow infra --help
@@ -123,6 +125,7 @@ python3 ./flow skills doctor
 python3 ./flow skills list
 python3 ./flow skills sync --dry-run
 python3 ./flow skills add team-review --provider skills-sh --source your-org/agent-skills --arg=--copy
+python3 ./flow skills add github-review --provider skills-sh --source your-org/agent-skills --require gh
 ```
 
 Los runtimes de `flow add-project` se resuelven desde `workspace.runtimes.json` y `runtimes/*.runtime.json`,
@@ -145,11 +148,17 @@ Los secrets y guardrails de repos también entran por el control plane:
 
 ```bash
 python3 ./flow secrets list
+python3 ./flow secrets scan --all --json
 python3 ./flow secrets sync --dry-run
 python3 ./flow submodule doctor --json
 python3 ./flow drift check --all --json
+python3 ./flow contract verify --all --json
 make hooks-install
 ```
+
+`flow drift check` valida que `[@test]` apunte a tests ejecutables por el `test_runner` del repo.
+`flow contract verify` usa los contratos generados en `contracts/generated/**` para detectar drift
+estructural entre contrato e implementacion antes de llegar a integración.
 
 ## Modelo operativo
 
