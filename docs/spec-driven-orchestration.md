@@ -33,6 +33,8 @@ El workspace expone `python3 ./flow` como control plane.
 python3 ./flow stack doctor
 python3 ./flow stack ps
 python3 ./flow tessl -- --help
+python3 ./flow skills doctor
+python3 ./flow skills sync --dry-run
 python3 ./flow doctor
 python3 ./flow spec create identity-bootstrap --title "Identity Bootstrap" --repo backend
 python3 ./flow spec review identity-bootstrap
@@ -71,6 +73,8 @@ python3 ./flow bmad -- install --tools none --yes
 - `flow stack ...` resuelve el proyecto Compose correcto del devcontainer y evita depender del
   nombre implícito del host.
 - `flow tessl ...` ejecuta Tessl en el entorno canónico del `workspace`.
+- `flow skills ...` usa `workspace.skills.json` como manifest versionado para sincronizar skills
+  de Tessl y `skills.sh` sin depender de `~/.codex/**`.
 - `flow bmad ...` resuelve BMAD dentro del `workspace`, ejecuta en `/workspace` y permite inicializar
   `_bmad/` con `install` cuando el proyecto aún no fue bootstrappeado.
 - `_bmad/` se versiona como runtime/configuración del proyecto; `_bmad-output/` queda como artefacto

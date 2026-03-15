@@ -13,8 +13,9 @@ No es un producto específico. Es una base reusable para crear workspaces agenti
 
 ## Qué trae
 
-- `flow`: CLI del workspace para `stack`, `tessl`, `bmad`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `status`
+- `flow`: CLI del workspace para `stack`, `tessl`, `skills`, `bmad`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `status`
 - `workspace.config.json`: routing configurable de repos, targets y test runners
+- `workspace.skills.json`: manifest versionado de skills y tiles del workspace
 - `.tessl/**`: tile local de SDD centrado en root
 - `_bmad/`: instalación versionada del runtime BMAD del proyecto
 - `.flow/**`: estado operativo local del SDLC
@@ -88,6 +89,7 @@ Nota:
 python3 ./flow doctor
 python3 ./flow stack doctor
 python3 ./flow tessl -- --help
+python3 ./flow skills doctor
 python3 ./flow bmad -- status
 python3 ./flow ci spec --all
 python3 ./flow release --help
@@ -102,6 +104,15 @@ python3 ./flow add-project mobile --runtime pnpm --port 4173
 
 Eso actualiza `workspace.config.json`, crea el directorio placeholder y, si el runtime lo soporta,
 agrega un servicio al `docker-compose` del devcontainer.
+
+Las skills y tiles del workspace también se gobiernan desde el control plane:
+
+```bash
+python3 ./flow skills doctor
+python3 ./flow skills list
+python3 ./flow skills sync --dry-run
+python3 ./flow skills add team-review --provider skills-sh --source your-org/agent-skills --arg=--copy
+```
 
 ## Modelo operativo
 

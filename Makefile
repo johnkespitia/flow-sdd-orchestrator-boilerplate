@@ -86,7 +86,7 @@ nuke: ## Borra contenedores, volúmenes e imágenes del proyecto
 # ── Help ─────────────────────────────────────────────────────────────
 
 .PHONY: help
-.PHONY: flow flow-doctor flow-status stack tessl bmad ci release infra
+.PHONY: flow flow-doctor flow-status stack tessl bmad skills ci release infra
 
 flow:
 	$(FLOW) $(ARGS)
@@ -105,6 +105,9 @@ tessl:
 
 bmad:
 	$(FLOW) bmad -- $(ARGS)
+
+skills:
+	$(FLOW) skills $(ARGS)
 
 ci:
 	$(FLOW) ci $(ARGS)
@@ -156,6 +159,7 @@ help:
 	@echo "    make stack ARGS='ps'            Ejecuta flow stack"
 	@echo "    make tessl ARGS='whoami'        Ejecuta Tessl via flow"
 	@echo "    make bmad ARGS='--help'         Ejecuta BMAD via flow"
+	@echo "    make skills ARGS='doctor'       Gestiona skills versionadas del workspace"
 	@echo "    make ci ARGS='spec --all'       Ejecuta CI spec-driven"
 	@echo "    make release ARGS='status --version v1' Gestiona manifests/promotions"
 	@echo "    make infra ARGS='status feature' Gestiona plan/apply de infraestructura"

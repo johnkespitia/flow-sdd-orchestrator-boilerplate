@@ -1,0 +1,22 @@
+{
+  "providers": {
+    "tessl": {
+      "enabled": true
+    },
+    "skills-sh": {
+      "enabled": true
+    }
+  },
+  "entries": [
+    {
+      "name": "workspace/spec-driven-workspace",
+      "provider": "tessl",
+      "kind": "tile",
+      "source": ".tessl/tiles/workspace/spec-driven-workspace",
+      "enabled": true,
+      "required": true,
+      "sync": false,
+      "notes": "Tile local ya vendorizado y gobernado por tessl.json."
+    }
+  ]
+}
