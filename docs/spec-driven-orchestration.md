@@ -3,6 +3,12 @@
 Este workspace usa un modelo de `Spec As Source` centralizado en el root y una capa operativa
 ligera para orquestar el SDLC.
 
+Nota:
+
+- el boilerplate nace con solo `workspace`
+- los nombres `backend` y `frontend` en este documento son ejemplos de repos agregados despues con
+  `python3 ./flow add-project ...`
+
 ## Principios
 
 - `specs/**` en `workspace-root` es la fuente de verdad del sistema.
@@ -40,6 +46,8 @@ python3 ./flow secrets sync --dry-run
 python3 ./flow providers doctor
 python3 ./flow submodule doctor --json
 python3 ./flow doctor
+python3 ./flow add-project backend --runtime php --port 8000
+python3 ./flow add-project frontend --runtime pnpm --port 5173
 python3 ./flow spec create identity-bootstrap --title "Identity Bootstrap" --repo backend
 python3 ./flow spec review identity-bootstrap
 python3 ./flow spec approve identity-bootstrap

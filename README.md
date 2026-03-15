@@ -23,7 +23,7 @@ No es un producto específico. Es una base reusable para crear workspaces agenti
 - `.tessl/**`: tile local de SDD centrado en root
 - `_bmad/`: instalación versionada del runtime BMAD del proyecto
 - `.flow/**`: estado operativo local del SDLC
-- `.devcontainer/**`: stack reproducible con `workspace`, `backend`, `frontend` y `db`
+- `.devcontainer/**`: chasis reproducible con `workspace` y runtime packs listos para crecer
 - `scripts/bootstrap_workspace.py`: scaffolder para generar un proyecto nuevo sin heredar Git
 
 ## Qué parte es boilerplate y qué parte es ejemplo
@@ -41,8 +41,7 @@ Reusable:
 Ejemplo reemplazable:
 
 - topología del devcontainer
-- `backend/` y `frontend/` placeholder
-- stack base `PHP + Node + MySQL`
+- runtime packs en `runtimes/*.runtime.json`
 - comandos de instalación por defecto del `Makefile`
 
 ## Uso recomendado
@@ -52,7 +51,7 @@ Ejemplo reemplazable:
 1. En GitHub usa `Use this template`
 2. Crea tu nuevo repo
 3. Clona el repo nuevo
-4. Ajusta nombres y repos con `bootstrap_workspace.py` si todavía quieres renombrar la topología
+4. Ajusta nombres del proyecto con `bootstrap_workspace.py` si todavía quieres renombrar el root
 
 ### Opción 2: generar un proyecto aislado desde este repo
 
@@ -62,8 +61,6 @@ Desde este boilerplate:
 python3 scripts/bootstrap_workspace.py /ruta/al/nuevo-workspace \
   --project-name "Acme Platform" \
   --root-repo acme-dev-env \
-  --backend-repo platform-api \
-  --frontend-repo platform-web \
   --git-init
 ```
 
@@ -71,16 +68,17 @@ Eso genera un workspace nuevo:
 
 - con su propio `.git`
 - con `workspace.config.json` ya ajustado
-- con placeholders limpios para los repos de implementación
+- con un chasis root-only limpio
 - sin arrastrar estado operativo previo
 
 ## Después de crear tu workspace
 
-1. Reemplaza `backend/` y `frontend/` por repos reales o submódulos Git
-2. Ajusta [`workspace.config.json`](workspace.config.json) a tus repos y roots válidos
-3. Si tu stack no es `PHP + Node + MySQL`, cambia [`.devcontainer/docker-compose.yml`](.devcontainer/docker-compose.yml) y los Dockerfiles
-4. Abre el root en devcontainer
-5. Ejecuta:
+1. Abre el root en devcontainer
+2. Valida el scaffold
+3. Agrega los proyectos que realmente necesites con `flow add-project`
+4. Ajusta [`workspace.config.json`](workspace.config.json) si tu routing requiere reglas adicionales
+5. Si tu stack necesita otro runtime base, cambia los runtime packs o [`.devcontainer/docker-compose.yml`](.devcontainer/docker-compose.yml)
+6. Ejecuta:
 
 Nota:
 
@@ -112,11 +110,14 @@ python3 ./flow infra --help
 Si necesitas un tercer proyecto de implementación, puedes registrarlo desde el control plane:
 
 ```bash
+python3 ./flow add-project api --runtime php --port 8000
+python3 ./flow add-project web --runtime pnpm --port 5173
 python3 ./flow add-project mobile --runtime pnpm --port 4173
 ```
 
 Eso actualiza `workspace.config.json`, crea el directorio placeholder y, si el runtime lo soporta,
-agrega un servicio al `docker-compose` del devcontainer.
+agrega el servicio al `docker-compose` del devcontainer junto con auxiliares del runtime. El
+runtime `php`, por ejemplo, agrega `db` si todavía no existe.
 
 Las skills y tiles del workspace también se gobiernan desde el control plane:
 
@@ -132,7 +133,8 @@ Los runtimes de `flow add-project` se resuelven desde `workspace.runtimes.json` 
 dejando `workspace.skills.json` reservado para capacidades del agente:
 
 ```bash
-python3 ./flow add-project mobile --runtime pnpm --port 4173
+python3 ./flow add-project api --runtime php --port 8000
+python3 ./flow add-project web --runtime pnpm --port 5173
 ```
 
 Los providers de CD e infraestructura se gobiernan igual:
@@ -182,12 +184,13 @@ Regla base:
 ## Flujo mínimo
 
 ```bash
-python3 ./flow spec create identity-bootstrap --title "Identity Bootstrap" --repo backend
+python3 ./flow add-project api --runtime php --port 8000
+python3 ./flow spec create identity-bootstrap --title "Identity Bootstrap" --repo api
 python3 ./flow spec review identity-bootstrap
 python3 ./flow spec approve identity-bootstrap
 python3 ./flow plan identity-bootstrap
-python3 ./flow slice start identity-bootstrap backend-main
-python3 ./flow slice verify identity-bootstrap backend-main
+python3 ./flow slice start identity-bootstrap api-main
+python3 ./flow slice verify identity-bootstrap api-main
 python3 ./flow ci spec --all
 python3 ./flow release status --version 2026.03.14-1
 python3 ./flow infra status spec-driven-delivery-bootstrap
@@ -199,11 +202,11 @@ python3 ./flow status
 El devcontainer incluido trae:
 
 - `workspace`: herramientas CLI y edición
-- `backend`: placeholder de runtime backend
-- `frontend`: placeholder de runtime frontend
-- `db`: MySQL local
+- sin repos de implementación por defecto
+- sin base de datos por defecto
+- runtime packs listos para agregar servicios bajo demanda
 
-Ese stack es solo una base de arranque. Si tu proyecto usa otra topología, cámbiala.
+Ese stack es intencionalmente mínimo. La topología nace vacía y se expande con `flow add-project`.
 
 ## Comandos útiles
 

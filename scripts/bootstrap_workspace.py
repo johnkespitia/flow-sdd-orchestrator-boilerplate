@@ -18,15 +18,6 @@ def load_config(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def implementation_repos(config: dict[str, object]) -> list[str]:
-    repos = config["repos"]
-    return [
-        repo
-        for repo, repo_config in repos.items()
-        if str(repo_config.get("kind", "implementation")) != "root"
-    ]
-
-
 def source_repo_paths(config: dict[str, object]) -> dict[str, str]:
     return {
         repo: str(repo_config.get("path", ".")).strip()
@@ -78,16 +69,13 @@ def remove_repo_specific_files(destination: Path) -> None:
             target.unlink()
 
 
-def build_repo_config(repo_id: str, path: str, kind: str, source_repo: dict[str, object]) -> dict[str, object]:
+def build_repo_config(path: str, kind: str, source_repo: dict[str, object]) -> dict[str, object]:
     repo_config = dict(source_repo)
     repo_config["path"] = path
     repo_config["kind"] = kind
     if kind == "root":
         repo_config["slice_prefix"] = repo_config.get("slice_prefix", "root")
         repo_config["compose_service"] = str(repo_config.get("compose_service", "workspace"))
-    else:
-        repo_config["slice_prefix"] = path.replace("_", "-")
-        repo_config["compose_service"] = path
 
     default_targets = list(repo_config.get("default_targets", []))
     target_roots = list(repo_config.get("target_roots", []))
@@ -129,15 +117,7 @@ def rewrite_workspace_config(
     source_config: dict[str, object],
     project_name: str,
     root_repo: str,
-    backend_repo: str,
-    frontend_repo: str,
 ) -> None:
-    source_repos = implementation_repos(source_config)
-    if len(source_repos) < 2:
-        raise SystemExit("El boilerplate necesita al menos dos repos de implementacion en la configuracion fuente.")
-
-    backend_source = source_config["repos"][source_repos[0]]
-    frontend_source = source_config["repos"][source_repos[1]]
     root_source = source_config["repos"][source_config["project"]["root_repo"]]
 
     destination_config = {
@@ -146,9 +126,7 @@ def rewrite_workspace_config(
             "root_repo": root_repo,
         },
         "repos": {
-            root_repo: build_repo_config(root_repo, ".", "root", root_source),
-            backend_repo: build_repo_config(backend_repo, backend_repo, "implementation", backend_source),
-            frontend_repo: build_repo_config(frontend_repo, frontend_repo, "implementation", frontend_source),
+            root_repo: build_repo_config(".", "root", root_source),
         },
     }
 
@@ -158,208 +136,11 @@ def rewrite_workspace_config(
     )
 
 
-def placeholder_ci_workflow(repo_name: str, test_runner: str) -> tuple[str, str] | None:
-    workflow_id = repo_name.replace("_", "-")
-    display_name = repo_name.replace("-", " ").replace("_", " ").title()
-
-    if test_runner == "php":
-        content = "\n".join(
-            [
-                f"name: {display_name} CI",
-                "",
-                "on:",
-                "  pull_request:",
-                "  push:",
-                "    branches:",
-                "      - main",
-                "",
-                "permissions:",
-                "  contents: read",
-                "",
-                "jobs:",
-                "  repo-ci:",
-                "    runs-on: ubuntu-latest",
-                "    steps:",
-                "      - name: Checkout",
-                "        uses: actions/checkout@v4",
-                "",
-                "      - name: Setup PHP",
-                "        if: ${{ hashFiles('composer.json') != '' }}",
-                "        uses: shivammathur/setup-php@v2",
-                "        with:",
-                "          php-version: \"8.2\"",
-                "          tools: composer",
-                "          coverage: none",
-                "",
-                "      - name: Install dependencies",
-                "        if: ${{ hashFiles('composer.json') != '' }}",
-                "        run: composer install --no-interaction --prefer-dist --no-progress",
-                "",
-                "      - name: Repo checks",
-                "        shell: bash",
-                "        run: |",
-                "          set -euo pipefail",
-                "",
-                "          if [ ! -f composer.json ]; then",
-                "            test -f AGENTS.md",
-                f"            echo \"Placeholder repo {repo_name}: no composer.json yet.\"",
-                "            exit 0",
-                "          fi",
-                "",
-                "          if [ -f artisan ]; then",
-                "            php artisan test",
-                "            exit 0",
-                "          fi",
-                "",
-                "          if [ -x vendor/bin/phpunit ]; then",
-                "            vendor/bin/phpunit",
-                "            exit 0",
-                "          fi",
-                "",
-                "          if [ -f vendor/bin/phpunit ]; then",
-                "            php vendor/bin/phpunit",
-                "            exit 0",
-                "          fi",
-                "",
-                "          echo \"No Laravel or PHPUnit runner detected; CI completed without a test runner.\"",
-                "",
-            ]
-        )
-        return f"{workflow_id}-ci.yml", content
-
-    if test_runner == "pnpm":
-        content = "\n".join(
-            [
-                f"name: {display_name} CI",
-                "",
-                "on:",
-                "  pull_request:",
-                "  push:",
-                "    branches:",
-                "      - main",
-                "",
-                "permissions:",
-                "  contents: read",
-                "",
-                "jobs:",
-                "  repo-ci:",
-                "    runs-on: ubuntu-latest",
-                "    steps:",
-                "      - name: Checkout",
-                "        uses: actions/checkout@v4",
-                "",
-                "      - name: Setup Node",
-                "        uses: actions/setup-node@v4",
-                "        with:",
-                "          node-version: \"20\"",
-                "",
-                "      - name: Setup pnpm",
-                "        uses: pnpm/action-setup@v4",
-                "        with:",
-                "          version: \"9\"",
-                "",
-                "      - name: Install dependencies",
-                "        if: ${{ hashFiles('package.json') != '' }}",
-                "        shell: bash",
-                "        run: |",
-                "          set -euo pipefail",
-                "          if [ -f pnpm-lock.yaml ]; then",
-                "            pnpm install --frozen-lockfile",
-                "          else",
-                "            pnpm install --no-frozen-lockfile",
-                "          fi",
-                "",
-                "      - name: Repo checks",
-                "        shell: bash",
-                "        run: |",
-                "          set -euo pipefail",
-                "",
-                "          if [ ! -f package.json ]; then",
-                "            test -f AGENTS.md",
-                f"            echo \"Placeholder repo {repo_name}: no package.json yet.\"",
-                "            exit 0",
-                "          fi",
-                "",
-                "          pnpm lint --if-present",
-                "          pnpm test --if-present",
-                "          pnpm build --if-present",
-                "",
-            ]
-        )
-        return f"{workflow_id}-ci.yml", content
-
-    return None
-
-
-def create_placeholder_repo(destination: Path, repo_name: str, root_repo: str, repo_config: dict[str, object]) -> None:
-    repo_dir = destination / repo_name
-    repo_dir.mkdir(parents=True, exist_ok=True)
-    agents = "\n".join(
-        [
-            "# AGENTS.md",
-            "",
-            "## Scope",
-            "",
-            f"Estas reglas aplican a `{repo_name}/**`.",
-            "",
-            "## Role",
-            "",
-            f"`{repo_name}` es un repo de implementacion de codigo.",
-            "",
-            "## Required reading order",
-            "",
-            "1. la spec del root que dispara el trabajo",
-            f"2. `{root_repo}/specs/000-foundation/**` relevantes",
-            "3. este archivo",
-            "",
-            "## Rules",
-            "",
-            "- no crear specs locales como fuente de verdad paralela",
-            "- implementar solo lo que este cubierto por `targets` del root",
-            "- mantener tests y codigo alineados con la spec del root",
-            "- si el cambio requiere ampliar alcance, actualizar primero la spec del root",
-            "",
-        ]
-    )
-    (repo_dir / "AGENTS.md").write_text(agents, encoding="utf-8")
-    (repo_dir / ".gitkeep").write_text("", encoding="utf-8")
-    (repo_dir / "README.md").write_text(
-        "\n".join(
-            [
-                f"# {repo_name}",
-                "",
-                "Placeholder del repo de implementacion.",
-                "",
-                "Reemplazalo por un repo real o por un submodulo Git cuando conectes este workspace a un producto.",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    workflow = placeholder_ci_workflow(repo_name, str(repo_config.get("test_runner", "none")))
-    if workflow is not None:
-        workflow_name, workflow_content = workflow
-        workflow_path = repo_dir / ".github" / "workflows" / workflow_name
-        workflow_path.parent.mkdir(parents=True, exist_ok=True)
-        workflow_path.write_text(workflow_content, encoding="utf-8")
-
-
-def patch_devcontainer(destination: Path, project_name: str, backend_repo: str, frontend_repo: str) -> None:
+def patch_devcontainer(destination: Path, project_name: str) -> None:
     devcontainer_json = destination / ".devcontainer" / "devcontainer.json"
     payload = json.loads(devcontainer_json.read_text(encoding="utf-8"))
     payload["name"] = project_name
     devcontainer_json.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-    compose_path = destination / ".devcontainer" / "docker-compose.yml"
-    compose_text = compose_path.read_text(encoding="utf-8")
-    compose_text = compose_text.replace("\n  backend:\n", f"\n  {backend_repo}:\n")
-    compose_text = compose_text.replace("\n  frontend:\n", f"\n  {frontend_repo}:\n")
-    compose_text = compose_text.replace("../plg-backend:/app:cached", f"../{backend_repo}:/app:cached")
-    compose_text = compose_text.replace("../plg-frontend:/app:cached", f"../{frontend_repo}:/app:cached")
-    compose_text = compose_text.replace("../backend:/app:cached", f"../{backend_repo}:/app:cached")
-    compose_text = compose_text.replace("../frontend:/app:cached", f"../{frontend_repo}:/app:cached")
-    compose_path.write_text(compose_text, encoding="utf-8")
 
 
 def rewrite_text_file(path: Path, replacements: dict[str, str]) -> None:
@@ -376,21 +157,14 @@ def rewrite_project_texts(
     source_config: dict[str, object],
     project_name: str,
     root_repo: str,
-    backend_repo: str,
-    frontend_repo: str,
 ) -> None:
     source_project_name = str(source_config["project"].get("display_name", ROOT.name))
     source_root_repo = str(source_config["project"]["root_repo"])
-    source_impl = implementation_repos(source_config)
 
     replacements = {
         source_project_name: project_name,
         source_root_repo: root_repo,
     }
-    if len(source_impl) >= 1:
-        replacements[source_impl[0]] = backend_repo
-    if len(source_impl) >= 2:
-        replacements[source_impl[1]] = frontend_repo
 
     for relative_root in ["README.md", "templates", "specs", "docs", ".tessl", ".github", "scripts", "flowctl", "runtimes", "Makefile"]:
         target = destination / relative_root
@@ -404,22 +178,6 @@ def rewrite_project_texts(
             if path.suffix in TEXT_EXTENSIONS or path.name in {"Makefile", "flow", "AGENTS.md"}:
                 rewrite_text_file(path, replacements)
 
-    postprocess_rewritten_texts(destination, backend_repo, frontend_repo)
-
-
-def postprocess_rewritten_texts(destination: Path, backend_repo: str, frontend_repo: str) -> None:
-    targeted_replacements = {
-        f"--{backend_repo}-repo": "--backend-repo",
-        f"--{frontend_repo}-repo": "--frontend-repo",
-        f"{backend_repo}.Dockerfile": "backend.Dockerfile",
-        f"{frontend_repo}.Dockerfile": "frontend.Dockerfile",
-    }
-    for path in destination.rglob("*"):
-        if path.is_dir():
-            continue
-        if path.suffix in TEXT_EXTENSIONS or path.name in {"Makefile", "flow", "AGENTS.md"}:
-            rewrite_text_file(path, targeted_replacements)
-
 
 def git_init(destination: Path) -> None:
     subprocess.run(["git", "init"], cwd=destination, check=True)
@@ -432,8 +190,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("destination", help="Directorio donde nacerá el nuevo workspace.")
     parser.add_argument("--project-name", required=True, help="Nombre visible del proyecto.")
     parser.add_argument("--root-repo", required=True, help="Nombre del repo root del nuevo workspace.")
-    parser.add_argument("--backend-repo", default="backend", help="Nombre del repo de backend.")
-    parser.add_argument("--frontend-repo", default="frontend", help="Nombre del repo de frontend.")
+    parser.add_argument(
+        "--backend-repo",
+        default=None,
+        help="Deprecated. El boilerplate ahora nace sin proyectos de implementacion; usa `flow add-project` despues.",
+    )
+    parser.add_argument(
+        "--frontend-repo",
+        default=None,
+        help="Deprecated. El boilerplate ahora nace sin proyectos de implementacion; usa `flow add-project` despues.",
+    )
     parser.add_argument("--force", action="store_true", help="Permitir escribir sobre un directorio existente.")
     parser.add_argument("--git-init", action="store_true", help="Inicializar Git y crear un primer commit.")
     return parser.parse_args()
@@ -453,30 +219,13 @@ def main() -> int:
         source_config,
         project_name=args.project_name,
         root_repo=args.root_repo,
-        backend_repo=args.backend_repo,
-        frontend_repo=args.frontend_repo,
     )
-    destination_config = load_config(destination / "workspace.config.json")
-    create_placeholder_repo(
-        destination,
-        args.backend_repo,
-        args.root_repo,
-        destination_config["repos"][args.backend_repo],
-    )
-    create_placeholder_repo(
-        destination,
-        args.frontend_repo,
-        args.root_repo,
-        destination_config["repos"][args.frontend_repo],
-    )
-    patch_devcontainer(destination, args.project_name, args.backend_repo, args.frontend_repo)
+    patch_devcontainer(destination, args.project_name)
     rewrite_project_texts(
         destination,
         source_config,
         project_name=args.project_name,
         root_repo=args.root_repo,
-        backend_repo=args.backend_repo,
-        frontend_repo=args.frontend_repo,
     )
 
     if args.git_init:

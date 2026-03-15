@@ -69,6 +69,42 @@
         "condition": "service_healthy"
       }
     },
+    "support_services": {
+      "db": {
+        "image": "mysql:8.0",
+        "restart": "unless-stopped",
+        "volumes": [
+          "workspace-mysql-data:/var/lib/mysql"
+        ],
+        "environment": {
+          "MYSQL_ROOT_PASSWORD": "root",
+          "MYSQL_DATABASE": "app_dev",
+          "MYSQL_USER": "app",
+          "MYSQL_PASSWORD": "app"
+        },
+        "healthcheck": {
+          "test": [
+            "CMD",
+            "mysqladmin",
+            "ping",
+            "-h",
+            "localhost",
+            "-u",
+            "root",
+            "-proot"
+          ],
+          "interval": "5s",
+          "timeout": "3s",
+          "retries": 10
+        },
+        "networks": [
+          "{network_name}"
+        ]
+      }
+    },
+    "named_volumes": [
+      "workspace-mysql-data"
+    ],
     "networks": [
       "{network_name}"
     ]

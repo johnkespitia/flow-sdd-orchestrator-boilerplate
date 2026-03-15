@@ -27,21 +27,7 @@
       }
     }
   },
-  "forwardPorts": [
-    5173,
-    8000,
-    3306
-  ],
-  "portsAttributes": {
-    "5173": {
-      "label": "Frontend (Vite)"
-    },
-    "8000": {
-      "label": "Backend (Laravel)"
-    },
-    "3306": {
-      "label": "MySQL"
-    }
-  },
+  "forwardPorts": [],
+  "portsAttributes": {},
   "remoteUser": "vscode"
 }

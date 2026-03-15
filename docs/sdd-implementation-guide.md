@@ -22,8 +22,7 @@ La fuente de verdad vive en el root, en [`specs/`](../specs/README.md).
 La metodologia SDD vive en el root, en [`.tessl/`](../.tessl/RULES.md) y
 [`tessl.json`](../tessl.json).
 El estado operativo vive en [`.flow/`](../.flow/README.md).
-El codigo vive en los submodulos [`backend/`](../backend/) y
-[`frontend/`](../frontend/).
+El codigo vive en los repos de implementacion que agregues despues con `flow add-project`.
 
 Esa separacion evita dos fallas comunes:
 
@@ -46,8 +45,7 @@ Estos archivos describen el modelo actual y son la referencia principal:
 - [`.tessl/tiles/workspace/spec-driven-workspace/index.md`](../.tessl/tiles/workspace/spec-driven-workspace/index.md)
 - [flow](../flow)
 - [`.flow/README.md`](../.flow/README.md)
-- [backend/AGENTS.md](../backend/AGENTS.md)
-- [frontend/AGENTS.md](../frontend/AGENTS.md)
+- `AGENTS.md` de cada repo de implementacion que agregues con `flow add-project`
 
 ## Problema que resuelve esta arquitectura
 
@@ -154,8 +152,8 @@ artefactos tecnicos locales.
 
 Reglas activas:
 
-- [backend/AGENTS.md](../backend/AGENTS.md)
-- [frontend/AGENTS.md](../frontend/AGENTS.md)
+- `AGENTS.md` del root
+- `AGENTS.md` de cada repo de implementacion agregado posteriormente
 
 Justificacion:
 
@@ -177,7 +175,7 @@ con `specs/**` del root como fuente de verdad del SDLC del sistema.
 | Metodologia SDD | `.tessl/**`, `tessl.json` | requirement gathering, reglas de estilo, verificacion |
 | Orquestacion | `flow` | plan, slices, handoffs, routing y estado |
 | Estado operativo | `.flow/**` | estados, planes, reportes y artefactos efimeros |
-| Codigo | `backend/`, `frontend/` | implementacion, tests y runtime |
+| Codigo | repos de implementacion agregados con `flow add-project` | implementacion, tests y runtime |
 
 ## Flujo SDLC resultante
 

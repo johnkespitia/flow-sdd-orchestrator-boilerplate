@@ -1,5 +1,10 @@
 # Spec-Driven SDLC Map
 
+Nota:
+
+- el boilerplate nace sin repos de implementacion
+- los nombres `backend` y `frontend` en este documento son ejemplos despues de `flow add-project`
+
 Mapa operativo del flujo completo de desarrollo, CI y CD para este workspace.
 
 ## Objetivo
@@ -189,8 +194,7 @@ Repos:
 Estado deseado:
 
 - el PR del submódulo solo certifica la implementación local
-- hoy existen workflows mínimos en `backend/.github/workflows/backend-ci.yml` y
-  `frontend/.github/workflows/frontend-ci.yml`
+- cuando agregas repos con `flow add-project`, el scaffolder deja workflows mínimos placeholder-aware
 
 ### 5.2 CI del root
 
@@ -357,7 +361,7 @@ Responsabilidad:
 - `flow infra plan|apply|status`
 - `flow status`
 - workflows del root para CI, release e infra
-- workflows mínimos de CI en `backend` y `frontend`
+- workflows mínimos de CI en los repos agregados con `flow add-project`
 
 ### Siguientes pasos naturales
 
