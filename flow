@@ -16,12 +16,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from flowctl import features as flow_features
+from flowctl import skills_ops as flow_skills_ops
+from flowctl import specs as flow_specs
+from flowctl import stack_ops as flow_stack_ops
+from flowctl import tooling as flow_tooling
+from flowctl import workspace_ops as flow_workspace_ops
 from flowctl.contracts import (
     contract_match_files as contracts_match_files,
     extract_contract_declarations as contracts_extract_declarations,
     render_contract_artifacts as contracts_render_artifacts,
     validate_contract_declaration as contracts_validate_declaration,
     verify_contract_declaration as contracts_verify_declaration,
+)
+from flowctl.contracts_ops import (
+    command_contract_verify as flow_command_contract_verify,
+    command_drift_check as flow_command_drift_check,
+    command_spec_generate_contracts as flow_command_spec_generate_contracts,
+    render_contract_artifacts as flow_render_contract_artifacts,
+    verify_contract_declaration as flow_verify_contract_declaration,
 )
 from flowctl.ci import (
     command_ci_integration as flow_command_ci_integration,
@@ -39,6 +52,15 @@ from flowctl.infra import (
     command_infra_apply as flow_command_infra_apply,
     command_infra_plan as flow_command_infra_plan,
     command_infra_status as flow_command_infra_status,
+)
+from flowctl.gittools import (
+    git_changed_files as flow_git_changed_files,
+    git_diff_name_only as flow_git_diff_name_only,
+    git_output as flow_git_output,
+    git_scope as flow_git_scope,
+    normalize_scoped_git_paths as flow_normalize_scoped_git_paths,
+    repo_head_sha as flow_repo_head_sha,
+    repo_paths_changed_under_roots as flow_repo_paths_changed_under_roots,
 )
 from flowctl.doctor import command_doctor as flow_command_doctor
 from flowctl.parser import build_parser as flow_build_parser
@@ -197,6 +219,21 @@ REQUIRED_FRONTMATTER_FIELDS = ("name", "description", "status", "owner", "target
 TEST_REF_RE = re.compile(r"(?m)^[^\S\r\n]*(?:[-*]\s+)?\[@test\]\s+([^\s`]+)")
 TODO_RE = re.compile(r"\bTODO\b")
 
+SPEC_CONFIG = flow_specs.build_spec_config(
+    root=ROOT,
+    specs_root=SPECS_ROOT,
+    feature_specs=FEATURE_SPECS,
+    root_repo=ROOT_REPO,
+    default_targets=DEFAULT_TARGETS,
+    repo_prefixes=REPO_PREFIXES,
+    target_roots=TARGET_ROOTS,
+    test_required_roots=TEST_REQUIRED_ROOTS,
+    test_hints=TEST_HINTS,
+    required_frontmatter_fields=REQUIRED_FRONTMATTER_FIELDS,
+    test_ref_re=TEST_REF_RE,
+    todo_re=TODO_RE,
+)
+
 STATE_ORDER = [
     "idea",
     "draft-spec",
@@ -261,46 +298,19 @@ def repo_slice_prefix(repo: str) -> str:
 
 
 def normalize_repo_path(value: str) -> str:
-    raw = value.strip()
-    candidate = Path(raw)
-    if not raw or candidate.is_absolute():
-        raise SystemExit("Debes indicar un path relativo valido para el proyecto.")
-    normalized = candidate.as_posix().strip("/")
-    if not normalized or normalized in {".", ".."}:
-        raise SystemExit("Debes indicar un path relativo valido para el proyecto.")
-    parts = Path(normalized).parts
-    if any(part in {"", ".", ".."} for part in parts):
-        raise SystemExit("El path del proyecto no puede salir del workspace ni usar segmentos vacios.")
-    return "/".join(parts)
+    return flow_workspace_ops.normalize_repo_path(value)
 
 
 def validate_identifier(value: str, label: str) -> str:
-    candidate = value.strip()
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", candidate):
-        raise SystemExit(f"El {label} debe usar solo letras, numeros, guiones o guiones bajos.")
-    return candidate
+    return flow_workspace_ops.validate_identifier(value, label)
 
 
 def repo_path_conflicts(repo_path: str) -> Optional[str]:
-    for repo, config in REPO_CONFIG.items():
-        existing_raw = str(config.get("path", ".")).strip()
-        if existing_raw in {"", "."}:
-            continue
-        existing = normalize_repo_path(existing_raw)
-        if repo_path == existing:
-            return f"El path `{repo_path}` ya pertenece al repo `{repo}`."
-        if repo_path.startswith(existing + "/"):
-            return f"El path `{repo_path}` queda dentro del repo existente `{repo}` ({existing})."
-        if existing.startswith(repo_path + "/"):
-            return f"El path `{repo_path}` contendria al repo existente `{repo}` ({existing})."
-    return None
+    return flow_workspace_ops.repo_path_conflicts(repo_path, repo_config=REPO_CONFIG)
 
 
 def write_workspace_config(payload: dict[str, object]) -> None:
-    WORKSPACE_CONFIG_FILE.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
-        encoding="utf-8",
-    )
+    flow_workspace_ops.write_workspace_config(WORKSPACE_CONFIG_FILE, payload)
 
 
 def load_skills_config() -> dict[str, object]:
@@ -333,106 +343,29 @@ def add_service_to_compose(
 
 
 def ensure_project_directory(path: Path, use_existing: bool) -> None:
-    if path.exists():
-        if not path.is_dir():
-            raise SystemExit(f"{rel(path)} existe pero no es un directorio.")
-        if any(path.iterdir()) and not use_existing:
-            raise SystemExit(
-                f"{rel(path)} ya existe y no esta vacio. Usa `--use-existing-dir` si quieres registrarlo igual."
-            )
-        return
-    path.mkdir(parents=True, exist_ok=True)
+    flow_workspace_ops.ensure_project_directory(path, use_existing=use_existing, rel=rel)
 
 
 def command_add_project(args: argparse.Namespace) -> int:
-    require_dirs()
-    repo_name = validate_identifier(args.name, "nombre del proyecto")
-    if repo_name in REPO_CONFIG:
-        raise SystemExit(f"El proyecto `{repo_name}` ya existe en {WORKSPACE_CONFIG_FILE.name}.")
-
-    repo_path = normalize_repo_path(args.path or repo_name)
-    path_conflict = repo_path_conflicts(repo_path)
-    if path_conflict:
-        raise SystemExit(path_conflict)
-
-    runtime = args.runtime
-    try:
-        defaults = resolve_runtime_pack(ROOT, runtime, repo_name, repo_path)
-    except RuntimeCatalogError as exc:
-        raise SystemExit(str(exc)) from exc
-    target_roots = list(args.target_root or defaults["target_roots"])
-    default_targets = list(args.default_target or defaults["default_targets"])
-    test_runner = args.test_runner or str(defaults["test_runner"])
-    test_hint = args.test_hint if args.test_hint is not None else defaults["test_hint"]
-    if args.port is not None and not 1 <= args.port <= 65535:
-        raise SystemExit("`--port` debe estar entre 1 y 65535.")
-    compose_enabled = not args.no_compose and defaults["compose"] is not None
-    service_name = validate_identifier(args.service_name or repo_name, "nombre del servicio")
-
-    destination = ROOT / repo_path
-    ensure_project_directory(destination, use_existing=args.use_existing_dir)
-
-    agents_text, readme_text = repo_placeholder_text(ROOT_REPO, repo_name, defaults["agent_skill_refs"])
-    if not (destination / "AGENTS.md").exists():
-        (destination / "AGENTS.md").write_text(agents_text, encoding="utf-8")
-    if not (destination / "README.md").exists():
-        (destination / "README.md").write_text(readme_text, encoding="utf-8")
-
-    for directory in defaults["placeholder_dirs"]:
-        target_dir = destination / directory
-        target_dir.mkdir(parents=True, exist_ok=True)
-        gitkeep = target_dir / ".gitkeep"
-        if not gitkeep.exists():
-            gitkeep.write_text("", encoding="utf-8")
-
-    for relative_path, content in defaults["placeholder_files"].items():
-        target_file = destination / relative_path
-        if not target_file.exists():
-            target_file.write_text(content, encoding="utf-8")
-
-    updated_config = json.loads(json.dumps(WORKSPACE_CONFIG))
-    updated_config["repos"][repo_name] = {
-        "path": repo_path,
-        "compose_service": service_name if compose_enabled else repo_name,
-        "kind": "implementation",
-        "runtime": runtime,
-        "repo_strategy": "plain",
-        "slice_prefix": slugify(repo_name),
-        "default_targets": default_targets,
-        "target_roots": target_roots,
-        "contract_roots": list(defaults["test_required_roots"]),
-        "test_required_roots": list(defaults["test_required_roots"]),
-        "agent_skill_refs": list(defaults["agent_skill_refs"]),
-        "test_runner": test_runner,
-    }
-    if test_hint:
-        updated_config["repos"][repo_name]["test_hint"] = test_hint
-    write_workspace_config(updated_config)
-
-    if compose_enabled:
-        add_service_to_compose(service_name, repo_path, runtime, args.port, defaults["compose"])
-
-    missing_skill_refs: list[str] = []
-    try:
-        skills_payload = load_skills_config()
-        entries, errors = skills_entries(skills_payload)
-        if errors:
-            raise SystemExit("\n".join(f"- {error}" for error in errors))
-        known_skill_refs = {str(entry["name"]) for entry in entries}
-        missing_skill_refs = [ref for ref in defaults["agent_skill_refs"] if ref not in known_skill_refs]
-    except SystemExit:
-        missing_skill_refs = list(defaults["agent_skill_refs"])
-
-    print(f"Proyecto agregado: {repo_name}")
-    print(f"- path: {repo_path}")
-    print(f"- runtime: {runtime}")
-    print(f"- runtime_source: {rel(Path(defaults['source']))}")
-    print(f"- compose_service: {service_name if compose_enabled else 'skipped'}")
-    print(f"- agent_skill_refs: {', '.join(defaults['agent_skill_refs']) if defaults['agent_skill_refs'] else 'none'}")
-    print(f"- config: {WORKSPACE_CONFIG_FILE.name}")
-    if missing_skill_refs:
-        print(f"- warning: faltan skills referenciadas en {SKILLS_CONFIG_FILE.name}: {', '.join(missing_skill_refs)}")
-    return 0
+    return flow_workspace_ops.command_add_project(
+        args,
+        require_dirs=require_dirs,
+        root=ROOT,
+        root_repo=ROOT_REPO,
+        workspace_config=WORKSPACE_CONFIG,
+        workspace_config_file=WORKSPACE_CONFIG_FILE,
+        skills_config_file=SKILLS_CONFIG_FILE,
+        repo_config=REPO_CONFIG,
+        implementation_repos=implementation_repos,
+        slugify=slugify,
+        rel=rel,
+        resolve_runtime_pack=resolve_runtime_pack,
+        load_skills_config=load_skills_config,
+        skills_entries=skills_entries,
+        repo_placeholder_text=repo_placeholder_text,
+        add_service_to_compose=add_service_to_compose,
+        runtime_catalog_error_type=RuntimeCatalogError,
+    )
 
 
 def utc_now() -> str:
@@ -481,67 +414,11 @@ def repo_root(repo: str) -> Path:
 
 
 def parse_frontmatter(spec_path: Path) -> dict[str, object]:
-    text = spec_path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return {}
-
-    end = None
-    for idx in range(1, len(lines)):
-        if lines[idx].strip() == "---":
-            end = idx
-            break
-
-    if end is None:
-        return {}
-
-    data: dict[str, object] = {}
-    current_key: Optional[str] = None
-
-    for raw_line in lines[1:end]:
-        line = raw_line.rstrip()
-        match = re.match(r"^([A-Za-z0-9_-]+):\s*(.*)$", line)
-        if match:
-            key = match.group(1)
-            value = match.group(2).strip()
-            if value:
-                data[key] = value
-                current_key = None
-            else:
-                data[key] = []
-                current_key = key
-            continue
-
-        if current_key and line.strip().startswith("- "):
-            current = data.setdefault(current_key, [])
-            if isinstance(current, list):
-                current.append(line.strip()[2:].strip())
-
-    return data
+    return flow_specs.parse_frontmatter(spec_path)
 
 
 def replace_frontmatter_status(spec_path: Path, status: str) -> None:
-    text = spec_path.read_text(encoding="utf-8")
-    if not text.startswith("---\n"):
-        raise SystemExit(f"{spec_path} no tiene frontmatter YAML.")
-
-    parts = text.split("---\n", 2)
-    if len(parts) < 3:
-        raise SystemExit(f"{spec_path} tiene frontmatter invalido.")
-
-    frontmatter = parts[1]
-    body = parts[2]
-    if re.search(r"^status:\s*.+$", frontmatter, flags=re.MULTILINE):
-        frontmatter = re.sub(
-            r"^status:\s*.+$",
-            f"status: {status}",
-            frontmatter,
-            count=1,
-            flags=re.MULTILINE,
-        )
-    else:
-        frontmatter += f"status: {status}\n"
-    spec_path.write_text(f"---\n{frontmatter}---\n{body}", encoding="utf-8")
+    flow_specs.replace_frontmatter_status(spec_path, status)
 
 
 def rel(path: Path) -> str:
@@ -561,81 +438,19 @@ def write_state(slug: str, payload: dict[str, object]) -> None:
 
 
 def all_spec_paths() -> list[Path]:
-    return sorted(SPECS_ROOT.rglob("*.spec.md"))
+    return flow_specs.all_spec_paths(SPEC_CONFIG)
 
 
 def git_scope(repo_path: Path) -> tuple[Optional[Path], Optional[str], Optional[str]]:
-    result = subprocess.run(
-        ["git", "-C", str(repo_path), "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.strip() or "git rev-parse fallo"
-        return None, None, stderr
-
-    git_root = Path(result.stdout.strip()).resolve()
-    resolved_repo = repo_path.resolve()
-    if resolved_repo == git_root:
-        return git_root, None, None
-
-    try:
-        prefix = resolved_repo.relative_to(git_root).as_posix()
-    except ValueError:
-        return resolved_repo, None, None
-    return git_root, prefix, None
+    return flow_git_scope(repo_path)
 
 
 def normalize_scoped_git_paths(paths: list[str], prefix: Optional[str]) -> list[str]:
-    if not prefix:
-        return sorted(path.strip("/") for path in paths if path.strip("/"))
-
-    normalized: list[str] = []
-    prefix_with_sep = f"{prefix}/"
-    for path in paths:
-        candidate = path.strip().strip("/")
-        if not candidate:
-            continue
-        if candidate == prefix:
-            continue
-        if candidate.startswith(prefix_with_sep):
-            candidate = candidate[len(prefix_with_sep) :]
-        else:
-            continue
-        candidate = candidate.strip("/")
-        if candidate:
-            normalized.append(candidate)
-    return sorted(dict.fromkeys(normalized))
+    return flow_normalize_scoped_git_paths(paths, prefix)
 
 
 def git_diff_name_only(repo_path: Path, base: Optional[str] = None, head: Optional[str] = None) -> tuple[list[str], Optional[str]]:
-    git_root, prefix, scope_error = git_scope(repo_path)
-    if scope_error or git_root is None:
-        return [], scope_error or "No pude resolver el root de Git."
-
-    command = ["git", "-C", str(git_root), "diff", "--name-only"]
-    if base and head:
-        command.append(f"{base}...{head}")
-    elif base:
-        command.append(f"{base}...HEAD")
-    elif head:
-        command.extend([head])
-    if prefix:
-        command.extend(["--", prefix])
-
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.strip() or "git diff fallo"
-        return [], stderr
-
-    changed = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    return normalize_scoped_git_paths(changed, prefix), None
+    return flow_git_diff_name_only(repo_path, base=base, head=head)
 
 
 def release_default_version() -> str:
@@ -643,242 +458,64 @@ def release_default_version() -> str:
 
 
 def classify_routed_path(raw_path: str) -> tuple[str, str]:
-    value = raw_path.strip()
-    if not value:
-        raise ValueError("Se encontro una ruta vacia en la spec.")
-
-    for repo, prefix in REPO_PREFIXES.items():
-        if value.startswith(prefix):
-            relative = value[len(prefix) :]
-            break
-    else:
-        if not value.startswith("../../"):
-            configured_prefixes = repo_prefix_examples()
-            raise ValueError(
-                f"Ruta invalida '{raw_path}': debe empezar con '../../', "
-                f"o alguno de los prefijos configurados: {configured_prefixes}."
-            )
-        repo = ROOT_REPO
-        relative = value[len("../../") :]
-
-    relative = relative.strip("/")
-    if not relative:
-        raise ValueError(f"Ruta invalida '{raw_path}': falta la ruta relativa despues del repo.")
-
-    top_level = Path(relative).parts[0]
-    if top_level not in TARGET_ROOTS[repo]:
-        allowed = ", ".join(sorted(TARGET_ROOTS[repo]))
-        raise ValueError(
-            f"Ruta invalida '{raw_path}': '{top_level}' no es un root permitido para {repo}. "
-            f"Roots permitidos: {allowed}."
-        )
-
-    return repo, relative.replace("\\", "/")
+    return flow_specs.classify_routed_path(raw_path, config=SPEC_CONFIG)
 
 
 def collect_routed_paths(paths: list[str]) -> tuple[dict[str, list[dict[str, str]]], list[str]]:
-    indexed: dict[str, list[dict[str, str]]] = {}
-    errors: list[str] = []
-
-    for raw_path in paths:
-        try:
-            repo, relative = classify_routed_path(raw_path)
-        except ValueError as exc:
-            errors.append(str(exc))
-            continue
-
-        indexed.setdefault(repo, []).append({"raw": raw_path, "relative": relative})
-
-    return indexed, errors
+    return flow_specs.collect_routed_paths(paths, config=SPEC_CONFIG)
 
 
 def require_routed_paths(paths: list[str], label: str) -> dict[str, list[dict[str, str]]]:
-    if not paths:
-        raise SystemExit(f"La spec debe declarar al menos un {label}.")
-
-    indexed, errors = collect_routed_paths(paths)
-    if errors:
-        joined = "\n".join(f"- {error}" for error in errors)
-        raise SystemExit(f"{label.capitalize()} invalidos:\n{joined}")
-
-    return indexed
-
-
-def repo_entries_require_tests(repo: str, entries: list[dict[str, str]]) -> bool:
-    required_roots = TEST_REQUIRED_ROOTS.get(repo, set())
-    if not required_roots:
-        return False
-
-    for entry in entries:
-        relative = str(entry.get("relative", "")).strip("/")
-        if not relative:
-            continue
-        if Path(relative).parts[0] in required_roots:
-            return True
-
-    return False
+    return flow_specs.require_routed_paths(paths, label, config=SPEC_CONFIG)
 
 
 def repos_missing_test_refs(
     target_index: dict[str, list[dict[str, str]]],
     test_index: dict[str, list[dict[str, str]]],
 ) -> list[str]:
-    missing: list[str] = []
-    for repo, entries in target_index.items():
-        if repo == ROOT_REPO:
-            continue
-        if not repo_entries_require_tests(repo, entries):
-            continue
-        if not test_index.get(repo):
-            missing.append(repo)
-    return missing
+    return flow_specs.repos_missing_test_refs(SPEC_CONFIG, target_index, test_index)
 
 
 def extract_test_references(text: str) -> list[str]:
-    return TEST_REF_RE.findall(text)
+    return flow_specs.extract_test_references(text, config=SPEC_CONFIG)
 
 
 def count_todos(text: str) -> int:
-    return len(TODO_RE.findall(text))
+    return flow_specs.count_todos(text, config=SPEC_CONFIG)
 
 
 def render_test_plan_hints(repos: list[str]) -> str:
-    lines: list[str] = []
-    for repo in repos:
-        hint = TEST_HINTS.get(repo)
-        if hint:
-            lines.append(f"- `[@test] {hint}`")
-
-    if not lines:
-        lines.append("- Evidencia de verificacion del workspace: review manual o check operativo.")
-
-    return "\n".join(lines)
+    return flow_specs.render_test_plan_hints(SPEC_CONFIG, repos)
 
 
 def analyze_spec(spec_path: Path) -> dict[str, object]:
-    text = spec_path.read_text(encoding="utf-8")
-    frontmatter = parse_frontmatter(spec_path)
-    targets = list(frontmatter.get("targets", []))
-    target_index, target_errors = collect_routed_paths(targets)
-    test_refs = extract_test_references(text)
-    test_index, test_errors = collect_routed_paths(test_refs)
-    missing_frontmatter = [field for field in REQUIRED_FRONTMATTER_FIELDS if not frontmatter.get(field)]
-
-    return {
-        "text": text,
-        "frontmatter": frontmatter,
-        "targets": targets,
-        "target_index": target_index,
-        "target_errors": target_errors,
-        "test_refs": test_refs,
-        "test_index": test_index,
-        "test_errors": test_errors,
-        "todo_count": count_todos(text),
-        "missing_frontmatter": missing_frontmatter,
-    }
+    return flow_specs.analyze_spec(spec_path, config=SPEC_CONFIG)
 
 
 def test_reference_findings(analysis: dict[str, object]) -> list[str]:
-    findings: list[str] = []
-    test_index = analysis["test_index"]
-    for repo, entries in test_index.items():
-        if repo == ROOT_REPO:
-            continue
-        repo_path = repo_root(repo)
-        patterns = [str(entry["relative"]) for entry in entries]
-        _, missing, invalid = validate_test_reference_patterns(repo, repo_path, patterns)
-        findings.extend(f"La referencia `[@test] {pattern}` no existe en `{repo}`." for pattern in missing)
-        findings.extend(invalid)
-    return findings
+    return flow_specs.test_reference_findings(
+        analysis,
+        config=SPEC_CONFIG,
+        repo_root=repo_root,
+        validate_test_reference_patterns=validate_test_reference_patterns,
+    )
 
 
 def ensure_spec_ready_for_approval(spec_path: Path) -> dict[str, object]:
-    analysis = analyze_spec(spec_path)
-    blockers: list[str] = []
-    frontmatter = analysis["frontmatter"]
-
-    for field in analysis["missing_frontmatter"]:
-        blockers.append(f"Falta el campo de frontmatter `{field}`.")
-
-    blockers.extend(str(error) for error in analysis["target_errors"])
-    blockers.extend(str(error) for error in analysis["test_errors"])
-    blockers.extend(test_reference_findings(analysis))
-
-    description = str(frontmatter.get("description", "")).strip().lower()
-    if not description or description.startswith("todo"):
-        blockers.append("`description` debe describir el resultado observable sin placeholders.")
-
-    if analysis["todo_count"]:
-        blockers.append("La spec aun contiene `TODO`; cierralos antes de aprobar.")
-
-    target_index = analysis["target_index"]
-    test_index = analysis["test_index"]
-    missing_repo_tests = repos_missing_test_refs(target_index, test_index)
-    if missing_repo_tests:
-        blockers.append(
-            "Faltan referencias `[@test]` para: " + ", ".join(sorted(missing_repo_tests)) + "."
-        )
-
-    if blockers:
-        joined = "\n".join(f"- {blocker}" for blocker in blockers)
-        raise SystemExit(f"La spec no esta lista para aprobar:\n{joined}")
-
-    return analysis
-
-
-def load_plan_and_slice(slug: str, slice_name: str) -> tuple[dict[str, object], dict[str, object], Path]:
-    plan_path = PLAN_ROOT / f"{slug}.json"
-    if not plan_path.exists():
-        raise SystemExit(f"No existe plan para '{slug}'. Ejecuta `python3 ./flow plan {slug}` primero.")
-
-    plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    slices = plan.get("slices", [])
-    selected = next((item for item in slices if item["name"] == slice_name), None)
-    if selected is None:
-        raise SystemExit(f"No existe la slice '{slice_name}' en {rel(plan_path)}.")
-
-    return plan, selected, plan_path
+    return flow_specs.ensure_spec_ready_for_approval(
+        spec_path,
+        config=SPEC_CONFIG,
+        repo_root=repo_root,
+        validate_test_reference_patterns=validate_test_reference_patterns,
+    )
 
 
 def git_changed_files(repo_path: Path) -> tuple[list[str], Optional[str]]:
-    git_root, prefix, scope_error = git_scope(repo_path)
-    if scope_error or git_root is None:
-        return [], scope_error or "No pude resolver el root de Git."
-
-    result = subprocess.run(
-        ["git", "-C", str(git_root), "status", "--porcelain", *(["--", prefix] if prefix else [])],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.strip() or "git status fallo"
-        return [], stderr
-
-    changed: set[str] = set()
-    for line in result.stdout.splitlines():
-        if len(line) < 4:
-            continue
-        raw_path = line[3:].strip()
-        path = raw_path.split(" -> ", 1)[-1].strip()
-        if path:
-            absolute = git_root / path
-            if absolute.is_dir():
-                for nested in absolute.rglob("*"):
-                    if nested.is_file():
-                        try:
-                            changed.add(nested.relative_to(git_root).as_posix())
-                        except ValueError:
-                            continue
-                continue
-            changed.add(path)
-
-    return normalize_scoped_git_paths(sorted(changed), prefix), None
+    return flow_git_changed_files(repo_path)
 
 
 def matches_any_pattern(path: str, patterns: list[str]) -> bool:
-    normalized = path.replace("\\", "/")
-    return any(fnmatch.fnmatch(normalized, pattern) for pattern in patterns)
+    return flow_features.matches_any_pattern(path, patterns)
 
 
 def detect_test_command(repo: str, repo_path: Path, test_paths: list[str]) -> Optional[list[str]]:
@@ -900,18 +537,11 @@ def validate_test_reference_patterns(
 
 
 def format_findings(findings: list[str]) -> list[str]:
-    if not findings:
-        return ["- Sin hallazgos."]
-    return [f"- {finding}" for finding in findings]
+    return flow_specs.format_findings(findings)
 
 
 def frontmatter_list(frontmatter: dict[str, object], key: str) -> list[str]:
-    value = frontmatter.get(key)
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    return [str(value)]
+    return flow_specs.frontmatter_list(frontmatter, key)
 
 
 def select_spec_paths(
@@ -922,24 +552,16 @@ def select_spec_paths(
     base: Optional[str] = None,
     head: Optional[str] = None,
 ) -> list[Path]:
-    if spec_identifier:
-        return [resolve_spec(spec_identifier)]
-
-    if all_specs:
-        return all_spec_paths()
-
-    if changed:
-        changed_files, error = git_diff_name_only(ROOT, base=base, head=head)
-        if error:
-            raise SystemExit(f"No pude resolver specs cambiadas: {error}")
-        spec_paths = [
-            (ROOT / relative_path).resolve()
-            for relative_path in changed_files
-            if relative_path.endswith(".spec.md") and (ROOT / relative_path).exists()
-        ]
-        return sorted(dict.fromkeys(spec_paths))
-
-    return all_spec_paths()
+    return flow_specs.select_spec_paths(
+        config=SPEC_CONFIG,
+        resolve_spec=resolve_spec,
+        git_diff_name_only=git_diff_name_only,
+        spec_identifier=spec_identifier,
+        all_specs=all_specs,
+        changed=changed,
+        base=base,
+        head=head,
+    )
 
 
 def write_json(path: Path, payload: dict[str, object]) -> None:
@@ -947,29 +569,19 @@ def write_json(path: Path, payload: dict[str, object]) -> None:
 
 
 def capture_command(command: list[str], cwd: Path) -> dict[str, object]:
-    result = subprocess.run(
-        command,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    combined = (result.stdout + "\n" + result.stderr).strip()
-    tail = "\n".join(combined.splitlines()[-40:]) if combined else ""
-    return {
-        "command": command,
-        "cwd": str(cwd),
-        "returncode": result.returncode,
-        "output_tail": tail,
-    }
+    return flow_tooling.capture_command(command, cwd)
 
 
 def capture_workspace_tool(tool_args: list[str]) -> dict[str, object]:
-    if running_inside_workspace():
-        return capture_command(tool_args, ROOT)
-
-    return capture_compose(
-        compose_exec_args(WORKSPACE_SERVICE, interactive=False, workdir=WORKSPACE_PATH) + tool_args
+    return flow_tooling.capture_workspace_tool(
+        tool_args,
+        root=ROOT,
+        running_inside_workspace=running_inside_workspace,
+        capture_command=capture_command,
+        capture_compose=capture_compose,
+        compose_exec_args=compose_exec_args,
+        workspace_service=WORKSPACE_SERVICE,
+        workspace_path=WORKSPACE_PATH,
     )
 
 
@@ -978,27 +590,18 @@ def normalize_skill_provider(value: str) -> str:
 
 
 def skills_provider_config(payload: dict[str, object], provider: str) -> dict[str, object]:
-    providers = payload.get("providers", {})
-    if not isinstance(providers, dict):
-        raise ValueError("`providers` debe ser un objeto en workspace.skills.json.")
-    config = providers.get(provider, {})
-    if config is None:
-        return {}
-    if not isinstance(config, dict):
-        raise ValueError(f"La configuracion del proveedor `{provider}` debe ser un objeto.")
-    return config
+    return flow_skills_ops.skills_provider_config(payload, provider)
 
 
 def skills_provider_enabled(payload: dict[str, object], provider: str) -> bool:
-    return bool(skills_provider_config(payload, provider).get("enabled", True))
+    return flow_skills_ops.skills_provider_enabled(payload, provider)
 
 
 def skills_provider_runtime_available(provider: str) -> bool:
-    if provider == "tessl":
-        return workspace_executable_available("tessl")
-    if provider == "skills-sh":
-        return workspace_executable_available("npx")
-    return False
+    return flow_skills_ops.skills_provider_runtime_available(
+        provider,
+        workspace_executable_available=workspace_executable_available,
+    )
 
 
 def provider_categories() -> list[str]:
@@ -1135,13 +738,7 @@ def contract_match_files(repo: str, patterns: list[str]) -> list[Path]:
 
 
 def repo_paths_changed_under_roots(repo: str, changed_files: list[str]) -> list[str]:
-    roots = CONTRACT_ROOTS.get(repo, set())
-    selected: list[str] = []
-    for changed_file in changed_files:
-        parts = Path(changed_file).parts
-        if parts and parts[0] in roots:
-            selected.append(changed_file)
-    return selected
+    return flow_repo_paths_changed_under_roots(repo, changed_files, contract_roots=CONTRACT_ROOTS)
 
 
 def submodule_repo_names() -> list[str]:
@@ -1149,8 +746,7 @@ def submodule_repo_names() -> list[str]:
 
 
 def git_output(command: list[str], cwd: Optional[Path] = None) -> tuple[int, str, str]:
-    result = subprocess.run(command, cwd=cwd or ROOT, capture_output=True, text=True, check=False)
-    return result.returncode, result.stdout.strip(), result.stderr.strip()
+    return flow_git_output(command, cwd=cwd, root=ROOT)
 
 
 def inspect_submodule(repo: str) -> dict[str, object]:
@@ -1177,55 +773,23 @@ def skills_entries(payload: dict[str, object]) -> tuple[list[dict[str, object]],
 
 
 def skills_report_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
+    return flow_skills_ops.skills_report_stamp(utc_now=utc_now)
 
 
 def command_has_flag(command: list[str], *flags: str) -> bool:
-    return any(flag in command for flag in flags)
+    return flow_skills_ops.command_has_flag(command, *flags)
 
 
 def tessl_skill_commands(entry: dict[str, object]) -> list[list[str]]:
-    source = str(entry["source"])
-    local_source_path = entry.get("local_source_path")
-    args = [str(item) for item in entry.get("args", [])]
-
-    if entry["kind"] == "skill":
-        if local_source_path is None:
-            raise SystemExit(
-                f"`{entry['name']}` usa `tessl skill import` y requiere un `source` local relativo al workspace."
-            )
-        source_arg = rel(local_source_path)
-        lint_target = rel(local_source_path if local_source_path.is_dir() else local_source_path.parent)
-        return [
-            ["tessl", "skill", "import", "--force", *args, source_arg],
-            ["tessl", "tile", "lint", lint_target],
-        ]
-
-    if local_source_path is not None:
-        lint_target = rel(local_source_path if local_source_path.is_dir() else local_source_path.parent)
-        return [["tessl", "tile", "lint", lint_target]]
-
-    command = ["tessl", "install", *args]
-    if not command_has_flag(command, "--yes"):
-        command.append("--yes")
-    command.append(source)
-    return [command]
+    return flow_skills_ops.tessl_skill_commands(entry, rel=rel)
 
 
 def skills_sh_commands(entry: dict[str, object]) -> list[list[str]]:
-    command = ["npx", "-y", "skills", "add", str(entry["source"]), *[str(item) for item in entry.get("args", [])]]
-    if not command_has_flag(command, "-y", "--yes"):
-        command.append("-y")
-    return [command]
+    return flow_skills_ops.skills_sh_commands(entry)
 
 
 def skill_entry_commands(entry: dict[str, object]) -> list[list[str]]:
-    provider = str(entry["provider"])
-    if provider == "tessl":
-        return tessl_skill_commands(entry)
-    if provider == "skills-sh":
-        return skills_sh_commands(entry)
-    raise SystemExit(f"No conozco el provider `{provider}`.")
+    return flow_skills_ops.skill_entry_commands(entry, rel=rel)
 
 
 def repo_ci_commands(repo: str, repo_path: Path, skip_install: bool) -> list[tuple[str, list[str]]]:
@@ -1298,15 +862,7 @@ def load_release_manifest(version: str) -> dict[str, object]:
 
 
 def repo_head_sha(repo: str) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repo_root(repo)), "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise SystemExit(f"No pude resolver el SHA actual de `{repo}`.")
-    return result.stdout.strip()
+    return flow_repo_head_sha(repo, repo_root=repo_root)
 
 
 def releasable_feature_specs() -> list[Path]:
@@ -1395,15 +951,17 @@ def capture_compose(extra_args: list[str]) -> dict[str, object]:
 
 
 def normalize_passthrough(args: list[str]) -> list[str]:
-    if args and args[0] == "--":
-        return args[1:]
-    return args
+    return flow_tooling.normalize_passthrough(args)
 
 
 def run_workspace_tool(tool_args: list[str], interactive: Optional[bool] = None) -> int:
-    return run_compose(
-        compose_exec_args(WORKSPACE_SERVICE, interactive=interactive, workdir=WORKSPACE_PATH) + tool_args,
-        interactive,
+    return flow_tooling.run_workspace_tool(
+        tool_args,
+        run_compose=run_compose,
+        compose_exec_args=compose_exec_args,
+        workspace_service=WORKSPACE_SERVICE,
+        workspace_path=WORKSPACE_PATH,
+        interactive=interactive,
     )
 
 
@@ -1419,117 +977,87 @@ def workspace_executable_available(executable: str) -> bool:
 
 
 def bmad_command_prefix() -> list[str]:
-    explicit = env_first("FLOW_BMAD_COMMAND", "PLG_BMAD_COMMAND")
-    if explicit is not None:
-        command_prefix = shlex.split(explicit)
-        if not command_prefix:
-            raise SystemExit("`FLOW_BMAD_COMMAND`/`PLG_BMAD_COMMAND` esta vacio; configura el comando BMAD primero.")
-        return command_prefix
-
-    for candidate in (["bmad"], ["bmad-method"], ["npx", "bmad-method"]):
-        if workspace_executable_available(candidate[0]):
-            return candidate
-
-    raise SystemExit(
-        "No encontre un runtime BMAD en el workspace. "
-        "Rebuild del devcontainer para instalar `bmad-method`, o ajusta `FLOW_BMAD_COMMAND`."
+    return flow_tooling.bmad_command_prefix(
+        env_first=env_first,
+        workspace_executable_available=workspace_executable_available,
     )
 
 
 def command_stack_doctor(_: argparse.Namespace) -> int:
-    context = detect_compose_context()
-    docker_ok = shutil.which("docker") is not None
-
-    print(f"{PROJECT_NAME} stack doctor")
-    print(f"- docker_cli: {'ok' if docker_ok else 'missing'}")
-    print(f"- compose_file: {compose_control_file().resolve()}")
-    print(f"- compose_root: {compose_control_root().resolve()}")
-    print(f"- compose_project: {context['project']}")
-    print(f"- compose_active: {'yes' if context['active'] else 'no'}")
-    print(f"- workspace_service: {WORKSPACE_SERVICE}")
-    return 0 if docker_ok else 1
+    return flow_stack_ops.command_stack_doctor(
+        _,
+        detect_compose_context=detect_compose_context,
+        compose_control_file=compose_control_file,
+        compose_control_root=compose_control_root,
+        workspace_service=WORKSPACE_SERVICE,
+        project_name=PROJECT_NAME,
+    )
 
 
 def command_stack_ps(_: argparse.Namespace) -> int:
-    return run_compose(["ps"])
+    return flow_stack_ops.command_stack_ps(_, run_compose=run_compose)
 
 
 def command_stack_up(args: argparse.Namespace) -> int:
-    command = ["up", "-d"]
-    if args.build:
-        command.append("--build")
-    return run_compose(command)
+    return flow_stack_ops.command_stack_up(args, run_compose=run_compose)
 
 
 def command_stack_down(args: argparse.Namespace) -> int:
-    command = ["down"]
-    if args.volumes:
-        command.append("-v")
-    if args.rmi_local:
-        command.extend(["--rmi", "local"])
-    return run_compose(command)
+    return flow_stack_ops.command_stack_down(args, run_compose=run_compose)
 
 
 def command_stack_build(args: argparse.Namespace) -> int:
-    command = ["build"]
-    if args.no_cache:
-        command.append("--no-cache")
-    return run_compose(command)
+    return flow_stack_ops.command_stack_build(args, run_compose=run_compose)
 
 
 def command_stack_logs(args: argparse.Namespace) -> int:
-    command = ["logs"]
-    if args.follow:
-        command.append("-f")
-    if args.service:
-        command.append(args.service)
-    return run_compose(command, interactive=args.follow)
+    return flow_stack_ops.command_stack_logs(args, run_compose=run_compose)
 
 
 def command_stack_sh(args: argparse.Namespace) -> int:
-    service = args.service or WORKSPACE_SERVICE
-    workdir = WORKSPACE_PATH if service == WORKSPACE_SERVICE else None
-    return run_compose(
-        compose_exec_args(service, interactive=True, workdir=workdir) + [args.shell],
-        interactive=True,
+    return flow_stack_ops.command_stack_sh(
+        args,
+        run_compose=run_compose,
+        compose_exec_args=compose_exec_args,
+        workspace_service=WORKSPACE_SERVICE,
+        workspace_path=WORKSPACE_PATH,
     )
 
 
 def command_stack_exec(args: argparse.Namespace) -> int:
-    command = normalize_passthrough(args.command)
-    if not command:
-        raise SystemExit("Debes indicar un comando despues del servicio. Ejemplo: `flow stack exec backend -- php artisan about`.")
-    interactive = not args.no_tty
-    workdir = WORKSPACE_PATH if args.service == WORKSPACE_SERVICE else None
-    return run_compose(
-        compose_exec_args(args.service, interactive=interactive, workdir=workdir) + command,
-        interactive=interactive,
+    return flow_stack_ops.command_stack_exec(
+        args,
+        normalize_passthrough=normalize_passthrough,
+        run_compose=run_compose,
+        compose_exec_args=compose_exec_args,
+        workspace_service=WORKSPACE_SERVICE,
+        workspace_path=WORKSPACE_PATH,
     )
 
 
 def run_local_tool(tool_args: list[str]) -> int:
-    try:
-        return subprocess.run(tool_args, cwd=ROOT, check=False).returncode
-    except FileNotFoundError as exc:
-        raise SystemExit(f"No encontre el ejecutable `{tool_args[0]}`.") from exc
+    return flow_tooling.run_local_tool(tool_args, root=ROOT)
 
 
 def command_tessl(args: argparse.Namespace) -> int:
-    passthrough = normalize_passthrough(args.args) or ["--help"]
-    if running_inside_workspace():
-        return run_local_tool(["tessl", *passthrough])
-    return run_workspace_tool(["tessl", *passthrough])
+    return flow_tooling.command_tessl(
+        args,
+        normalize_passthrough=normalize_passthrough,
+        running_inside_workspace=running_inside_workspace,
+        run_local_tool=run_local_tool,
+        run_workspace_tool=run_workspace_tool,
+    )
 
 
 def command_bmad(args: argparse.Namespace) -> int:
-    command_prefix = bmad_command_prefix()
-    passthrough = normalize_passthrough(args.args) or ["--help"]
-    full_command = [*command_prefix, *passthrough]
-
-    if running_inside_workspace():
-        return run_local_tool(full_command)
-
-    return run_workspace_tool(full_command)
+    return flow_tooling.command_bmad(
+        args,
+        bmad_command_prefix=bmad_command_prefix,
+        normalize_passthrough=normalize_passthrough,
+        running_inside_workspace=running_inside_workspace,
+        run_local_tool=run_local_tool,
+        run_workspace_tool=run_workspace_tool,
+    )
 
 
 def serialize_skill_entry(entry: dict[str, object]) -> dict[str, object]:
@@ -1537,265 +1065,54 @@ def serialize_skill_entry(entry: dict[str, object]) -> dict[str, object]:
 
 
 def command_skills_doctor(_: argparse.Namespace) -> int:
-    args = _
-    payload = load_skills_config()
-    entries, errors = skills_entries(payload)
-    findings = list(errors)
-
-    provider_names = {str(entry["provider"]) for entry in entries}
-    for provider in payload.get("providers", {}).keys():
-        try:
-            provider_names.add(normalize_skill_provider(str(provider)))
-        except ValueError as exc:
-            findings.append(str(exc))
-
-    data = {
-        "manifest": SKILLS_CONFIG_FILE.name,
-        "providers": [],
-        "entries": [],
-        "findings": findings,
-    }
-
-    for provider in sorted(provider_names):
-        enabled = skills_provider_enabled(payload, provider)
-        runtime_ok = skills_provider_runtime_available(provider)
-        status = "ok" if runtime_ok or not enabled else "missing"
-        data["providers"].append({"name": provider, "status": status, "enabled": enabled})
-        if enabled and not runtime_ok:
-            findings.append(f"El runtime del proveedor `{provider}` no esta disponible.")
-
-    for entry in entries:
-        local_source_path = entry.get("local_source_path")
-        origin = rel(local_source_path) if isinstance(local_source_path, Path) else str(entry["source"])
-        state = "enabled" if entry["enabled"] else "disabled"
-        sync_mode = "sync" if entry["sync"] else "manual"
-        data["entries"].append(
-            {
-                "name": entry["name"],
-                "state": state,
-                "sync_mode": sync_mode,
-                "provider": entry["provider"],
-                "kind": entry["kind"],
-                "origin": origin,
-                "requires": list(entry.get("requires", [])),
-            }
-        )
-        if entry["required"] and not entry["enabled"]:
-            findings.append(f"`{entry['name']}` es requerida pero esta deshabilitada.")
-        if entry["provider"] == "tessl" and entry["kind"] == "skill" and local_source_path is None:
-            findings.append(
-                f"`{entry['name']}` requiere un source local relativo al workspace para `tessl skill import`."
-            )
-        missing_commands = [command for command in entry.get("requires", []) if shutil.which(str(command)) is None]
-        if missing_commands:
-            findings.append(
-                f"`{entry['name']}` requiere comandos faltantes: {', '.join(sorted(missing_commands))}."
-            )
-
-    data["findings"] = findings
-    if wants_json(args):
-        print(json_dumps(data))
-        return 1 if findings else 0
-
-    print("Skills doctor")
-    print(f"- manifest: {'ok' if SKILLS_CONFIG_FILE.is_file() else 'missing'} ({SKILLS_CONFIG_FILE.name})")
-    for provider in data["providers"]:
-        print(f"- provider {provider['name']}: {provider['status']} ({'enabled' if provider['enabled'] else 'disabled'})")
-    for entry in data["entries"]:
-        print(
-            f"- entry {entry['name']}: {entry['state']}, {entry['sync_mode']}, "
-            f"{entry['provider']}, {entry['kind']} -> {entry['origin']}, "
-            f"requires={','.join(entry['requires']) or 'none'}"
-        )
-    if findings:
-        print("", file=sys.stderr)
-        for finding in findings:
-            print(f"- {finding}", file=sys.stderr)
-        return 1
-    return 0
+    return flow_skills_ops.command_skills_doctor(
+        _,
+        load_skills_config=load_skills_config,
+        skills_entries=skills_entries,
+        normalize_skill_provider=normalize_skill_provider,
+        workspace_executable_available=workspace_executable_available,
+        rel=rel,
+        skills_config_file=SKILLS_CONFIG_FILE,
+        json_dumps=json_dumps,
+    )
 
 
 def command_skills_list(args: argparse.Namespace) -> int:
-    payload = load_skills_config()
-    entries, errors = skills_entries(payload)
-    if errors:
-        raise SystemExit("\n".join(f"- {error}" for error in errors))
-
-    serialized = [serialize_skill_entry(entry) for entry in entries]
-    if args.json:
-        print(json.dumps({"providers": payload["providers"], "entries": serialized}, indent=2, ensure_ascii=True))
-        return 0
-
-    if not serialized:
-        print("No hay skills registradas en workspace.skills.json.")
-        return 0
-
-    for entry in serialized:
-        print(
-            f"- {entry['name']}: provider={entry['provider']}, kind={entry['kind']}, "
-            f"sync={'yes' if entry['sync'] else 'no'}, enabled={'yes' if entry['enabled'] else 'no'}, "
-            f"source={entry['source']}, requires={','.join(entry['requires']) or 'none'}"
-        )
-    return 0
+    return flow_skills_ops.command_skills_list(
+        args,
+        load_skills_config=load_skills_config,
+        skills_entries=skills_entries,
+        serialize_skill_entry=serialize_skill_entry,
+        json_dumps=json_dumps,
+    )
 
 
 def command_skills_add(args: argparse.Namespace) -> int:
-    payload = load_skills_config()
-    providers = payload.setdefault("providers", {})
-    entries = payload.setdefault("entries", [])
-    if not isinstance(providers, dict) or not isinstance(entries, list):
-        raise SystemExit(f"{SKILLS_CONFIG_FILE.name} debe definir `providers` y `entries`.")
-
-    name = args.name.strip()
-    if not name:
-        raise SystemExit("Debes indicar un nombre para la entrada de skill.")
-    if any(isinstance(item, dict) and str(item.get("name", "")).strip() == name for item in entries):
-        raise SystemExit(f"Ya existe una entrada `{name}` en {SKILLS_CONFIG_FILE.name}.")
-
-    provider = normalize_skill_provider(args.provider)
-    kind = args.kind or ("package" if provider == "skills-sh" else "tile")
-    entry = {
-        "name": name,
-        "provider": provider,
-        "kind": kind,
-        "source": args.source.strip(),
-        "enabled": not args.disabled,
-        "required": args.required,
-        "sync": not args.no_sync,
-        "args": list(args.arg or []),
-        "requires": list(args.require or []),
-        "notes": args.notes or "",
-    }
-
-    try:
-        normalize_skill_entry(entry, len(entries) + 1)
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
-
-    providers.setdefault(provider, {"enabled": True})
-    entries.append(entry)
-    write_skills_config(payload)
-
-    print(f"Skill agregada: {name}")
-    print(f"- provider: {provider}")
-    print(f"- kind: {kind}")
-    print(f"- source: {entry['source']}")
-    print(f"- requires: {', '.join(entry['requires']) if entry['requires'] else 'none'}")
-    print(f"- config: {SKILLS_CONFIG_FILE.name}")
-    return 0
+    return flow_skills_ops.command_skills_add(
+        args,
+        load_skills_config=load_skills_config,
+        write_skills_config=write_skills_config,
+        normalize_skill_provider=normalize_skill_provider,
+        normalize_skill_entry=normalize_skill_entry,
+        skills_config_file=SKILLS_CONFIG_FILE,
+    )
 
 
 def command_skills_sync(args: argparse.Namespace) -> int:
-    require_dirs()
-    payload = load_skills_config()
-    entries, errors = skills_entries(payload)
-    if errors:
-        raise SystemExit("\n".join(f"- {error}" for error in errors))
-
-    provider_filter = normalize_skill_provider(args.provider) if args.provider else None
-    name_filter = {name.strip() for name in args.name or [] if name.strip()}
-    selected: list[dict[str, object]] = []
-    findings: list[str] = []
-
-    for entry in entries:
-        if provider_filter and entry["provider"] != provider_filter:
-            continue
-        if name_filter and entry["name"] not in name_filter:
-            continue
-        if not entry["enabled"]:
-            if entry["name"] in name_filter:
-                findings.append(f"`{entry['name']}` esta deshabilitada y no se sincronizo.")
-            continue
-        if not entry["sync"] and not name_filter:
-            continue
-        selected.append(entry)
-
-    if not selected:
-        if findings:
-            raise SystemExit("\n".join(findings))
-        print("No hay skills elegibles para sincronizar.")
-        return 0
-
-    executions: list[dict[str, object]] = []
-    for entry in selected:
-        provider = str(entry["provider"])
-        if not skills_provider_enabled(payload, provider):
-            findings.append(f"El proveedor `{provider}` esta deshabilitado para `{entry['name']}`.")
-            continue
-        if not skills_provider_runtime_available(provider):
-            findings.append(f"El runtime del proveedor `{provider}` no esta disponible para `{entry['name']}`.")
-            continue
-        missing_commands = [command for command in entry.get("requires", []) if shutil.which(str(command)) is None]
-        if missing_commands:
-            findings.append(
-                f"`{entry['name']}` no se sincronizo porque faltan comandos requeridos: {', '.join(sorted(missing_commands))}."
-            )
-            continue
-
-        try:
-            commands = skill_entry_commands(entry)
-        except SystemExit as exc:
-            findings.append(str(exc))
-            continue
-
-        for command in commands:
-            record = {
-                "name": entry["name"],
-                "provider": provider,
-                "kind": entry["kind"],
-                "source": entry["source"],
-                "command": command,
-            }
-            if args.dry_run:
-                record["returncode"] = 0
-                record["output_tail"] = "dry-run"
-            else:
-                execution = capture_workspace_tool(command)
-                record["returncode"] = int(execution["returncode"])
-                record["output_tail"] = execution["output_tail"]
-            executions.append(record)
-
-    stamp = skills_report_stamp()
-    json_path = SKILLS_REPORT_ROOT / f"sync-{stamp}.json"
-    md_path = SKILLS_REPORT_ROOT / f"sync-{stamp}.md"
-    report_payload = {
-        "generated_at": utc_now(),
-        "dry_run": bool(args.dry_run),
-        "provider": provider_filter,
-        "names": sorted(name_filter),
-        "executions": executions,
-        "findings": findings,
-    }
-    write_json(json_path, report_payload)
-
-    lines = [
-        "# Skills Sync Report",
-        "",
-        f"- Generated at: `{report_payload['generated_at']}`",
-        f"- Dry run: `{report_payload['dry_run']}`",
-        f"- Provider filter: `{provider_filter or 'all'}`",
-        f"- Name filter: `{', '.join(sorted(name_filter)) if name_filter else 'all'}`",
-        "",
-        "## Executions",
-        "",
-    ]
-    if executions:
-        for execution in executions:
-            lines.append(
-                f"- `{execution['name']}` ({execution['provider']}/{execution['kind']}): "
-                f"`{' '.join(shlex.quote(part) for part in execution['command'])}` -> `{execution['returncode']}`"
-            )
-    else:
-        lines.append("- Ninguna.")
-    lines.extend(["", "## Findings", ""])
-    lines.extend(format_findings(findings))
-    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-    print(rel(json_path))
-    print(rel(md_path))
-    if findings:
-        return 1
-    return 1 if any(int(execution["returncode"]) != 0 for execution in executions) else 0
+    return flow_skills_ops.command_skills_sync(
+        args,
+        require_dirs=require_dirs,
+        load_skills_config=load_skills_config,
+        skills_entries=skills_entries,
+        normalize_skill_provider=normalize_skill_provider,
+        rel=rel,
+        capture_workspace_tool=capture_workspace_tool,
+        utc_now=utc_now,
+        write_json=write_json,
+        skills_report_root=SKILLS_REPORT_ROOT,
+        format_findings=format_findings,
+        workspace_executable_available=workspace_executable_available,
+    )
 
 
 def command_providers_doctor(args: argparse.Namespace) -> int:
@@ -1972,288 +1289,100 @@ def command_secrets_scan(args: argparse.Namespace) -> int:
 
 
 def command_drift_check(args: argparse.Namespace) -> int:
-    require_dirs()
-    spec_paths = select_spec_paths(args.spec, all_specs=args.all, changed=args.changed, base=args.base, head=args.head)
-    findings: list[str] = []
-    items: list[dict[str, object]] = []
-
-    changed_specs: set[Path] = set(spec_paths)
-    changed_root_files: list[str] = []
-    changed_repo_files: dict[str, list[str]] = {}
-    if args.changed:
-        changed_root_files, _ = git_diff_name_only(ROOT, base=args.base, head=args.head)
-        for repo in implementation_repos():
-            changed_repo_files[repo], _ = git_diff_name_only(repo_root(repo), base=args.base, head=args.head)
-
-        if not changed_specs:
-            sensitive_changes: list[str] = []
-            for repo, paths in changed_repo_files.items():
-                sensitive_changes.extend(f"{repo}:{path}" for path in repo_paths_changed_under_roots(repo, paths))
-            sensitive_changes.extend(
-                f"{ROOT_REPO}:{path}" for path in repo_paths_changed_under_roots(ROOT_REPO, changed_root_files)
-            )
-            if sensitive_changes:
-                findings.append(
-                    "Se detectaron cambios en superficies estables sin cambios de spec: " + ", ".join(sorted(sensitive_changes))
-                )
-
-    for spec_path in spec_paths:
-        analysis = analyze_spec(spec_path)
-        spec_findings: list[str] = []
-        for error in analysis["target_errors"]:
-            spec_findings.append(str(error))
-        for error in analysis["test_errors"]:
-            spec_findings.append(str(error))
-        spec_findings.extend(test_reference_findings(analysis))
-
-        for repo, entries in analysis["target_index"].items():
-            repo_path = repo_root(repo)
-            for entry in entries:
-                relative = str(entry["relative"])
-                candidate = repo_path / relative
-                if candidate.exists():
-                    continue
-                matches = list(repo_path.glob(relative))
-                if not matches:
-                    spec_findings.append(f"El target `{entry['raw']}` no resuelve a archivos reales.")
-
-        text = str(analysis["text"])
-        contracts, contract_errors = extract_contract_declarations(text)
-        spec_findings.extend(contract_errors)
-        validated_contracts: list[dict[str, object]] = []
-        for declaration in contracts:
-            normalized, error = validate_contract_declaration(declaration)
-            if error:
-                spec_findings.append(error)
-                continue
-            validated_contracts.append(normalized)
-            matched_files = contract_match_files(str(normalized["repo"]), list(normalized["match"]))
-            if normalized["match"] and not matched_files:
-                spec_findings.append(f"Contract `{normalized['name']}` no resolvio archivos con `match`.")
-            for token in normalized["contains"]:
-                found = False
-                for path in matched_files:
-                    if token in path.read_text(encoding="utf-8", errors="ignore"):
-                        found = True
-                        break
-                if not found:
-                    spec_findings.append(f"Contract `{normalized['name']}` no encontro el token `{token}`.")
-
-        if args.changed:
-            covered_changes: list[str] = []
-            for repo, paths in changed_repo_files.items():
-                covered_patterns = [item["relative"] for item in analysis["target_index"].get(repo, [])]
-                for path in repo_paths_changed_under_roots(repo, paths):
-                    if covered_patterns and matches_any_pattern(path, covered_patterns):
-                        covered_changes.append(f"{repo}:{path}")
-            root_patterns = [item["relative"] for item in analysis["target_index"].get(ROOT_REPO, [])]
-            for path in repo_paths_changed_under_roots(ROOT_REPO, changed_root_files):
-                if root_patterns and matches_any_pattern(path, root_patterns):
-                    covered_changes.append(f"{ROOT_REPO}:{path}")
-            if not covered_changes and (changed_repo_files or changed_root_files):
-                spec_findings.append("La spec cambiada no cubre cambios detectados en superficies estables.")
-
-        items.append(
-            {
-                "spec": rel(spec_path),
-                "contracts": [contract["name"] for contract in validated_contracts],
-                "findings": spec_findings,
-                "status": "passed" if not spec_findings else "failed",
-            }
-        )
-        findings.extend(f"{rel(spec_path)}: {finding}" for finding in spec_findings)
-
-    report = {
-        "generated_at": utc_now(),
-        "scope": args.spec or ("changed" if args.changed else "all"),
-        "items": items,
-        "findings": findings,
-    }
-    report_path = DRIFT_REPORT_ROOT / f"{slugify(report['scope']) or 'all'}.json"
-    write_json(report_path, report)
-
-    if wants_json(args):
-        print(json_dumps(report))
-        return 1 if findings else 0
-
-    print(rel(report_path))
-    for item in items:
-        print(f"- {item['spec']}: {item['status']} ({len(item['contracts'])} contracts)")
-        for finding in item["findings"]:
-            print(f"  finding: {finding}")
-    return 1 if findings else 0
+    return flow_command_drift_check(
+        args,
+        require_dirs=require_dirs,
+        select_spec_paths=select_spec_paths,
+        root=ROOT,
+        root_repo=ROOT_REPO,
+        implementation_repos=implementation_repos,
+        repo_root=repo_root,
+        analyze_spec=analyze_spec,
+        test_reference_findings=test_reference_findings,
+        git_diff_name_only=git_diff_name_only,
+        repo_paths_changed_under_roots=repo_paths_changed_under_roots,
+        matches_any_pattern=matches_any_pattern,
+        extract_contract_declarations=extract_contract_declarations,
+        validate_contract_declaration=validate_contract_declaration,
+        contract_match_files=contract_match_files,
+        rel=rel,
+        utc_now=utc_now,
+        slugify=slugify,
+        write_json=write_json,
+        drift_report_root=DRIFT_REPORT_ROOT,
+        json_dumps=json_dumps,
+        wants_json=wants_json,
+    )
 
 
 def render_contract_artifacts(slug: str, declarations: list[dict[str, object]]) -> list[dict[str, object]]:
-    return contracts_render_artifacts(
+    return flow_render_contract_artifacts(
         slug,
         declarations,
-        GENERATED_CONTRACT_ROOT,
-        generated_at=utc_now(),
-        relativize=rel,
+        generated_contract_root=GENERATED_CONTRACT_ROOT,
+        utc_now=utc_now,
+        rel=rel,
         write_json=write_json,
+        contracts_render_artifacts=contracts_render_artifacts,
     )
 
 
 def verify_contract_declaration(declaration: dict[str, object], matched_files: list[Path]) -> list[str]:
-    return contracts_verify_declaration(declaration, matched_files, read_text=file_text)
+    return flow_verify_contract_declaration(
+        declaration,
+        matched_files,
+        file_text=file_text,
+        contracts_verify_declaration=contracts_verify_declaration,
+    )
 
 
 def command_contract_verify(args: argparse.Namespace) -> int:
-    require_dirs()
-    spec_paths = select_spec_paths(args.spec, all_specs=args.all, changed=args.changed, base=args.base, head=args.head)
-    findings: list[str] = []
-    items: list[dict[str, object]] = []
-
-    for spec_path in spec_paths:
-        slug = spec_slug(spec_path)
-        text = spec_path.read_text(encoding="utf-8")
-        declarations, contract_errors = extract_contract_declarations(text)
-        spec_findings = list(contract_errors)
-        validated: list[dict[str, object]] = []
-        for declaration in declarations:
-            normalized, error = validate_contract_declaration(declaration)
-            if error:
-                spec_findings.append(error)
-                continue
-            validated.append(normalized)
-
-        artifacts = render_contract_artifacts(slug, validated) if validated else []
-        contract_items: list[dict[str, object]] = []
-        for declaration in validated:
-            matched_files = contract_match_files(str(declaration["repo"]), list(declaration["match"]))
-            contract_findings: list[str] = []
-            if declaration["match"] and not matched_files:
-                contract_findings.append(f"Contract `{declaration['name']}` no resolvio archivos de implementacion.")
-            else:
-                contract_findings.extend(verify_contract_declaration(declaration, matched_files))
-            contract_items.append(
-                {
-                    "name": declaration["name"],
-                    "type": declaration["type"],
-                    "repo": declaration["repo"],
-                    "artifacts": [artifact["path"] for artifact in artifacts],
-                    "matched_files": [rel(path) if ROOT in path.resolve().parents else str(path) for path in matched_files],
-                    "status": "passed" if not contract_findings else "failed",
-                    "findings": contract_findings,
-                }
-            )
-            spec_findings.extend(contract_findings)
-
-        items.append(
-            {
-                "spec": rel(spec_path),
-                "contracts": contract_items,
-                "status": "passed" if not spec_findings else "failed",
-                "findings": spec_findings,
-            }
-        )
-        findings.extend(f"{rel(spec_path)}: {finding}" for finding in spec_findings)
-
-    report = {
-        "generated_at": utc_now(),
-        "scope": args.spec or ("changed" if args.changed else "all"),
-        "items": items,
-        "findings": findings,
-    }
-    report_key = slugify(report["scope"]) or "all"
-    json_path = CONTRACT_REPORT_ROOT / f"{report_key}.json"
-    md_path = CONTRACT_REPORT_ROOT / f"{report_key}.md"
-    write_json(json_path, report)
-    lines = [
-        "# Contract Verification Report",
-        "",
-        f"- Scope: `{report['scope']}`",
-        f"- Generated at: `{report['generated_at']}`",
-        "",
-    ]
-    for item in items:
-        lines.append(f"## {item['spec']}")
-        lines.append("")
-        lines.append(f"- Status: `{item['status']}`")
-        for contract_item in item["contracts"]:
-            lines.append(
-                f"- Contract `{contract_item['name']}` ({contract_item['type']}/{contract_item['repo']}): "
-                f"`{contract_item['status']}`"
-            )
-            lines.extend(format_findings(contract_item["findings"]))
-        if not item["contracts"]:
-            lines.append("- Sin contratos declarados.")
-        lines.append("")
-    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-    payload = dict(report)
-    payload["json_report"] = rel(json_path)
-    payload["markdown_report"] = rel(md_path)
-    if wants_json(args):
-        print(json_dumps(payload))
-        return 1 if findings else 0
-    print(rel(json_path))
-    print(rel(md_path))
-    return 1 if findings else 0
+    return flow_command_contract_verify(
+        args,
+        require_dirs=require_dirs,
+        select_spec_paths=select_spec_paths,
+        spec_slug=spec_slug,
+        extract_contract_declarations=extract_contract_declarations,
+        validate_contract_declaration=validate_contract_declaration,
+        contract_match_files=contract_match_files,
+        render_contract_artifacts=render_contract_artifacts,
+        verify_contract_declaration=verify_contract_declaration,
+        rel=rel,
+        utc_now=utc_now,
+        slugify=slugify,
+        write_json=write_json,
+        contract_report_root=CONTRACT_REPORT_ROOT,
+        json_dumps=json_dumps,
+        wants_json=wants_json,
+        root=ROOT,
+    )
 
 
 def command_spec_generate_contracts(args: argparse.Namespace) -> int:
-    require_dirs()
-    spec_path = resolve_spec(args.spec)
-    slug = spec_slug(spec_path)
-    text = spec_path.read_text(encoding="utf-8")
-    declarations, errors = extract_contract_declarations(text)
-    validated: list[dict[str, object]] = []
-    for declaration in declarations:
-        normalized, error = validate_contract_declaration(declaration)
-        if error:
-            errors.append(error)
-            continue
-        validated.append(normalized)
-
-    if errors:
-        if wants_json(args):
-            print(json_dumps({"spec": rel(spec_path), "artifacts": [], "findings": errors}))
-            return 1
-        raise SystemExit("\n".join(f"- {error}" for error in errors))
-
-    if not validated:
-        payload = {"spec": rel(spec_path), "artifacts": [], "findings": ["No contract declarations found."]}
-        if wants_json(args):
-            print(json_dumps(payload))
-        else:
-            print("No contract declarations found.")
-        return 0
-
-    artifacts = render_contract_artifacts(slug, validated)
-    payload = {"spec": rel(spec_path), "artifacts": artifacts, "findings": []}
-    if wants_json(args):
-        print(json_dumps(payload))
-        return 0
-
-    for artifact in artifacts:
-        print(artifact["path"])
-    return 0
+    return flow_command_spec_generate_contracts(
+        args,
+        require_dirs=require_dirs,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        extract_contract_declarations=extract_contract_declarations,
+        validate_contract_declaration=validate_contract_declaration,
+        render_contract_artifacts=render_contract_artifacts,
+        rel=rel,
+        json_dumps=json_dumps,
+        wants_json=wants_json,
+    )
 
 
 def resolve_spec(identifier: str) -> Path:
-    raw = Path(identifier)
-    if raw.exists():
-        return raw.resolve()
-
-    slug = slugify(raw.stem.replace(".spec", ""))
-    candidates = list(SPECS_ROOT.rglob(f"{slug}.spec.md"))
-    if not candidates:
-        raise SystemExit(f"No encontre una spec para '{identifier}'.")
-    return candidates[0]
+    return flow_specs.resolve_spec(identifier, config=SPEC_CONFIG, slugify=slugify)
 
 
 def spec_slug(spec_path: Path) -> str:
-    return spec_path.name.replace(".spec.md", "")
+    return flow_specs.spec_slug(spec_path)
 
 
 def render_targets(repos: list[str]) -> str:
-    lines: list[str] = []
-    for repo in repos:
-        for target in DEFAULT_TARGETS[repo]:
-            lines.append(f"  - {target}")
-    return "\n".join(lines)
+    return flow_specs.render_targets(SPEC_CONFIG, repos)
 
 
 def command_doctor(args: argparse.Namespace) -> int:
@@ -2285,604 +1414,122 @@ def command_doctor(args: argparse.Namespace) -> int:
 
 
 def command_spec_create(args: argparse.Namespace) -> int:
-    require_dirs()
-
-    slug = slugify(args.slug)
-    title = args.title.strip()
-    repos = args.repo or implementation_repos()[:1] or [ROOT_REPO]
-    spec_path = FEATURE_SPECS / f"{slug}.spec.md"
-    if spec_path.exists():
-        raise SystemExit(f"La spec ya existe: {rel(spec_path)}")
-
-    target_block = render_targets(repos)
-    repo_rows = "\n".join(
-        f"| `{repo}` | {', '.join(DEFAULT_TARGETS[repo])} |" for repo in repos
+    return flow_features.command_spec_create(
+        args,
+        require_dirs=require_dirs,
+        slugify=slugify,
+        implementation_repos=implementation_repos,
+        root_repo=ROOT_REPO,
+        feature_specs=FEATURE_SPECS,
+        default_targets=DEFAULT_TARGETS,
+        render_targets=render_targets,
+        render_test_plan_hints=render_test_plan_hints,
+        rel=rel,
+        state_path=state_path,
+        utc_now=utc_now,
+        write_state=write_state,
     )
-    body = "\n".join(
-        [
-            "---",
-            f"name: {title}",
-            "description: TODO describir el resultado observable",
-            "status: draft",
-            "owner: platform",
-            "targets:",
-            target_block,
-            "---",
-            "",
-            f"# {title}",
-            "",
-            "## Objetivo",
-            "",
-            "Describir el comportamiento observable que esta feature debe introducir.",
-            "",
-            "## Contexto",
-            "",
-            "- por que existe ahora",
-            "- que foundations gobiernan esta feature",
-            "- que repos estan afectados",
-            "",
-            "## Problema a resolver",
-            "",
-            "- que duele hoy",
-            "- que riesgo o ineficiencia se quiere eliminar",
-            "",
-            "## Alcance",
-            "",
-            "### Incluye",
-            "",
-            "- TODO",
-            "- TODO",
-            "",
-            "### No incluye",
-            "",
-            "- TODO",
-            "- TODO",
-            "",
-            "## Repos afectados",
-            "",
-            "| Repo | Targets |",
-            "| --- | --- |",
-            repo_rows,
-            "",
-            "## Resultado esperado",
-            "",
-            "- TODO",
-            "",
-            "## Reglas de negocio",
-            "",
-            "- TODO",
-            "",
-            "## Flujo principal",
-            "",
-            "1. TODO",
-            "2. TODO",
-            "3. TODO",
-            "",
-            "## Contrato funcional",
-            "",
-            "- inputs clave",
-            "- outputs clave",
-            "- errores esperados",
-            "- side effects relevantes",
-            "",
-            "## Routing de implementacion",
-            "",
-            "- El repo se deduce desde `targets`.",
-            "- Cada slice debe pertenecer a un solo repo.",
-            "- El plan operativo vive en `.flow/plans/**`.",
-            "",
-            "## Criterios de aceptacion",
-            "",
-            "- TODO",
-            "- TODO",
-            "",
-            "## Test plan",
-            "",
-            render_test_plan_hints(repos),
-            "",
-            "## Rollout",
-            "",
-            "- TODO",
-            "",
-            "## Rollback",
-            "",
-            "- TODO",
-            "",
-        ]
-    )
-    spec_path.write_text(body, encoding="utf-8")
-
-    state = {
-        "feature": slug,
-        "title": title,
-        "spec_path": rel(spec_path),
-        "status": "draft-spec",
-        "repos": repos,
-        "created_at": utc_now(),
-        "updated_at": utc_now(),
-    }
-    write_state(slug, state)
-
-    print(rel(spec_path))
-    print(rel(state_path(slug)))
-    return 0
 
 
 def command_spec_review(args: argparse.Namespace) -> int:
-    require_dirs()
-    spec_path = resolve_spec(args.spec)
-    slug = spec_slug(spec_path)
-    analysis = analyze_spec(spec_path)
-    frontmatter = analysis["frontmatter"]
-
-    high_priority: list[str] = []
-    medium_priority: list[str] = []
-    low_priority: list[str] = []
-
-    for field in analysis["missing_frontmatter"]:
-        high_priority.append(f"Falta el campo de frontmatter `{field}`.")
-
-    high_priority.extend(str(error) for error in analysis["target_errors"])
-    high_priority.extend(str(error) for error in analysis["test_errors"])
-
-    description = str(frontmatter.get("description", "")).strip().lower()
-    if not description or description.startswith("todo"):
-        medium_priority.append("`description` sigue en placeholder y no describe el resultado observable.")
-
-    missing_repo_tests = repos_missing_test_refs(analysis["target_index"], analysis["test_index"])
-    if missing_repo_tests:
-        medium_priority.append(
-            "Faltan referencias `[@test]` para: " + ", ".join(sorted(missing_repo_tests)) + "."
-        )
-
-    todo_count = int(analysis["todo_count"])
-    if todo_count:
-        medium_priority.append(f"Quedan {todo_count} placeholders `TODO` en la spec.")
-
-    status = str(frontmatter.get("status", "draft")).strip() or "draft"
-    if status not in {"draft", "approved"}:
-        low_priority.append(f"El estado `{status}` no forma parte del flujo principal esperado.")
-
-    ready_to_approve = not high_priority and not medium_priority
-    report_path = REPORT_ROOT / f"{slug}-spec-review.md"
-    report = textwrap.dedent(
-        f"""\
-        # Spec Review
-
-        ## Documento revisado
-
-        - `{rel(spec_path)}`
-
-        ## Findings
-
-        ### Alta prioridad
-
-        {chr(10).join(format_findings(high_priority))}
-
-        ### Media prioridad
-
-        {chr(10).join(format_findings(medium_priority))}
-
-        ### Baja prioridad
-
-        {chr(10).join(format_findings(low_priority))}
-
-        ## Aprobacion
-
-        - [{'x' if ready_to_approve else ' '}] lista para aprobar
-        - [{' ' if ready_to_approve else 'x'}] requiere cambios
-
-        ## Notas
-
-        - Estado actual del frontmatter: `{status}`
-        - Targets declarados: `{len(analysis['targets'])}`
-        - Referencias `[@test]`: `{len(analysis['test_refs'])}`
-        """
+    return flow_features.command_spec_review(
+        args,
+        require_dirs=require_dirs,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        analyze_spec=analyze_spec,
+        repos_missing_test_refs=repos_missing_test_refs,
+        format_findings=format_findings,
+        report_root=REPORT_ROOT,
+        read_state=read_state,
+        write_state=write_state,
+        rel=rel,
     )
-    report_path.write_text(report, encoding="utf-8")
-
-    state = read_state(slug)
-    state.update(
-        {
-            "feature": slug,
-            "spec_path": rel(spec_path),
-            "status": "reviewing-spec",
-        }
-    )
-    if "created_at" not in state:
-        state["created_at"] = utc_now()
-    write_state(slug, state)
-    print(rel(report_path))
-    return 0
 
 
 def command_spec_approve(args: argparse.Namespace) -> int:
-    spec_path = resolve_spec(args.spec)
-    slug = spec_slug(spec_path)
-    analysis = ensure_spec_ready_for_approval(spec_path)
-    replace_frontmatter_status(spec_path, "approved")
-    state = read_state(slug)
-    state.update(
-        {
-            "feature": slug,
-            "title": analysis["frontmatter"].get("name", slug),
-            "spec_path": rel(spec_path),
-            "status": "approved-spec",
-            "repos": list(analysis["target_index"]),
-        }
+    return flow_features.command_spec_approve(
+        args,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        ensure_spec_ready_for_approval=ensure_spec_ready_for_approval,
+        replace_frontmatter_status=replace_frontmatter_status,
+        read_state=read_state,
+        write_state=write_state,
+        rel=rel,
     )
-    if "created_at" not in state:
-        state["created_at"] = utc_now()
-    write_state(slug, state)
-    print(f"Spec aprobada: {rel(spec_path)}")
-    return 0
 
 
 def command_plan(args: argparse.Namespace) -> int:
-    require_dirs()
-    spec_path = resolve_spec(args.spec)
-    slug = spec_slug(spec_path)
-    analysis = analyze_spec(spec_path)
-    frontmatter = analysis["frontmatter"]
-    if frontmatter.get("status") != "approved":
-        raise SystemExit(
-            f"La spec '{slug}' debe estar en estado `approved` antes de planearla."
-        )
-
-    if analysis["target_errors"]:
-        joined = "\n".join(f"- {error}" for error in analysis["target_errors"])
-        raise SystemExit(f"La spec tiene targets invalidos:\n{joined}")
-
-    target_index = require_routed_paths(analysis["targets"], "targets")
-    repos = list(target_index)
-
-    slices: list[dict[str, object]] = []
-    for repo in repos:
-        short = repo_slice_prefix(repo)
-        owned_targets = [item["raw"] for item in target_index[repo]]
-        owned_patterns = [item["relative"] for item in target_index[repo]]
-        linked_tests = [item["raw"] for item in analysis["test_index"].get(repo, [])]
-        linked_test_patterns = [item["relative"] for item in analysis["test_index"].get(repo, [])]
-        slices.append(
-            {
-                "name": f"{short}-main",
-                "repo": repo,
-                "repo_path": str(repo_root(repo).resolve()),
-                "branch": f"feat/{slug}-{short}-main",
-                "worktree": str((WORKTREE_ROOT / f"{repo}-{slug}-{short}-main").resolve()),
-                "owned_targets": owned_targets,
-                "owned_patterns": owned_patterns,
-                "linked_tests": linked_tests,
-                "linked_test_patterns": linked_test_patterns,
-                "status": "slice-ready",
-            }
-        )
-
-    plan_payload = {
-        "feature": slug,
-        "spec_path": rel(spec_path),
-        "created_at": utc_now(),
-        "worktree_root": str(WORKTREE_ROOT.resolve()),
-        "slices": slices,
-    }
-
-    plan_json = PLAN_ROOT / f"{slug}.json"
-    plan_md = PLAN_ROOT / f"{slug}.md"
-    plan_json.write_text(json.dumps(plan_payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
-
-    lines = [
-        f"# Plan for {slug}",
-        "",
-        f"- Spec: `{rel(spec_path)}`",
-        f"- Worktree root: `{WORKTREE_ROOT}`",
-        "",
-        "| Slice | Repo | Branch | Worktree | Estado |",
-        "| --- | --- | --- | --- | --- |",
-    ]
-    for slice_payload in slices:
-        lines.append(
-            f"| `{slice_payload['name']}` | `{slice_payload['repo']}` | "
-            f"`{slice_payload['branch']}` | `{slice_payload['worktree']}` | "
-            f"`{slice_payload['status']}` |"
-        )
-    lines.extend(
-        [
-            "",
-            "## Hot files",
-            "",
-            "- Congelar archivos compartidos antes de paralelizar slices del mismo repo.",
-            "- Si dos slices comparten los mismos `targets`, mantener ejecucion serial.",
-        ]
+    return flow_features.command_plan(
+        args,
+        require_dirs=require_dirs,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        analyze_spec=analyze_spec,
+        require_routed_paths=require_routed_paths,
+        repo_slice_prefix=repo_slice_prefix,
+        repo_root=repo_root,
+        worktree_root=WORKTREE_ROOT,
+        plan_root=PLAN_ROOT,
+        read_state=read_state,
+        write_state=write_state,
+        rel=rel,
+        utc_now=utc_now,
     )
-    plan_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-    state = read_state(slug)
-    state.update(
-        {
-            "feature": slug,
-            "spec_path": rel(spec_path),
-            "status": "planned",
-            "repos": repos,
-            "plan_json": rel(plan_json),
-            "plan_markdown": rel(plan_md),
-        }
-    )
-    if "created_at" not in state:
-        state["created_at"] = utc_now()
-    write_state(slug, state)
-
-    print(rel(plan_json))
-    print(rel(plan_md))
-    return 0
 
 
 def command_slice_start(args: argparse.Namespace) -> int:
-    slug = slugify(args.spec)
-    _, selected, _ = load_plan_and_slice(slug, args.slice)
-
-    repo_path = selected["repo_path"]
-    worktree = selected["worktree"]
-    branch = selected["branch"]
-    WORKTREE_ROOT.mkdir(parents=True, exist_ok=True)
-    command = (
-        f"git -C {shlex.quote(repo_path)} worktree add "
-        f"{shlex.quote(worktree)} -b {shlex.quote(branch)}"
+    return flow_features.command_slice_start(
+        args,
+        slugify=slugify,
+        load_plan_and_slice=lambda slug, slice_name: flow_features.load_plan_and_slice(
+            slug,
+            slice_name,
+            plan_root=PLAN_ROOT,
+            rel=rel,
+        ),
+        worktree_root=WORKTREE_ROOT,
+        report_root=REPORT_ROOT,
+        read_state=read_state,
+        write_state=write_state,
+        rel=rel,
     )
-
-    handoff_path = REPORT_ROOT / f"{slug}-{args.slice}-handoff.md"
-    handoff = textwrap.dedent(
-        f"""\
-        # Slice Handoff
-
-        - Feature: `{slug}`
-        - Slice: `{args.slice}`
-        - Repo: `{selected['repo']}`
-        - Branch: `{branch}`
-        - Worktree: `{worktree}`
-
-        ## Owned targets
-
-        {chr(10).join(f"- `{target}`" for target in selected['owned_targets'])}
-
-        ## Linked tests
-
-        {chr(10).join(f"- `{target}`" for target in selected.get('linked_tests', [])) or '- Ninguno declarado.'}
-
-        ## Command
-
-        ```bash
-        {command}
-        ```
-        """
-    )
-    handoff_path.write_text(handoff, encoding="utf-8")
-
-    state = read_state(slug)
-    state["status"] = "slice-ready"
-    write_state(slug, state)
-
-    print(command)
-    print(rel(handoff_path))
-    return 0
 
 
 def command_slice_verify(args: argparse.Namespace) -> int:
-    slug = slugify(args.spec)
-    plan, selected, _ = load_plan_and_slice(slug, args.slice)
-    spec_path = ROOT / str(plan["spec_path"])
-    analysis = analyze_spec(spec_path)
-    repo_name = str(selected["repo"])
-    repo_path = Path(str(selected["repo_path"]))
-    planned_worktree = Path(str(selected["worktree"]))
-    inspection_path = planned_worktree if planned_worktree.exists() else repo_path
-
-    findings: list[str] = []
-    checks: list[tuple[str, str, str]] = []
-
-    if analysis["frontmatter"].get("status") == "approved":
-        checks.append(("PASS", "Estado de spec", "La spec sigue aprobada."))
-    else:
-        findings.append("La spec ya no esta en estado `approved`.")
-        checks.append(("FAIL", "Estado de spec", "La spec debe volver a aprobarse antes de verificar slices."))
-
-    if analysis["target_errors"]:
-        findings.extend(str(error) for error in analysis["target_errors"])
-        checks.append(("FAIL", "Targets", "La spec contiene targets invalidos."))
-    else:
-        checks.append(("PASS", "Targets", "Todos los targets declarados se enrutan de forma valida."))
-
-    if not planned_worktree.exists():
-        checks.append(
-            (
-                "WARN",
-                "Worktree",
-                f"No existe el worktree planeado; se inspecciona `{inspection_path}`.",
-            )
-        )
-    else:
-        checks.append(("PASS", "Worktree", f"Se inspecciona el worktree `{inspection_path}`."))
-
-    owned_targets = [str(target) for target in selected.get("owned_targets", [])]
-    owned_patterns = [str(pattern) for pattern in selected.get("owned_patterns", [])]
-    misrouted_targets = [target for target in owned_targets if classify_routed_path(target)[0] != repo_name]
-    if misrouted_targets:
-        findings.extend(
-            f"El target `{target}` no pertenece a la slice `{args.slice}`." for target in misrouted_targets
-        )
-        checks.append(("FAIL", "Ownership", "Hay targets de otro repo dentro de la slice."))
-    else:
-        checks.append(("PASS", "Ownership", "Todos los targets de la slice pertenecen al repo correcto."))
-
-    linked_test_patterns = [str(pattern) for pattern in selected.get("linked_test_patterns", [])]
-    if repo_name != ROOT_REPO and not linked_test_patterns:
-        findings.append(f"La slice `{args.slice}` no tiene referencias `[@test]` para {repo_name}.")
-        checks.append(("FAIL", "Test links", "Faltan referencias `[@test]` para esta slice."))
-        materialized_tests: list[str] = []
-    else:
-        materialized_tests, missing_tests, invalid_tests = validate_test_reference_patterns(
-            repo_name,
-            inspection_path,
-            linked_test_patterns,
-        )
-        if missing_tests:
-            findings.extend(
-                f"La referencia `[@test] {pattern}` no existe en `{inspection_path}`."
-                for pattern in missing_tests
-            )
-            checks.append(("FAIL", "Test links", "Hay referencias `[@test]` que no resuelven a archivos reales."))
-        elif invalid_tests:
-            findings.extend(invalid_tests)
-            checks.append(("FAIL", "Test links", "Hay referencias `[@test]` que no son ejecutables por el runner."))
-        elif linked_test_patterns:
-            checks.append(
-                (
-                    "PASS",
-                    "Test links",
-                    f"Las referencias `[@test]` resuelven a {len(materialized_tests)} ruta(s).",
-                )
-            )
-        else:
-            checks.append(("WARN", "Test links", "No se requieren `[@test]` para esta slice del workspace."))
-
-    changed_files, git_error = git_changed_files(inspection_path)
-    if git_error:
-        checks.append(("WARN", "Git diff", f"No se pudo inspeccionar cambios: {git_error}."))
-        unexpected_changes: list[str] = []
-    elif not changed_files:
-        checks.append(("WARN", "Git diff", "No hay cambios locales detectados en el repo inspeccionado."))
-        unexpected_changes = []
-    else:
-        allowed_patterns = owned_patterns + linked_test_patterns
-        unexpected_changes = [
-            changed_file for changed_file in changed_files if not matches_any_pattern(changed_file, allowed_patterns)
-        ]
-        if unexpected_changes:
-            findings.extend(
-                f"El archivo cambiado `{path}` cae fuera de los targets o tests declarados."
-                for path in unexpected_changes
-            )
-            checks.append(("FAIL", "Git diff", "Hay cambios fuera del alcance declarado por la slice."))
-        else:
-            checks.append(
-                (
-                    "PASS",
-                    "Git diff",
-                    f"Los {len(changed_files)} cambio(s) detectados permanecen dentro del alcance declarado.",
-                )
-            )
-
-    test_command = detect_test_command(repo_name, inspection_path, materialized_tests)
-    test_output = ""
-    if test_command:
-        test_result = subprocess.run(
-            test_command,
-            cwd=inspection_path,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        combined_output = (test_result.stdout + "\n" + test_result.stderr).strip()
-        test_output = "\n".join(combined_output.splitlines()[-20:])
-        if test_result.returncode == 0:
-            checks.append(("PASS", "Test runner", "Los tests enlazados pasaron con el runner detectado."))
-        else:
-            findings.append(
-                "El runner detectado devolvio un error al ejecutar los tests enlazados."
-            )
-            checks.append(("FAIL", "Test runner", f"El comando fallo: {' '.join(test_command)}"))
-    elif materialized_tests:
-        checks.append(
-            (
-                "WARN",
-                "Test runner",
-                "No se detecto un runner automatico para ejecutar los tests enlazados.",
-            )
-        )
-    else:
-        checks.append(("WARN", "Test runner", "No hay tests materializados para ejecutar automaticamente."))
-
-    has_failures = any(status == "FAIL" for status, _, _ in checks)
-    report_path = REPORT_ROOT / f"{slug}-{args.slice}-verification.md"
-    report = textwrap.dedent(
-        f"""\
-        # Slice Verification
-
-        - Feature: `{slug}`
-        - Slice: `{args.slice}`
-        - Repo: `{repo_name}`
-        - Ruta inspeccionada: `{inspection_path}`
-
-        ## Checks
-
-        {chr(10).join(f"- [{status}] **{name}**: {detail}" for status, name, detail in checks)}
-
-        ## Findings
-
-        {chr(10).join(format_findings(findings))}
-
-        ## Changed files
-
-        {chr(10).join(f"- `{path}`" for path in changed_files) or '- Ninguno detectado.'}
-
-        ## Linked tests
-
-        {chr(10).join(f"- `{path}`" for path in materialized_tests) or '- Ninguno materializado.'}
-
-        ## Test command
-
-        ```bash
-        {' '.join(shlex.quote(part) for part in test_command) if test_command else '# no test runner auto-detectado'}
-        ```
-        """
+    return flow_features.command_slice_verify(
+        args,
+        slugify=slugify,
+        load_plan_and_slice=lambda slug, slice_name: flow_features.load_plan_and_slice(
+            slug,
+            slice_name,
+            plan_root=PLAN_ROOT,
+            rel=rel,
+        ),
+        root=ROOT,
+        analyze_spec=analyze_spec,
+        root_repo=ROOT_REPO,
+        classify_routed_path=classify_routed_path,
+        validate_test_reference_patterns=validate_test_reference_patterns,
+        git_changed_files=git_changed_files,
+        detect_test_command=detect_test_command,
+        format_findings=format_findings,
+        report_root=REPORT_ROOT,
+        read_state=read_state,
+        write_state=write_state,
+        rel=rel,
     )
-    if test_output:
-        report += f"\n## Test output\n\n```text\n{test_output}\n```\n"
-
-    report_path.write_text(report, encoding="utf-8")
-
-    state = read_state(slug)
-    state["status"] = "in-review" if not has_failures else "implementing"
-    state["last_verification_report"] = rel(report_path)
-    state["last_verification_result"] = "passed" if not has_failures else "failed"
-    if "created_at" not in state:
-        state["created_at"] = utc_now()
-    write_state(slug, state)
-    print(rel(report_path))
-    return 1 if has_failures else 0
 
 
 def command_status(args: argparse.Namespace) -> int:
-    if args.spec:
-        slug = slugify(args.spec)
-        state = read_state(slug)
-        if not state:
-            raise SystemExit(f"No existe estado para '{slug}'.")
-        print(json_dumps(state))
-        return 0
-
-    states = sorted(STATE_ROOT.glob("*.json"))
-    if not states:
-        if wants_json(args):
-            print(json_dumps({"items": []}))
-        else:
-            print("No hay features registradas en .flow/state.")
-        return 0
-
-    items: list[dict[str, object]] = []
-    for state_file in states:
-        payload = json.loads(state_file.read_text(encoding="utf-8"))
-        items.append(payload)
-    if wants_json(args):
-        print(json_dumps({"items": items}))
-        return 0
-
-    for payload in items:
-        print(
-            f"- {payload.get('feature', payload.get('slug', 'unknown'))}: "
-            f"{payload.get('status', 'unknown')} "
-            f"({payload.get('spec_path', 'sin spec')})"
-        )
-    return 0
+    return flow_features.command_status(
+        args,
+        slugify=slugify,
+        state_root=STATE_ROOT,
+        read_state=read_state,
+        json_dumps=json_dumps,
+    )
 
 
 def command_ci_spec(args: argparse.Namespace) -> int:
