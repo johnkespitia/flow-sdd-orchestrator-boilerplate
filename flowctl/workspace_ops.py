@@ -96,6 +96,8 @@ def command_add_project(
         defaults = resolve_runtime_pack(root, runtime, repo_name, repo_path)
     except runtime_catalog_error_type as exc:
         raise SystemExit(str(exc)) from exc
+    if str(defaults.get("runtime_kind", "project")) != "project":
+        raise SystemExit(f"El runtime `{runtime}` es de tipo `service`; no se puede registrar con `flow add-project`.")
 
     target_roots = list(args.target_root or defaults["target_roots"])
     default_targets = list(args.default_target or defaults["default_targets"])

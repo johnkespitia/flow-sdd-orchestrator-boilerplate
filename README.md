@@ -18,6 +18,8 @@ No es un producto específico. Es una base reusable para crear workspaces agenti
 - `flowctl/`: módulos internos del control plane para el refactor incremental
 - `workspace.skills.json`: capacidades del agente, separadas del scaffolding
 - `workspace.runtimes.json`: catálogo versionado de runtime packs
+- `workspace.capabilities.json`: catálogo versionado de capabilities como GraphQL
+- `workspace.stack.json`: manifiesto declarativo del stack inferido o planeado
 - `workspace.providers.json`: manifest versionado de providers de release e infraestructura
 - `workspace.secrets.json`: manifest versionado de providers de secrets y archivos generados
 - `.tessl/**`: tile local de SDD centrado en root
@@ -75,7 +77,7 @@ Eso genera un workspace nuevo:
 
 1. Abre el root en devcontainer
 2. Valida el scaffold
-3. Agrega los proyectos que realmente necesites con `flow add-project`
+3. Diseña o agrega los proyectos que realmente necesites con `flow stack design|plan|apply` o `flow add-project`
 4. Ajusta [`workspace.config.json`](workspace.config.json) si tu routing requiere reglas adicionales
 5. Si tu stack necesita otro runtime base, cambia los runtime packs o [`.devcontainer/docker-compose.yml`](.devcontainer/docker-compose.yml)
 6. Ejecuta:
@@ -118,6 +120,22 @@ python3 ./flow add-project mobile --runtime pnpm --port 4173
 Eso actualiza `workspace.config.json`, crea el directorio placeholder y, si el runtime lo soporta,
 agrega el servicio al `docker-compose` del devcontainer junto con auxiliares del runtime. El
 runtime `php`, por ejemplo, agrega `db` si todavía no existe.
+
+Tambien puedes partir desde una intencion conversacional y dejar que el control plane diseñe el
+stack inicial sobre el chasis limpio:
+
+```bash
+python3 ./flow stack design --prompt "quiero una api en golang que se conecte a postgresql y sea consumible usando graphql" --json
+python3 ./flow stack plan --json
+python3 ./flow stack apply --json
+```
+
+Ese flujo:
+
+- escribe `workspace.stack.json`
+- agrega servicios standalone como `postgres` o `mongo` sin crear repos falsos
+- crea proyectos reales de implementacion con runtime packs como `go-api`
+- genera foundation specs derivadas desde `workspace.capabilities.json`, por ejemplo GraphQL
 
 Las skills y tiles del workspace también se gobiernan desde el control plane:
 
@@ -184,7 +202,9 @@ Regla base:
 ## Flujo mínimo
 
 ```bash
-python3 ./flow add-project api --runtime php --port 8000
+python3 ./flow stack design --prompt "quiero una api en golang que se conecte a postgresql y sea consumible usando graphql"
+python3 ./flow stack plan
+python3 ./flow stack apply
 python3 ./flow spec create identity-bootstrap --title "Identity Bootstrap" --repo api
 python3 ./flow spec review identity-bootstrap
 python3 ./flow spec approve identity-bootstrap
@@ -207,11 +227,16 @@ El devcontainer incluido trae:
 - runtime packs listos para agregar servicios bajo demanda
 
 Ese stack es intencionalmente mínimo. La topología nace vacía y se expande con `flow add-project`.
+Si prefieres un bootstrap declarativo, la topología tambien puede nacer desde `flow stack design`
+y materializarse luego con `flow stack apply`.
 
 ## Comandos útiles
 
 ```bash
 python3 ./flow --help
+python3 ./flow stack design --prompt "quiero una api en golang con postgresql y graphql"
+python3 ./flow stack plan --json
+python3 ./flow stack apply --json
 python3 ./flow add-project mobile --runtime pnpm --port 4173
 python3 ./flow stack ps
 python3 ./flow tessl -- --help

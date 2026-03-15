@@ -1,0 +1,63 @@
+{
+  "target_roots": [
+    ".github",
+    "AGENTS.md",
+    "package.json",
+    "pnpm-lock.yaml",
+    "src",
+    "test",
+    "tsconfig.json",
+    "tsconfig.build.json",
+    "nest-cli.json"
+  ],
+  "default_targets": [
+    "../../{path}/src/**",
+    "../../{path}/test/**"
+  ],
+  "test_runner": "pnpm",
+  "test_hint": "../../{path}/test/...",
+  "test_required_roots": [
+    "package.json",
+    "pnpm-lock.yaml",
+    "src",
+    "test",
+    "tsconfig.json",
+    "nest-cli.json"
+  ],
+  "placeholder_dirs": [
+    "src",
+    "test"
+  ],
+  "placeholder_files": {
+    "package.json": {
+      "name": "{name}",
+      "version": "0.0.1",
+      "private": true,
+      "scripts": {
+        "build": "nest build",
+        "start": "nest start",
+        "start:dev": "nest start --watch",
+        "test": "jest",
+        "test:e2e": "jest --config ./test/jest-e2e.json"
+      }
+    },
+    "nest-cli.json": {
+      "collection": "@nestjs/schematics",
+      "sourceRoot": "src"
+    }
+  },
+  "agent_skill_refs": [
+    "workspace/spec-driven-workspace"
+  ],
+  "compose": {
+    "dockerfile": "backend.Dockerfile",
+    "mount_target": "/app",
+    "working_dir": "/app",
+    "command": "sleep infinity",
+    "default_port": 3000,
+    "networks": [
+      "{network_name}"
+    ]
+  },
+  "notes": "Runtime para NestJS orientado a microservicios backend."
+}

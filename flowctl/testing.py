@@ -37,6 +37,19 @@ def valid_pnpm_test_file(path: Path) -> tuple[bool, str]:
     return False, "no parece un test ejecutable por el runner JS/TS"
 
 
+def valid_go_test_file(path: Path) -> tuple[bool, str]:
+    if not path.is_file():
+        return False, "no es un archivo"
+    if path.suffix.lower() != ".go":
+        return False, "debe terminar en `.go`"
+    if not path.name.endswith("_test.go") and "tests" not in path.parts:
+        return False, "debe usar sufijo `_test.go` o vivir bajo `tests/`"
+    text = file_text(path).lower()
+    if "func test" in text or path.name.endswith("_test.go"):
+        return True, ""
+    return False, "no parece un test ejecutable por `go test`"
+
+
 def validate_test_file_for_runner(runner: str, absolute_path: Path) -> tuple[bool, str]:
     normalized_runner = runner.strip().lower()
     if normalized_runner == "none":
@@ -45,6 +58,8 @@ def validate_test_file_for_runner(runner: str, absolute_path: Path) -> tuple[boo
         return valid_php_test_file(absolute_path)
     if normalized_runner == "pnpm":
         return valid_pnpm_test_file(absolute_path)
+    if normalized_runner == "go":
+        return valid_go_test_file(absolute_path)
     return absolute_path.is_file(), "el runner no expone una validacion estructural especifica"
 
 
@@ -110,5 +125,10 @@ def detect_test_command(runner: str, repo_path: Path, test_paths: list[str]) -> 
             scripts = package.get("scripts", {})
             if isinstance(scripts, dict) and "test" in scripts:
                 return ["pnpm", "test", "--", *test_paths]
+
+    if normalized_runner == "go":
+        go_mod = repo_path / "go.mod"
+        if go_mod.exists() and shutil.which("go"):
+            return ["go", "test", "./..."]
 
     return None

@@ -19,6 +19,7 @@ from typing import Optional
 from flowctl import features as flow_features
 from flowctl import skills_ops as flow_skills_ops
 from flowctl import specs as flow_specs
+from flowctl import stack_design as flow_stack_design
 from flowctl import stack_ops as flow_stack_ops
 from flowctl import tooling as flow_tooling
 from flowctl import workspace_ops as flow_workspace_ops
@@ -133,6 +134,7 @@ from flowctl.state import (
     write_state as flow_write_state,
 )
 from flowctl.stack import (
+    add_standalone_service_to_compose as flow_add_standalone_service_to_compose,
     add_service_to_compose as flow_add_service_to_compose,
     capture_compose as flow_capture_compose,
     compose_base_command as flow_compose_base_command,
@@ -193,9 +195,11 @@ def json_dumps(payload: object) -> str:
 
 WORKSPACE_CONTEXT = flow_build_workspace_context(ROOT, RUNTIMES_CONFIG_FILENAME)
 WORKSPACE_CONFIG_FILE = WORKSPACE_CONTEXT["WORKSPACE_CONFIG_FILE"]
+CAPABILITIES_CONFIG_FILE = WORKSPACE_CONTEXT["CAPABILITIES_CONFIG_FILE"]
 SKILLS_CONFIG_FILE = WORKSPACE_CONTEXT["SKILLS_CONFIG_FILE"]
 PROVIDERS_CONFIG_FILE = WORKSPACE_CONTEXT["PROVIDERS_CONFIG_FILE"]
 SECRETS_CONFIG_FILE = WORKSPACE_CONTEXT["SECRETS_CONFIG_FILE"]
+STACK_CONFIG_FILE = WORKSPACE_CONTEXT["STACK_CONFIG_FILE"]
 RUNTIMES_CONFIG_FILE = WORKSPACE_CONTEXT["RUNTIMES_CONFIG_FILE"]
 WORKSPACE_CONFIG = WORKSPACE_CONTEXT["WORKSPACE_CONFIG"]
 PROJECT_CONFIG = WORKSPACE_CONTEXT["PROJECT_CONFIG"]
@@ -340,6 +344,15 @@ def add_service_to_compose(
     compose_config: dict[str, object],
 ) -> None:
     flow_add_service_to_compose(DEVCONTAINER_COMPOSE_FILE, service_name, repo_path, runtime, port, compose_config)
+
+
+def add_standalone_service_to_compose(
+    compose_file: Path,
+    service_name: str,
+    runtime: str,
+    compose_config: dict[str, object],
+) -> None:
+    flow_add_standalone_service_to_compose(compose_file, service_name, runtime, compose_config)
 
 
 def ensure_project_directory(path: Path, use_existing: bool) -> None:
@@ -843,6 +856,16 @@ def repo_ci_commands(repo: str, repo_path: Path, skip_install: bool) -> list[tup
         if shutil.which("pytest"):
             return [("Tests", ["pytest"])]
 
+    if runner == "go":
+        go_mod = repo_path / "go.mod"
+        if go_mod.exists() and shutil.which("go"):
+            commands: list[tuple[str, list[str]]] = []
+            if not skip_install:
+                commands.append(("Install", ["go", "mod", "download"]))
+            commands.append(("Tests", ["go", "test", "./..."]))
+            commands.append(("Build", ["go", "build", "./..."]))
+            return commands
+
     return []
 
 
@@ -1032,6 +1055,56 @@ def command_stack_exec(args: argparse.Namespace) -> int:
         compose_exec_args=compose_exec_args,
         workspace_service=WORKSPACE_SERVICE,
         workspace_path=WORKSPACE_PATH,
+    )
+
+
+def command_stack_design(args: argparse.Namespace) -> int:
+    return flow_stack_design.command_stack_design(
+        args,
+        stack_config_file=STACK_CONFIG_FILE,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
+    )
+
+
+def command_stack_plan(args: argparse.Namespace) -> int:
+    return flow_stack_design.command_stack_plan(
+        args,
+        root=ROOT,
+        stack_config_file=STACK_CONFIG_FILE,
+        workspace_config_file=WORKSPACE_CONFIG_FILE,
+        load_workspace_config=load_workspace_config,
+        resolve_capability_pack=flow_stack_design.resolve_capability_pack,
+        resolve_runtime_pack=resolve_runtime_pack,
+        json_dumps=json_dumps,
+    )
+
+
+def command_stack_apply(args: argparse.Namespace) -> int:
+    return flow_stack_design.command_stack_apply(
+        args,
+        root=ROOT,
+        root_repo=ROOT_REPO,
+        stack_config_file=STACK_CONFIG_FILE,
+        workspace_config_file=WORKSPACE_CONFIG_FILE,
+        load_workspace_config=load_workspace_config,
+        load_skills_config=load_skills_config,
+        skills_entries=skills_entries,
+        normalize_repo_path=normalize_repo_path,
+        validate_identifier=validate_identifier,
+        ensure_project_directory=lambda path, use_existing, rel=rel: flow_workspace_ops.ensure_project_directory(
+            path,
+            use_existing=use_existing,
+            rel=rel,
+        ),
+        repo_placeholder_text=repo_placeholder_text,
+        resolve_runtime_pack=resolve_runtime_pack,
+        add_service_to_compose=add_service_to_compose,
+        add_standalone_service_to_compose=add_standalone_service_to_compose,
+        resolve_capability_pack=flow_stack_design.resolve_capability_pack,
+        rel=rel,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
     )
 
 
@@ -1391,10 +1464,12 @@ def command_doctor(args: argparse.Namespace) -> int:
         detect_compose_context=detect_compose_context,
         bmad_command_prefix=bmad_command_prefix,
         runtimes_config_file=RUNTIMES_CONFIG_FILE,
+        capabilities_config_file=CAPABILITIES_CONFIG_FILE,
         available_runtime_names=available_runtime_names,
         runtime_catalog_error_type=RuntimeCatalogError,
         root=ROOT,
         workspace_config_file=WORKSPACE_CONFIG_FILE,
+        stack_config_file=STACK_CONFIG_FILE,
         skills_config_file=SKILLS_CONFIG_FILE,
         providers_config_file=PROVIDERS_CONFIG_FILE,
         secrets_config_file=SECRETS_CONFIG_FILE,
@@ -1712,6 +1787,9 @@ def build_parser() -> argparse.ArgumentParser:
         "stack_logs": command_stack_logs,
         "stack_sh": command_stack_sh,
         "stack_exec": command_stack_exec,
+        "stack_design": command_stack_design,
+        "stack_plan": command_stack_plan,
+        "stack_apply": command_stack_apply,
         "tessl": command_tessl,
         "bmad": command_bmad,
         "skills_doctor": command_skills_doctor,

@@ -1,0 +1,68 @@
+{
+  "target_roots": [
+    ".github",
+    "AGENTS.md",
+    "package.json",
+    "pnpm-lock.yaml",
+    "public",
+    "src",
+    "app",
+    "pages",
+    "tests",
+    "tsconfig.json",
+    "next.config.js",
+    "next.config.mjs"
+  ],
+  "default_targets": [
+    "../../{path}/src/**",
+    "../../{path}/app/**",
+    "../../{path}/pages/**",
+    "../../{path}/public/**",
+    "../../{path}/tests/**"
+  ],
+  "test_runner": "pnpm",
+  "test_hint": "../../{path}/tests/...",
+  "test_required_roots": [
+    "package.json",
+    "pnpm-lock.yaml",
+    "src",
+    "app",
+    "pages",
+    "tests",
+    "tsconfig.json"
+  ],
+  "placeholder_dirs": [
+    "public",
+    "app",
+    "tests"
+  ],
+  "placeholder_files": {
+    "package.json": {
+      "name": "{name}",
+      "private": true,
+      "version": "0.1.0",
+      "scripts": {
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next start",
+        "lint": "next lint",
+        "test": "vitest"
+      }
+    },
+    "next.config.js": "/** @type {import('next').NextConfig} */\nconst nextConfig = {};\n\nmodule.exports = nextConfig;\n"
+  },
+  "agent_skill_refs": [
+    "workspace/spec-driven-workspace"
+  ],
+  "compose": {
+    "dockerfile": "frontend.Dockerfile",
+    "mount_target": "/app",
+    "working_dir": "/app",
+    "command": "sleep infinity",
+    "default_port": 3000,
+    "networks": [
+      "{network_name}"
+    ]
+  },
+  "notes": "Runtime para Next.js con soporte para carpetas app/ y pages/."
+}

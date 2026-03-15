@@ -1,0 +1,41 @@
+{
+  "runtime_kind": "service",
+  "target_roots": [],
+  "default_targets": [],
+  "test_runner": "none",
+  "test_hint": null,
+  "test_required_roots": [],
+  "placeholder_dirs": [],
+  "placeholder_files": {},
+  "agent_skill_refs": [
+    "workspace/spec-driven-workspace"
+  ],
+  "compose": {
+    "image": "postgres:16",
+    "restart": "unless-stopped",
+    "volumes": [
+      "workspace-postgres-data:/var/lib/postgresql/data"
+    ],
+    "environment": {
+      "POSTGRES_DB": "app_dev",
+      "POSTGRES_USER": "app",
+      "POSTGRES_PASSWORD": "app"
+    },
+    "healthcheck": {
+      "test": [
+        "CMD-SHELL",
+        "pg_isready -U app -d app_dev"
+      ],
+      "interval": "5s",
+      "timeout": "3s",
+      "retries": 10
+    },
+    "named_volumes": [
+      "workspace-postgres-data"
+    ],
+    "networks": [
+      "{network_name}"
+    ]
+  },
+  "notes": "Servicio standalone de PostgreSQL para workspaces spec-driven."
+}

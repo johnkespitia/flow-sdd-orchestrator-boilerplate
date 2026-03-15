@@ -306,6 +306,8 @@ def command_ci_integration(
         smoke_commands = {
             workspace_service: ["sh", "-lc", "tessl --help >/dev/null && bmad --help >/dev/null"],
             "db": ["sh", "-lc", "mysqladmin ping -h localhost -u root -proot >/dev/null"],
+            "postgres": ["sh", "-lc", "pg_isready -U app -d app_dev >/dev/null"],
+            "mongo": ["sh", "-lc", "mongosh --quiet --eval 'db.runCommand({ ping: 1 })' >/dev/null"],
         }
         for repo in implementation_repos():
             runner = str(repo_config(repo).get("test_runner", "")).strip()
@@ -314,6 +316,8 @@ def command_ci_integration(
                 smoke_commands[service_name] = ["sh", "-lc", "php --version >/dev/null"]
             elif runner == "pnpm":
                 smoke_commands[service_name] = ["sh", "-lc", "node --version >/dev/null && pnpm --version >/dev/null"]
+            elif runner == "go":
+                smoke_commands[service_name] = ["go", "version"]
         for service_name, smoke_command in smoke_commands.items():
             if service_name not in service_names:
                 continue

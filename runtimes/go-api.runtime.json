@@ -1,0 +1,49 @@
+{
+  "runtime_kind": "project",
+  "target_roots": [
+    ".github",
+    "AGENTS.md",
+    "README.md",
+    "cmd",
+    "go.mod",
+    "go.sum",
+    "internal",
+    "pkg",
+    "tests"
+  ],
+  "default_targets": [
+    "../../{path}/cmd/**",
+    "../../{path}/internal/**",
+    "../../{path}/tests/**"
+  ],
+  "test_runner": "go",
+  "test_hint": "../../{path}/tests/...",
+  "test_required_roots": [
+    "cmd",
+    "go.mod",
+    "internal",
+    "tests"
+  ],
+  "placeholder_dirs": [
+    "cmd/api",
+    "internal",
+    "tests"
+  ],
+  "placeholder_files": {
+    "go.mod": "module workspace/{name}\n\ngo 1.23.0\n",
+    "cmd/api/main.go": "package main\n\nimport \"fmt\"\n\nfunc main() {\n    fmt.Println(\"{name} bootstrap\")\n}\n"
+  },
+  "agent_skill_refs": [
+    "workspace/spec-driven-workspace"
+  ],
+  "compose": {
+    "dockerfile": "go.Dockerfile",
+    "mount_target": "/app",
+    "working_dir": "/app",
+    "command": "sleep infinity",
+    "networks": [
+      "{network_name}"
+    ]
+  },
+  "notes": "Runtime para APIs en Go con estructura cmd/internal/tests."
+}

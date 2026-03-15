@@ -1,0 +1,30 @@
+{
+  "title": "GraphQL API Foundation",
+  "summary": "Define la capacidad GraphQL del workspace como contrato de schema, transporte y resolvers.",
+  "foundation_specs": [
+    {
+      "path": "specs/000-foundation/generated/graphql-api-foundation.spec.md",
+      "name": "GraphQL API Foundation",
+      "description": "Foundation para exponer GraphQL desde `{primary_project}` sobre el workspace actual.",
+      "owner": "platform",
+      "body": [
+        "## Scope",
+        "",
+        "- Exponer GraphQL desde `{primary_project}` como surface oficial del dominio.",
+        "- Mantener schema y resolvers gobernados por `specs/**` y contratos derivados.",
+        "",
+        "## Requirements",
+        "",
+        "- Toda mutacion y query debe modelarse primero en la spec del root.",
+        "- Los cambios de schema deben reflejarse en los contratos derivados bajo `contracts/generated/**`.",
+        "- Los resolvers deben mantener compatibilidad con el storage principal `{primary_database}` cuando aplique.",
+        "",
+        "## Routing hints",
+        "",
+        "- `../../{primary_project}/cmd/**`",
+        "- `../../{primary_project}/internal/**`",
+        "- `../../{primary_project}/tests/**`"
+      ]
+    }
+  ]
+}

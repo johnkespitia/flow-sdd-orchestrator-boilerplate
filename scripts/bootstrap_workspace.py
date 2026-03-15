@@ -90,16 +90,22 @@ def build_repo_config(path: str, kind: str, source_repo: dict[str, object]) -> d
     if kind == "root":
         if "workspace.config.json" not in target_roots:
             target_roots.append("workspace.config.json")
+        if "workspace.capabilities.json" not in target_roots:
+            target_roots.append("workspace.capabilities.json")
         if "workspace.providers.json" not in target_roots:
             target_roots.append("workspace.providers.json")
         if "workspace.runtimes.json" not in target_roots:
             target_roots.append("workspace.runtimes.json")
         if "workspace.secrets.json" not in target_roots:
             target_roots.append("workspace.secrets.json")
+        if "workspace.stack.json" not in target_roots:
+            target_roots.append("workspace.stack.json")
         if "workspace.skills.json" not in target_roots:
             target_roots.append("workspace.skills.json")
         if "flowctl" not in target_roots:
             target_roots.append("flowctl")
+        if "capabilities" not in target_roots:
+            target_roots.append("capabilities")
         if "runtimes" not in target_roots:
             target_roots.append("runtimes")
         if "scripts" not in target_roots:
@@ -166,7 +172,27 @@ def rewrite_project_texts(
         source_root_repo: root_repo,
     }
 
-    for relative_root in ["README.md", "templates", "specs", "docs", ".tessl", ".github", "scripts", "flowctl", "runtimes", "Makefile"]:
+    for relative_root in [
+        "README.md",
+        "flow",
+        "templates",
+        "specs",
+        "docs",
+        ".tessl",
+        ".github",
+        "scripts",
+        "flowctl",
+        "capabilities",
+        "runtimes",
+        "workspace.capabilities.json",
+        "workspace.config.json",
+        "workspace.providers.json",
+        "workspace.runtimes.json",
+        "workspace.secrets.json",
+        "workspace.skills.json",
+        "workspace.stack.json",
+        "Makefile",
+    ]:
         target = destination / relative_root
         if target.is_file():
             rewrite_text_file(target, replacements)

@@ -281,6 +281,50 @@ def add_service_to_compose(
     write_compose_text(compose_file, updated)
 
 
+def add_standalone_service_to_compose(
+    compose_file: Path,
+    service_name: str,
+    runtime: str,
+    compose_config: dict[str, object],
+) -> None:
+    compose_text = load_compose_text(compose_file)
+    if compose_service_exists(compose_text, service_name):
+        raise SystemExit(f"El servicio `{service_name}` ya existe en {compose_file}.")
+
+    substitutions = {
+        "network_name": infer_compose_network_name(compose_text),
+        "service_name": service_name,
+        "repo_path": service_name,
+    }
+    formatted = format_compose_value(compose_config, substitutions)
+    if not isinstance(formatted, dict):
+        raise SystemExit(f"El runtime `{runtime}` debe resolver `compose` como objeto.")
+
+    support_services = formatted.pop("support_services", {})
+    named_volumes = formatted.pop("named_volumes", [])
+    blocks = [render_service_block(service_name, formatted, comment=f"Added service: {service_name} ({runtime})")]
+
+    if isinstance(support_services, dict):
+        for support_name, support_config in support_services.items():
+            if compose_service_exists(compose_text, support_name):
+                continue
+            if not isinstance(support_config, dict):
+                raise SystemExit(
+                    f"El runtime `{runtime}` debe declarar `compose.support_services.{support_name}` como objeto."
+                )
+            formatted_support = format_compose_value(support_config, substitutions)
+            if not isinstance(formatted_support, dict):
+                raise SystemExit(
+                    f"El runtime `{runtime}` debe resolver `compose.support_services.{support_name}` como objeto."
+                )
+            blocks.append(render_service_block(support_name, formatted_support, comment=f"Runtime support: {support_name} ({runtime})"))
+
+    updated = insert_service_blocks(compose_text, blocks)
+    if isinstance(named_volumes, list):
+        updated = ensure_named_volumes(updated, [str(name) for name in named_volumes])
+    write_compose_text(compose_file, updated)
+
+
 def detect_compose_context(
     compose_file: Path,
     default_project: str,

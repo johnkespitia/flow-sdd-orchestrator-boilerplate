@@ -1,0 +1,30 @@
+{
+  "runtime_kind": "service",
+  "target_roots": [],
+  "default_targets": [],
+  "test_runner": "none",
+  "test_hint": null,
+  "test_required_roots": [],
+  "placeholder_dirs": [],
+  "placeholder_files": {},
+  "agent_skill_refs": [
+    "workspace/spec-driven-workspace"
+  ],
+  "compose": {
+    "image": "mongo:7",
+    "restart": "unless-stopped",
+    "volumes": [
+      "workspace-mongo-data:/data/db"
+    ],
+    "ports": [
+      "27017:27017"
+    ],
+    "named_volumes": [
+      "workspace-mongo-data"
+    ],
+    "networks": [
+      "{network_name}"
+    ]
+  },
+  "notes": "Servicio standalone de MongoDB para workspaces spec-driven."
+}

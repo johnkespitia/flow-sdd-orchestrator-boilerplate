@@ -81,9 +81,11 @@ def load_secrets_config(path: Path) -> dict[str, object]:
 
 def build_workspace_context(root: Path, runtimes_config_filename: str) -> dict[str, object]:
     workspace_config_file = root / "workspace.config.json"
+    capabilities_config_file = root / "workspace.capabilities.json"
     skills_config_file = root / "workspace.skills.json"
     providers_config_file = root / "workspace.providers.json"
     secrets_config_file = root / "workspace.secrets.json"
+    stack_config_file = root / "workspace.stack.json"
     runtimes_config_file = root / runtimes_config_filename
 
     workspace_config = load_workspace_config(workspace_config_file)
@@ -94,9 +96,11 @@ def build_workspace_context(root: Path, runtimes_config_filename: str) -> dict[s
 
     return {
         "WORKSPACE_CONFIG_FILE": workspace_config_file,
+        "CAPABILITIES_CONFIG_FILE": capabilities_config_file,
         "SKILLS_CONFIG_FILE": skills_config_file,
         "PROVIDERS_CONFIG_FILE": providers_config_file,
         "SECRETS_CONFIG_FILE": secrets_config_file,
+        "STACK_CONFIG_FILE": stack_config_file,
         "RUNTIMES_CONFIG_FILE": runtimes_config_file,
         "WORKSPACE_CONFIG": workspace_config,
         "PROJECT_CONFIG": project_config,

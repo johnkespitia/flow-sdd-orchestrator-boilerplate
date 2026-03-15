@@ -1,0 +1,8 @@
+{
+  "capabilities": {
+    "graphql": {
+      "enabled": true,
+      "source": "capabilities/graphql.capability.json"
+    }
+  }
+}

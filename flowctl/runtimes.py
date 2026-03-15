@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -81,11 +82,11 @@ def _runtime_pack_path(root: Path, runtime: str) -> Path:
 
 def _format_runtime_value(value: Any, substitutions: dict[str, str]) -> Any:
     if isinstance(value, str):
-        class SafeFormatDict(dict):
-            def __missing__(self, key: str) -> str:
-                return "{" + key + "}"
-
-        return value.format_map(SafeFormatDict(substitutions))
+        return re.sub(
+            r"\{([A-Za-z0-9_]+)\}",
+            lambda match: substitutions.get(match.group(1), match.group(0)),
+            value,
+        )
     if isinstance(value, list):
         return [_format_runtime_value(item, substitutions) for item in value]
     if isinstance(value, dict):
@@ -114,7 +115,12 @@ def _normalize_runtime_pack(runtime: str, payload: dict[str, Any]) -> dict[str, 
     if compose is not None and not isinstance(compose, dict):
         raise RuntimeCatalogError(f"El runtime `{runtime}` debe declarar `compose` como objeto o null.")
 
+    runtime_kind = str(payload.get("runtime_kind", "project")).strip().lower() or "project"
+    if runtime_kind not in {"project", "service"}:
+        raise RuntimeCatalogError(f"El runtime `{runtime}` debe declarar `runtime_kind` como `project` o `service`.")
+
     normalized = {
+        "runtime_kind": runtime_kind,
         "target_roots": _normalize_string_list(payload, "target_roots", runtime),
         "default_targets": _normalize_string_list(payload, "default_targets", runtime),
         "test_runner": str(payload.get("test_runner", "none")).strip().lower() or "none",
@@ -150,6 +156,7 @@ def resolve_runtime_pack(root: Path, runtime: str, repo_name: str, repo_path: st
 
     return {
         "runtime": runtime,
+        "runtime_kind": normalized["runtime_kind"],
         "target_roots": _format_runtime_value(normalized["target_roots"], substitutions),
         "default_targets": _format_runtime_value(normalized["default_targets"], substitutions),
         "test_runner": normalized["test_runner"],

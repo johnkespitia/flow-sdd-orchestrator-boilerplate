@@ -38,6 +38,9 @@ El workspace expone `python3 ./flow` como control plane.
 ```bash
 python3 ./flow stack doctor
 python3 ./flow stack ps
+python3 ./flow stack design --prompt "quiero una api en golang con postgresql y graphql"
+python3 ./flow stack plan --json
+python3 ./flow stack apply --json
 python3 ./flow tessl -- --help
 python3 ./flow skills doctor
 python3 ./flow skills sync --dry-run
@@ -87,6 +90,8 @@ python3 ./flow bmad -- install --tools none --yes
 
 - `flow stack ...` resuelve el proyecto Compose correcto del devcontainer y evita depender del
   nombre implícito del host.
+- `flow stack design|plan|apply` permite partir de un chasis root-only y materializar proyectos,
+  servicios standalone y foundations derivadas sin editar manifests a mano.
 - `flow tessl ...` ejecuta Tessl en el entorno canónico del `workspace`.
 - `flow skills ...` usa `workspace.skills.json` como manifest versionado para sincronizar skills
   de Tessl y `skills.sh` sin depender de `~/.codex/**`.

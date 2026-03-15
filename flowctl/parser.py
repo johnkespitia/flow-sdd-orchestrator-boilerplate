@@ -56,6 +56,19 @@ def build_parser(
     stack_exec.add_argument("command", nargs=argparse.REMAINDER, help="Command to execute.")
     stack_exec.set_defaults(func=commands["stack_exec"])
 
+    stack_design = stack_subparsers.add_parser("design", help="Infer a stack manifest from a natural-language prompt.")
+    stack_design.add_argument("--prompt", required=True, help="Natural-language description of the desired stack.")
+    stack_design.add_argument("--json", action="store_true", help="Print the designed manifest as JSON.")
+    stack_design.set_defaults(func=commands["stack_design"])
+
+    stack_plan = stack_subparsers.add_parser("plan", help="Summarize actions required by `workspace.stack.json`.")
+    stack_plan.add_argument("--json", action="store_true", help="Print the plan as JSON.")
+    stack_plan.set_defaults(func=commands["stack_plan"])
+
+    stack_apply = stack_subparsers.add_parser("apply", help="Apply `workspace.stack.json` to the workspace scaffold.")
+    stack_apply.add_argument("--json", action="store_true", help="Print the apply result as JSON.")
+    stack_apply.set_defaults(func=commands["stack_apply"])
+
     tessl = subparsers.add_parser("tessl", help="Run Tessl through the canonical workspace environment.")
     tessl.add_argument("args", nargs=argparse.REMAINDER, help="Arguments passed to Tessl.")
     tessl.set_defaults(func=commands["tessl"])
@@ -252,7 +265,7 @@ def build_parser(
     add_project.add_argument("--use-existing-dir", action="store_true", help="Allow registering an existing non-empty directory instead of requiring a fresh placeholder.")
     add_project.add_argument("--target-root", action="append", help="Override target roots. Repeat to define multiple roots.")
     add_project.add_argument("--default-target", action="append", help="Override default target patterns. Repeat to define multiple patterns.")
-    add_project.add_argument("--test-runner", choices=["none", "php", "pnpm", "pytest"], help="Override the test runner used by `flow slice verify`.")
+    add_project.add_argument("--test-runner", choices=["none", "php", "pnpm", "pytest", "go"], help="Override the test runner used by `flow slice verify`.")
     add_project.add_argument("--test-hint", help="Override the default `[@test]` hint for this project.")
     add_project.set_defaults(func=commands["add_project"])
 
