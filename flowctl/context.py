@@ -113,7 +113,7 @@ def build_workspace_context(root: Path, runtimes_config_filename: str) -> dict[s
         "DEFAULT_COMPOSE_PROJECT": env_first(
             "FLOW_COMPOSE_PROJECT",
             "PLG_COMPOSE_PROJECT",
-            default=f"{root_repo if root.name == Path(workspace_path).name else root.name}_devcontainer",
+            default=f"{root_repo}_devcontainer",
         ),
         "HOST_ROOT_HINT": Path(env_first("FLOW_HOST_ROOT", "PLG_HOST_ROOT", default=str(root)) or root).expanduser(),
         "WORKTREE_ROOT": Path(

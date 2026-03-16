@@ -288,6 +288,45 @@ def repo_compose_service(repo: str) -> str:
     return repo
 
 
+def workspace_host_root() -> Path:
+    resolved_root = ROOT.resolve()
+    parts = list(resolved_root.parts)
+    if ".worktrees" in parts:
+        index = parts.index(".worktrees")
+        return Path(*parts[:index])
+    return HOST_ROOT_HINT
+
+
+def repo_container_workdir(repo_path: Path) -> Optional[str]:
+    workspace_root = WORKSPACE_PATH.rstrip("/")
+    resolved_repo = repo_path.resolve()
+    repo_text = resolved_repo.as_posix()
+    if repo_text == workspace_root or repo_text.startswith(f"{workspace_root}/"):
+        return repo_text
+
+    try:
+        relative = resolved_repo.relative_to(workspace_host_root().resolve())
+    except ValueError:
+        return None
+    return f"{workspace_root}/{relative.as_posix()}"
+
+
+def wrap_repo_command_for_service(repo: str, repo_path: Path, command: list[str]) -> list[str]:
+    service_name = repo_compose_service(repo)
+    if not service_name:
+        return command
+
+    workdir = repo_container_workdir(repo_path)
+    if not workdir:
+        return command
+
+    return [
+        *compose_base_command(),
+        *compose_exec_args(service_name, interactive=False, workdir=workdir),
+        *command,
+    ]
+
+
 def repo_prefix_examples() -> str:
     prefixes = [f"'{prefix}'" for prefix in REPO_PREFIXES.values()]
     return ", ".join(prefixes)
@@ -533,7 +572,10 @@ def matches_any_pattern(path: str, patterns: list[str]) -> bool:
 
 def detect_test_command(repo: str, repo_path: Path, test_paths: list[str]) -> Optional[list[str]]:
     runner = str(repo_config(repo).get("test_runner", "none")).strip().lower()
-    return flow_detect_test_command(runner, repo_path, test_paths)
+    command = flow_detect_test_command(runner, repo_path, test_paths)
+    if not command:
+        return None
+    return wrap_repo_command_for_service(repo, repo_path, command)
 
 
 def file_text(path: Path) -> str:
@@ -826,7 +868,7 @@ def repo_ci_commands(repo: str, repo_path: Path, skip_install: bool) -> list[tup
             commands.append(("Tests", ["php", "artisan", "test"]))
         elif phpunit.exists():
             commands.append(("Tests", [str(phpunit)]))
-        return commands
+        return [(label, wrap_repo_command_for_service(repo, repo_path, command)) for label, command in commands]
 
     if runner == "pnpm":
         package_json = repo_path / "package.json"
@@ -850,11 +892,11 @@ def repo_ci_commands(repo: str, repo_path: Path, skip_install: bool) -> list[tup
         for script_name, label in [("lint", "Lint"), ("test", "Tests"), ("build", "Build")]:
             if script_name in scripts:
                 commands.append((label, ["pnpm", script_name]))
-        return commands
+        return [(label, wrap_repo_command_for_service(repo, repo_path, command)) for label, command in commands]
 
     if runner == "pytest":
         if shutil.which("pytest"):
-            return [("Tests", ["pytest"])]
+            return [("Tests", wrap_repo_command_for_service(repo, repo_path, ["pytest"]))]
 
     if runner == "go":
         go_mod = repo_path / "go.mod"
@@ -864,7 +906,7 @@ def repo_ci_commands(repo: str, repo_path: Path, skip_install: bool) -> list[tup
                 commands.append(("Install", ["go", "mod", "download"]))
             commands.append(("Tests", ["go", "test", "./..."]))
             commands.append(("Build", ["go", "build", "./..."]))
-            return commands
+            return [(label, wrap_repo_command_for_service(repo, repo_path, command)) for label, command in commands]
 
     return []
 
@@ -947,8 +989,11 @@ def running_inside_workspace() -> bool:
 
 
 def compose_control_root() -> Path:
+    host_root = workspace_host_root()
     if running_inside_workspace():
-        return HOST_ROOT_HINT
+        return host_root
+    if ROOT.resolve() != host_root.resolve():
+        return host_root
     return ROOT
 
 
