@@ -78,7 +78,7 @@ Describir el comportamiento observable que esta feature debe introducir en el si
 
 ## Test plan
 
-- `[@test] ../../<implementation-repo>/tests/...`
+- [@test] ../../<implementation-repo>/tests/...
 
 ## Rollout
 

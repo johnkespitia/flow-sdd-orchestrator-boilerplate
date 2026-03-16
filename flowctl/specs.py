@@ -232,6 +232,10 @@ def extract_test_references(text: str, *, config: SpecConfig) -> list[str]:
     return config.test_ref_re.findall(text)
 
 
+def extract_backticked_test_references(text: str) -> list[str]:
+    return re.findall(r"`\[@test\]\s+([^`\n]+)`", text)
+
+
 def count_todos(text: str, *, config: SpecConfig) -> int:
     return len(config.todo_re.findall(text))
 
@@ -241,7 +245,7 @@ def render_test_plan_hints(config: SpecConfig, repos: list[str]) -> str:
     for repo in repos:
         hint = config.test_hints.get(repo)
         if hint:
-            lines.append(f"- `[@test] {hint}`")
+            lines.append(f"- [@test] {hint}")
 
     if not lines:
         lines.append("- Evidencia de verificacion del workspace: review manual o check operativo.")
@@ -255,6 +259,7 @@ def analyze_spec(spec_path: Path, *, config: SpecConfig) -> dict[str, object]:
     targets = list(frontmatter.get("targets", []))
     target_index, target_errors = collect_routed_paths(targets, config=config)
     test_refs = extract_test_references(text, config=config)
+    backticked_test_refs = extract_backticked_test_references(text)
     test_index, test_errors = collect_routed_paths(test_refs, config=config)
     missing_frontmatter = [field for field in config.required_frontmatter_fields if not frontmatter.get(field)]
 
@@ -265,6 +270,7 @@ def analyze_spec(spec_path: Path, *, config: SpecConfig) -> dict[str, object]:
         "target_index": target_index,
         "target_errors": target_errors,
         "test_refs": test_refs,
+        "backticked_test_refs": backticked_test_refs,
         "test_index": test_index,
         "test_errors": test_errors,
         "todo_count": count_todos(text, config=config),
@@ -308,6 +314,10 @@ def ensure_spec_ready_for_approval(
 
     blockers.extend(str(error) for error in analysis["target_errors"])
     blockers.extend(str(error) for error in analysis["test_errors"])
+    blockers.extend(
+        "No uses `[@test]` dentro de backticks; declara la referencia como texto plano."
+        for _ in analysis.get("backticked_test_refs", [])
+    )
     blockers.extend(
         test_reference_findings(
             analysis,
