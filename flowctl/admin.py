@@ -6,6 +6,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
@@ -178,6 +179,14 @@ def submodule_recorded_sha(root: Path, repo_path: str, git_output) -> Optional[s
     parts = stdout.split()
     if len(parts) >= 2:
         return parts[1]
+    return None
+
+
+def submodule_name_for_path(root: Path, repo_path: str, git_output) -> Optional[str]:
+    normalized = repo_path.strip().strip("/")
+    for name, path in gitmodules_paths(root, git_output).items():
+        if path.strip().strip("/") == normalized:
+            return name
     return None
 
 
@@ -362,6 +371,156 @@ def command_submodule_sync(
     print("Submodule sync")
     for execution in executions:
         print(f"- {' '.join(execution['command'])}: rc={execution['returncode']}")
+    for finding in findings:
+        print(f"- finding: {finding}")
+    return 1 if findings else 0
+
+
+def default_worktree_branch(name: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9._/-]+", "-", name.strip()).strip("./-")
+    if not normalized:
+        normalized = "worktree"
+    return f"demo/{normalized}"
+
+
+def wait_for_worktree_path(path: Path, *, timeout_seconds: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if path.exists() and (path / ".git").exists():
+            return True
+        time.sleep(0.05)
+    return path.exists() and (path / ".git").exists()
+
+
+def command_worktree_create(
+    args,
+    *,
+    repo_names: list[str],
+    repo_strategy: Callable[[str], str],
+    root: Path,
+    worktree_root: Path,
+    repo_config,
+    capture_command,
+    git_output,
+    utc_now: Callable[[], str],
+    json_dumps: Callable[[object], str],
+) -> int:
+    target = (worktree_root / str(args.name)).resolve()
+    branch = str(getattr(args, "branch", "") or default_worktree_branch(str(args.name)))
+    from_ref = str(getattr(args, "from_ref", "") or "HEAD")
+    findings: list[str] = []
+    executions: list[dict[str, object]] = []
+    submodules = submodule_repo_names(repo_names, repo_strategy)
+
+    try:
+        target.relative_to(worktree_root.resolve())
+    except ValueError as exc:
+        raise SystemExit(f"El worktree debe vivir dentro de `{worktree_root}`.") from exc
+
+    if target.exists():
+        raise SystemExit(f"El worktree `{target}` ya existe.")
+
+    worktree_root.mkdir(parents=True, exist_ok=True)
+
+    create_execution = capture_command(
+        ["git", "-C", str(root), "worktree", "add", "-b", branch, str(target), from_ref],
+        root,
+    )
+    create_execution["label"] = "create"
+    executions.append(create_execution)
+    if int(create_execution["returncode"]) != 0:
+        findings.append(
+            create_execution["output_tail"] or f"No pude crear el worktree `{target}` desde `{from_ref}`."
+        )
+    elif not wait_for_worktree_path(target):
+        findings.append(f"El worktree `{target}` no quedo materializado despues de `git worktree add`.")
+    else:
+        repair_execution = capture_command(
+            ["git", "-C", str(root), "worktree", "repair", "--relative-paths", str(target)],
+            root,
+        )
+        repair_execution["label"] = "repair"
+        executions.append(repair_execution)
+        if int(repair_execution["returncode"]) != 0:
+            findings.append(repair_execution["output_tail"] or "No pude reparar el admin dir del worktree.")
+
+        sync_execution = capture_command(
+            ["git", "-C", str(target), "submodule", "sync", "--recursive"],
+            target,
+        )
+        sync_execution["label"] = "submodule-sync"
+        executions.append(sync_execution)
+        if int(sync_execution["returncode"]) != 0:
+            findings.append(sync_execution["output_tail"] or "No pude sincronizar submodulos en el worktree.")
+
+        for repo in submodules:
+            repo_path = str(repo_config(repo).get("path", ".")).strip()
+            repo_name = submodule_name_for_path(root, repo_path, git_output) or repo
+            seed_path = (root / repo_path).resolve()
+            if not seed_path.is_dir():
+                continue
+            seed_execution = capture_command(
+                ["git", "-C", str(target), "config", f"submodule.{repo_name}.url", str(seed_path)],
+                target,
+            )
+            seed_execution["label"] = f"submodule-seed:{repo}"
+            executions.append(seed_execution)
+            if int(seed_execution["returncode"]) != 0:
+                findings.append(
+                    seed_execution["output_tail"] or f"No pude configurar el seed local para `{repo}`."
+                )
+
+        update_execution = capture_command(
+            [
+                "git",
+                "-C",
+                str(target),
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "update",
+                "--init",
+                "--recursive",
+                "--jobs",
+                "1",
+            ],
+            target,
+        )
+        update_execution["label"] = "submodule-update"
+        executions.append(update_execution)
+        if int(update_execution["returncode"]) != 0:
+            findings.append(update_execution["output_tail"] or "No pude hidratar submodulos en el worktree.")
+
+    hydrated: list[dict[str, object]] = []
+    if not findings:
+        for repo in submodules:
+            repo_path = target / str(repo_config(repo).get("path", ".")).strip()
+            exists = repo_path.is_dir()
+            hydrated.append({"repo": repo, "path": str(repo_path), "exists": exists})
+            if not exists:
+                findings.append(f"El submodulo `{repo}` no quedo disponible en `{repo_path}`.")
+
+    payload = {
+        "generated_at": utc_now(),
+        "branch": branch,
+        "from_ref": from_ref,
+        "worktree": str(target),
+        "submodules": hydrated,
+        "executions": executions,
+        "findings": findings,
+    }
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+        return 1 if findings else 0
+
+    print("Worktree create")
+    print(f"- branch: {branch}")
+    print(f"- from_ref: {from_ref}")
+    print(f"- worktree: {target}")
+    for execution in executions:
+        print(f"- {execution.get('label', 'command')}: rc={execution['returncode']}")
+    for item in hydrated:
+        print(f"- submodule {item['repo']}: {'ok' if item['exists'] else 'missing'} ({item['path']})")
     for finding in findings:
         print(f"- finding: {finding}")
     return 1 if findings else 0

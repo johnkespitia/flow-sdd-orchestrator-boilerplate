@@ -76,6 +76,7 @@ from flowctl.admin import (
     command_secrets_sync as flow_command_secrets_sync,
     command_submodule_doctor as flow_command_submodule_doctor,
     command_submodule_sync as flow_command_submodule_sync,
+    command_worktree_create as flow_command_worktree_create,
     inspect_submodule as flow_inspect_submodule,
     render_secret_target as flow_render_secret_target,
     resolve_secret_targets as flow_resolve_secret_targets,
@@ -1313,6 +1314,21 @@ def command_submodule_sync(args: argparse.Namespace) -> int:
     )
 
 
+def command_worktree_create(args: argparse.Namespace) -> int:
+    return flow_command_worktree_create(
+        args,
+        repo_names=REPO_NAMES,
+        repo_strategy=repo_strategy,
+        root=ROOT,
+        worktree_root=WORKTREE_ROOT,
+        repo_config=repo_config,
+        capture_command=capture_command,
+        git_output=git_output,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
+    )
+
+
 def command_secrets_doctor(args: argparse.Namespace) -> int:
     return flow_command_secrets_doctor(
         args,
@@ -1878,6 +1894,7 @@ def build_parser() -> argparse.ArgumentParser:
         "providers_list": command_providers_list,
         "submodule_doctor": command_submodule_doctor,
         "submodule_sync": command_submodule_sync,
+        "worktree_create": command_worktree_create,
         "secrets_doctor": command_secrets_doctor,
         "secrets_list": command_secrets_list,
         "secrets_sync": command_secrets_sync,

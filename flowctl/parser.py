@@ -125,6 +125,23 @@ def build_parser(
     submodule_sync.add_argument("--json", action="store_true", help="Print the sync report as JSON.")
     submodule_sync.set_defaults(func=commands["submodule_sync"])
 
+    worktree = subparsers.add_parser("worktree", help="Create root worktrees and hydrate submodules safely.")
+    worktree_subparsers = worktree.add_subparsers(dest="worktree_command", required=True)
+    worktree_create = worktree_subparsers.add_parser(
+        "create",
+        help="Create a root worktree and hydrate submodules serially.",
+    )
+    worktree_create.add_argument("name", help="Directory name under `.worktrees/` for the new worktree.")
+    worktree_create.add_argument("--branch", help="Branch to create. Defaults to `demo/<name>`.")
+    worktree_create.add_argument(
+        "--from-ref",
+        dest="from_ref",
+        default="HEAD",
+        help="Base ref used by `git worktree add`. Defaults to `HEAD`.",
+    )
+    worktree_create.add_argument("--json", action="store_true", help="Print the creation report as JSON.")
+    worktree_create.set_defaults(func=commands["worktree_create"])
+
     secrets = subparsers.add_parser("secrets", help="Resolve secrets through provider adapters without storing them in Git.")
     secrets_subparsers = secrets.add_subparsers(dest="secrets_command", required=True)
     for name, help_text in [("doctor", "Validate `workspace.secrets.json` and secret providers."), ("list", "List configured secret targets.")]:
