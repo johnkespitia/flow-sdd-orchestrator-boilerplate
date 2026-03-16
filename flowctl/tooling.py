@@ -38,9 +38,10 @@ def run_workspace_tool(
     workspace_service: str,
     workspace_path: str,
     interactive: Optional[bool] = None,
+    workdir: Optional[str] = None,
 ) -> int:
     return run_compose(
-        compose_exec_args(workspace_service, interactive=interactive, workdir=workspace_path) + tool_args,
+        compose_exec_args(workspace_service, interactive=interactive, workdir=workdir or workspace_path) + tool_args,
         interactive,
     )
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import shlex
 import shutil
 import textwrap
@@ -123,12 +125,19 @@ def command_ci_repo(
     scan_secret_paths,
     capture_command,
     write_json,
+    plan_root: Path,
     ci_report_root: Path,
     slugify: Callable[[str], str],
     rel: Callable[[Path], str],
     format_findings,
     utc_now: Callable[[], str],
     json_dumps: Callable[[object], str],
+    running_inside_workspace: Callable[[], bool],
+    repo_compose_service: Callable[[str], str],
+    run_workspace_tool: Callable[[list[str], Optional[bool], Optional[str]], int],
+    workspace_flow_workdir: Callable[[], str],
+    runtime_path: Callable[[Path], Path],
+    host_root_hint: Callable[[], str],
 ) -> int:
     require_dirs()
     if getattr(args, "all", False) and args.repo:
@@ -136,12 +145,62 @@ def command_ci_repo(
     if not getattr(args, "all", False) and not args.repo:
         raise SystemExit("Debes indicar un repo o usar `--all`.")
     repo_names = implementation_repos() if getattr(args, "all", False) else [args.repo]
+
+    if (
+        not running_inside_workspace()
+        and any(repo_compose_service(repo_name).strip() for repo_name in repo_names)
+        and os.environ.get("FLOW_DELEGATED_TO_WORKSPACE") != "1"
+    ):
+        delegated_command = [
+            "env",
+            "FLOW_DELEGATED_TO_WORKSPACE=1",
+            f"FLOW_HOST_ROOT={host_root_hint()}",
+            "python3",
+            "./flow",
+            "ci",
+            "repo",
+        ]
+        if getattr(args, "all", False):
+            delegated_command.append("--all")
+        elif args.repo:
+            delegated_command.append(str(args.repo))
+        if args.spec:
+            delegated_command.extend(["--spec", str(args.spec)])
+        if args.base:
+            delegated_command.extend(["--base", str(args.base)])
+        if args.head:
+            delegated_command.extend(["--head", str(args.head)])
+        if getattr(args, "skip_install", False):
+            delegated_command.append("--skip-install")
+        if bool(getattr(args, "json", False)):
+            delegated_command.append("--json")
+        return run_workspace_tool(delegated_command, False, workspace_flow_workdir())
+
     analysis = analyze_spec(resolve_spec(args.spec)) if args.spec else None
     payloads: list[dict[str, object]] = []
     failed = False
 
+    planned_paths: dict[str, Path] = {}
+    if args.spec:
+        plan_path = plan_root / f"{slugify(args.spec)}.json"
+        if plan_path.exists():
+            try:
+                plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                plan_payload = {}
+            for slice_payload in plan_payload.get("slices", []):
+                if not isinstance(slice_payload, dict):
+                    continue
+                repo_name = str(slice_payload.get("repo", "")).strip()
+                worktree = slice_payload.get("worktree")
+                if not repo_name or not isinstance(worktree, str):
+                    continue
+                candidate = runtime_path(Path(worktree))
+                if candidate.exists():
+                    planned_paths[repo_name] = candidate
+
     for repo_name in repo_names:
-        repo_path = repo_root(repo_name)
+        repo_path = planned_paths.get(repo_name, runtime_path(repo_root(repo_name)))
         commands = repo_ci_commands(repo_name, repo_path, skip_install=args.skip_install)
 
         related_targets: list[str] = []

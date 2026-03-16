@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
 import shlex
 import subprocess
 import textwrap
@@ -424,11 +425,42 @@ def command_slice_start(
     slug = slugify(args.spec)
     _, selected, _ = load_plan_and_slice(slug, args.slice)
 
-    repo_path = selected["repo_path"]
-    worktree = selected["worktree"]
-    branch = selected["branch"]
+    repo_path = Path(str(selected["repo_path"]))
+    worktree = Path(str(selected["worktree"]))
+    branch = str(selected["branch"])
     worktree_root.mkdir(parents=True, exist_ok=True)
-    command = f"git -C {shlex.quote(repo_path)} worktree add {shlex.quote(worktree)} -b {shlex.quote(branch)}"
+    add_command_args = [
+        "git",
+        "-C",
+        str(repo_path),
+        "worktree",
+        "add",
+        "--relative-paths",
+        str(worktree),
+        "-b",
+        branch,
+    ]
+    repair_command_args = [
+        "git",
+        "-C",
+        str(repo_path),
+        "worktree",
+        "repair",
+        "--relative-paths",
+        str(worktree),
+    ]
+    command = " ".join(shlex.quote(part) for part in add_command_args)
+
+    if not worktree.exists():
+        execution = subprocess.run(add_command_args, capture_output=True, text=True, check=False)
+        if execution.returncode != 0:
+            detail = execution.stderr.strip() or execution.stdout.strip() or "git worktree add fallo sin detalle."
+            raise SystemExit(f"No se pudo materializar la slice `{args.slice}`:\n- {detail}")
+    else:
+        repair = subprocess.run(repair_command_args, capture_output=True, text=True, check=False)
+        if repair.returncode != 0:
+            detail = repair.stderr.strip() or repair.stdout.strip() or "git worktree repair fallo sin detalle."
+            raise SystemExit(f"No se pudo reparar la slice `{args.slice}` con rutas relativas:\n- {detail}")
 
     handoff_path = report_root / f"{slug}-{args.slice}-handoff.md"
     handoff = textwrap.dedent(
@@ -459,7 +491,7 @@ def command_slice_start(
     handoff_path.write_text(handoff, encoding="utf-8")
 
     state = read_state(slug)
-    state["status"] = "slice-ready"
+    state["status"] = "slice-started"
     write_state(slug, state)
 
     print(command)
@@ -483,6 +515,12 @@ def command_slice_verify(
     report_root: Path,
     read_state: Callable[[str], dict[str, object]],
     write_state: Callable[[str, dict[str, object]], None],
+    running_inside_workspace: Callable[[], bool],
+    repo_compose_service: Callable[[str], str],
+    run_workspace_tool: Callable[[list[str], Optional[bool], Optional[str]], int],
+    workspace_flow_workdir: Callable[[], str],
+    runtime_path: Callable[[Path], Path],
+    host_root_hint: Callable[[], str],
     rel: Callable[[Path], str],
 ) -> int:
     slug = slugify(args.spec)
@@ -490,8 +528,29 @@ def command_slice_verify(
     spec_path = root / str(plan["spec_path"])
     analysis = analyze_spec(spec_path)
     repo_name = str(selected["repo"])
-    repo_path = Path(str(selected["repo_path"]))
-    planned_worktree = Path(str(selected["worktree"]))
+
+    if (
+        not running_inside_workspace()
+        and repo_compose_service(repo_name).strip()
+        and os.environ.get("FLOW_DELEGATED_TO_WORKSPACE") != "1"
+    ):
+        delegated_command = [
+            "env",
+            "FLOW_DELEGATED_TO_WORKSPACE=1",
+            f"FLOW_HOST_ROOT={host_root_hint()}",
+            "python3",
+            "./flow",
+            "slice",
+            "verify",
+            slug,
+            args.slice,
+        ]
+        if bool(getattr(args, "json", False)):
+            delegated_command.append("--json")
+        return run_workspace_tool(delegated_command, False, workspace_flow_workdir())
+
+    repo_path = runtime_path(Path(str(selected["repo_path"])))
+    planned_worktree = runtime_path(Path(str(selected["worktree"])))
     inspection_path = planned_worktree if planned_worktree.exists() else repo_path
 
     findings: list[str] = []

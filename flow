@@ -245,6 +245,7 @@ STATE_ORDER = [
     "approved-spec",
     "planned",
     "slice-ready",
+    "slice-started",
     "implementing",
     "in-review",
     "in-qa",
@@ -304,11 +305,25 @@ def repo_container_workdir(repo_path: Path) -> Optional[str]:
     if repo_text == workspace_root or repo_text.startswith(f"{workspace_root}/"):
         return repo_text
 
-    try:
-        relative = resolved_repo.relative_to(workspace_host_root().resolve())
-    except ValueError:
-        return None
-    return f"{workspace_root}/{relative.as_posix()}"
+    for candidate_root in [workspace_host_root().resolve(), HOST_ROOT_HINT.resolve()]:
+        try:
+            relative = resolved_repo.relative_to(candidate_root)
+            return f"{workspace_root}/{relative.as_posix()}"
+        except ValueError:
+            continue
+    return None
+
+
+def root_container_workdir() -> str:
+    return repo_container_workdir(ROOT) or WORKSPACE_PATH
+
+
+def runtime_path(path: Path) -> Path:
+    if running_inside_workspace():
+        mapped = repo_container_workdir(path)
+        if mapped:
+            return Path(mapped)
+    return path
 
 
 def wrap_repo_command_for_service(repo: str, repo_path: Path, command: list[str]) -> list[str]:
@@ -1022,7 +1037,11 @@ def normalize_passthrough(args: list[str]) -> list[str]:
     return flow_tooling.normalize_passthrough(args)
 
 
-def run_workspace_tool(tool_args: list[str], interactive: Optional[bool] = None) -> int:
+def run_workspace_tool(
+    tool_args: list[str],
+    interactive: Optional[bool] = None,
+    workdir: Optional[str] = None,
+) -> int:
     return flow_tooling.run_workspace_tool(
         tool_args,
         run_compose=run_compose,
@@ -1030,6 +1049,7 @@ def run_workspace_tool(tool_args: list[str], interactive: Optional[bool] = None)
         workspace_service=WORKSPACE_SERVICE,
         workspace_path=WORKSPACE_PATH,
         interactive=interactive,
+        workdir=workdir,
     )
 
 
@@ -1638,6 +1658,12 @@ def command_slice_verify(args: argparse.Namespace) -> int:
         report_root=REPORT_ROOT,
         read_state=read_state,
         write_state=write_state,
+        running_inside_workspace=running_inside_workspace,
+        repo_compose_service=repo_compose_service,
+        run_workspace_tool=run_workspace_tool,
+        workspace_flow_workdir=root_container_workdir,
+        runtime_path=runtime_path,
+        host_root_hint=lambda: str(workspace_host_root().resolve()),
         rel=rel,
     )
 
@@ -1685,12 +1711,19 @@ def command_ci_repo(args: argparse.Namespace) -> int:
         scan_secret_paths=scan_secret_paths,
         capture_command=capture_command,
         write_json=write_json,
+        plan_root=PLAN_ROOT,
         ci_report_root=CI_REPORT_ROOT,
         slugify=slugify,
         rel=rel,
         format_findings=format_findings,
         utc_now=utc_now,
         json_dumps=json_dumps,
+        running_inside_workspace=running_inside_workspace,
+        repo_compose_service=repo_compose_service,
+        run_workspace_tool=run_workspace_tool,
+        workspace_flow_workdir=root_container_workdir,
+        runtime_path=runtime_path,
+        host_root_hint=lambda: str(workspace_host_root().resolve()),
     )
 
 
