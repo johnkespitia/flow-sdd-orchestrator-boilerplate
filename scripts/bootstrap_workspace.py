@@ -40,11 +40,16 @@ def copy_template(source_config: dict[str, object], destination: Path) -> None:
 
     def ignore(directory: str, names: list[str]) -> set[str]:
         current = Path(directory)
-        ignored = {".git", ".worktrees", "_bmad-output", "__pycache__", ".pytest_cache"}
+        ignored = {".git", ".worktrees", "_bmad-output", "__pycache__", ".pytest_cache", "node_modules", "vendor"}
         if current.resolve() == ROOT.resolve():
             ignored.update(excluded_repo_paths)
+            for legacy_path in ("backend", "frontend"):
+                if legacy_path not in excluded_repo_paths:
+                    ignored.add(legacy_path)
         if current.name == ".flow":
             ignored.update({"state", "plans", "reports", "runs"})
+        if current.name == "data" and current.parent.name == "gateway":
+            ignored.update({name for name in names if name.endswith(".db") or name.endswith(".log")})
         return ignored.intersection(names)
 
     shutil.copytree(ROOT, destination, dirs_exist_ok=True, ignore=ignore)

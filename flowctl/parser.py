@@ -10,6 +10,8 @@ def build_parser(
     repo_names: list[str],
     implementation_repos,
     available_runtime_names,
+    available_service_runtime_names,
+    available_capability_names,
     runtime_error_type,
     root,
 ) -> argparse.ArgumentParser:
@@ -19,6 +21,13 @@ def build_parser(
     doctor = subparsers.add_parser("doctor", help="Validate workspace layout.")
     doctor.add_argument("--json", action="store_true", help="Print the doctor result as JSON.")
     doctor.set_defaults(func=commands["doctor"])
+
+    init = subparsers.add_parser("init", help="Bootstrap first run: sync secrets, start the stack and print runtime status.")
+    init.add_argument("--build", action="store_true", help="Build images before starting the stack.")
+    init.add_argument("--skip-doctor", action="store_true", help="Skip the initial `flow doctor` check.")
+    init.add_argument("--skip-stack", action="store_true", help="Only materialize secrets and skip `stack up`.")
+    init.add_argument("--force-secrets-sync", action="store_true", help="Regenerate `.devcontainer/.env.generated` even if it already exists.")
+    init.set_defaults(func=commands["init"])
 
     stack = subparsers.add_parser("stack", help="Operate the devcontainer stack from the control plane.")
     stack_subparsers = stack.add_subparsers(dest="stack_command", required=True)
@@ -56,16 +65,23 @@ def build_parser(
     stack_exec.add_argument("command", nargs=argparse.REMAINDER, help="Command to execute.")
     stack_exec.set_defaults(func=commands["stack_exec"])
 
-    stack_design = stack_subparsers.add_parser("design", help="Infer a stack manifest from a natural-language prompt.")
-    stack_design.add_argument("--prompt", required=True, help="Natural-language description of the desired stack.")
+    stack_design = stack_subparsers.add_parser("design", help="Draft a stack spec from a prompt or derive a stack manifest from an approved spec.")
+    stack_design_source = stack_design.add_mutually_exclusive_group(required=True)
+    stack_design_source.add_argument("--prompt", help="Natural-language description used to draft a stack spec.")
+    stack_design_source.add_argument("--spec", help="Approved spec path or slug used as canonical source.")
+    stack_design.add_argument("--slug", help="Optional slug for the prompt-generated spec draft.")
+    stack_design.add_argument("--title", help="Optional title for the prompt-generated spec draft.")
+    stack_design.add_argument("--force", action="store_true", help="Overwrite an existing prompt-generated draft spec.")
     stack_design.add_argument("--json", action="store_true", help="Print the designed manifest as JSON.")
     stack_design.set_defaults(func=commands["stack_design"])
 
     stack_plan = stack_subparsers.add_parser("plan", help="Summarize actions required by `workspace.stack.json`.")
+    stack_plan.add_argument("--spec", help="Approved spec path or slug. If provided, derive `workspace.stack.json` first.")
     stack_plan.add_argument("--json", action="store_true", help="Print the plan as JSON.")
     stack_plan.set_defaults(func=commands["stack_plan"])
 
     stack_apply = stack_subparsers.add_parser("apply", help="Apply `workspace.stack.json` to the workspace scaffold.")
+    stack_apply.add_argument("--spec", help="Approved spec path or slug. If provided, derive `workspace.stack.json` first.")
     stack_apply.add_argument("--json", action="store_true", help="Print the apply result as JSON.")
     stack_apply.set_defaults(func=commands["stack_apply"])
 
@@ -284,6 +300,16 @@ def build_parser(
     add_project.add_argument("--default-target", action="append", help="Override default target patterns. Repeat to define multiple patterns.")
     add_project.add_argument("--test-runner", choices=["none", "php", "pnpm", "pytest", "go"], help="Override the test runner used by `flow slice verify`.")
     add_project.add_argument("--test-hint", help="Override the default `[@test]` hint for this project.")
+    add_project.add_argument("--ci-install", help="Override the install command used by `flow ci repo` for this project.")
+    add_project.add_argument("--ci-lint", help="Override the lint command used by `flow ci repo` for this project.")
+    add_project.add_argument("--ci-test", help="Override the test command used by `flow ci repo` for this project.")
+    add_project.add_argument("--ci-build", help="Override the build command used by `flow ci repo` for this project.")
+    add_project.add_argument(
+        "--no-ci-step",
+        action="append",
+        choices=["install", "lint", "test", "build"],
+        help="Disable a runtime-provided CI step. Repeat to disable multiple steps.",
+    )
     add_project.set_defaults(func=commands["add_project"])
 
     spec = subparsers.add_parser("spec", help="Manage canonical specs.")
@@ -292,14 +318,47 @@ def build_parser(
     spec_create.add_argument("slug", help="Feature slug in kebab-case or human text.")
     spec_create.add_argument("--title", required=True, help="Human-readable title.")
     spec_create.add_argument("--repo", action="append", choices=repo_names, help="Target repo. Repeat to create cross-repo specs.")
+    try:
+        service_choices = available_service_runtime_names(root)
+        runtime_choices = [candidate for candidate in available_runtime_names(root) if candidate not in service_choices]
+        capability_choices = available_capability_names(root)
+    except Exception:
+        runtime_choices = []
+        service_choices = []
+        capability_choices = []
+    spec_create.add_argument(
+        "--runtime",
+        action="append",
+        choices=runtime_choices or None,
+        help="Declare a required project runtime. Repeatable.",
+    )
+    spec_create.add_argument(
+        "--service",
+        action="append",
+        choices=service_choices or None,
+        help="Declare a required service runtime. Repeatable.",
+    )
+    spec_create.add_argument(
+        "--capability",
+        action="append",
+        choices=capability_choices or None,
+        help="Declare a required capability. Repeatable.",
+    )
+    spec_create.add_argument(
+        "--depends-on",
+        action="append",
+        help="Declare prerequisite specs by slug or path. Repeatable.",
+    )
     spec_create.set_defaults(func=commands["spec_create"])
 
     spec_review = spec_subparsers.add_parser("review", help="Create a spec review report.")
     spec_review.add_argument("spec", help="Spec path or slug.")
+    spec_review.add_argument("--json", action="store_true", help="Print a structured review result.")
     spec_review.set_defaults(func=commands["spec_review"])
 
     spec_approve = spec_subparsers.add_parser("approve", help="Approve a canonical spec.")
     spec_approve.add_argument("spec", help="Spec path or slug.")
+    spec_approve.add_argument("--approver", help="Identity recorded for the approval. Defaults to FLOW_APPROVER/USER.")
     spec_approve.set_defaults(func=commands["spec_approve"])
 
     spec_generate_contracts = spec_subparsers.add_parser("generate-contracts", help="Generate derived contract artifacts from `json contract` blocks in a spec.")

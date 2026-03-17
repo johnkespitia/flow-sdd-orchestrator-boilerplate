@@ -120,7 +120,9 @@ from flowctl.release import (
 from flowctl.runtimes import (
     RUNTIMES_CONFIG_FILENAME,
     RuntimeCatalogError,
+    available_project_runtime_names,
     available_runtime_names,
+    available_service_runtime_names,
     resolve_runtime_pack,
 )
 from flowctl.secret_scan import scan_secret_paths as flow_scan_secret_paths
@@ -575,6 +577,11 @@ def ensure_spec_ready_for_approval(spec_path: Path) -> dict[str, object]:
         config=SPEC_CONFIG,
         repo_root=repo_root,
         validate_test_reference_patterns=validate_test_reference_patterns,
+        available_project_runtime_names=lambda: available_project_runtime_names(ROOT),
+        available_service_runtime_names=lambda: available_service_runtime_names(ROOT),
+        available_capability_names=lambda: flow_stack_design.available_capability_names(ROOT),
+        resolve_runtime_pack=lambda runtime, repo_name, repo_path: resolve_runtime_pack(ROOT, runtime, repo_name, repo_path),
+        resolve_spec=resolve_spec,
     )
 
 
@@ -609,6 +616,18 @@ def validate_test_reference_patterns(
 
 def format_findings(findings: list[str]) -> list[str]:
     return flow_specs.format_findings(findings)
+
+
+def spec_dependency_findings(analysis: dict[str, object]) -> list[str]:
+    return flow_specs.spec_dependency_findings(
+        analysis,
+        available_project_runtime_names=lambda: available_project_runtime_names(ROOT),
+        available_service_runtime_names=lambda: available_service_runtime_names(ROOT),
+        available_capability_names=lambda: flow_stack_design.available_capability_names(ROOT),
+        resolve_runtime_pack=lambda runtime, repo_name, repo_path: resolve_runtime_pack(ROOT, runtime, repo_name, repo_path),
+        resolve_spec=resolve_spec,
+        parse_frontmatter=parse_frontmatter,
+    )
 
 
 def frontmatter_list(frontmatter: dict[str, object], key: str) -> list[str]:
@@ -796,6 +815,60 @@ def resolve_secret_value(provider_name: str, config: dict[str, object], referenc
     return flow_resolve_secret_value(ROOT, provider_name, config, reference, relativize=rel)
 
 
+def gateway_host_port() -> str:
+    value = env_first("SOFTOS_GATEWAY_HOST_PORT", default="8010")
+    return str(value).strip() or "8010"
+
+
+def devcontainer_env_targets() -> list[tuple[str, Path]]:
+    payload = load_secrets_config()
+    targets = secrets_target_entries(payload)
+    matched: list[tuple[str, Path]] = []
+
+    if "devcontainer_env" in targets:
+        return [("devcontainer_env", secrets_target_path(targets["devcontainer_env"]))]
+
+    for target_name, raw_target in targets.items():
+        target_path = secrets_target_path(raw_target)
+        try:
+            relative_path = target_path.resolve().relative_to(ROOT.resolve())
+        except ValueError:
+            continue
+        if relative_path == Path(".devcontainer/.env.generated"):
+            matched.append((target_name, target_path))
+    return matched
+
+
+def ensure_devcontainer_env(*, force: bool = False) -> int:
+    targets = devcontainer_env_targets()
+    if not targets:
+        return 0
+    if not force and all(target_path.is_file() for _, target_path in targets):
+        return 0
+
+    target_names = [target_name for target_name, _ in targets]
+    action = "Regenerando" if force else "Materializando"
+    print(f"{action} `.devcontainer/.env.generated` para el stack del workspace.")
+    return flow_command_secrets_sync(
+        argparse.Namespace(target=target_names, dry_run=False, json=False),
+        load_secrets_config=load_secrets_config,
+        secrets_target_entries=secrets_target_entries,
+        secrets_target_provider=secrets_target_provider,
+        secrets_provider_config=secrets_provider_config,
+        secrets_provider_enabled=secrets_provider_enabled,
+        secrets_target_items=secrets_target_items,
+        resolve_secret_value=resolve_secret_value,
+        secrets_target_path=secrets_target_path,
+        secrets_target_format=secrets_target_format,
+        render_secret_target_fn=render_secret_target,
+        rel=rel,
+        utc_now=utc_now,
+        write_json=write_json,
+        secrets_report_root=SECRETS_REPORT_ROOT,
+        json_dumps=json_dumps,
+    )
+
+
 def extract_contract_declarations(text: str) -> tuple[list[dict[str, object]], list[str]]:
     return contracts_extract_declarations(text)
 
@@ -863,10 +936,35 @@ def skill_entry_commands(entry: dict[str, object]) -> list[list[str]]:
     return flow_skills_ops.skill_entry_commands(entry, rel=rel)
 
 
+def configured_repo_ci_commands(repo: str) -> list[tuple[str, list[str]]]:
+    config = repo_config(repo).get("ci")
+    if not isinstance(config, dict):
+        return []
+
+    commands: list[tuple[str, list[str]]] = []
+    for step, label in [("install", "Install"), ("lint", "Lint"), ("test", "Tests"), ("build", "Build")]:
+        raw_command = config.get(step)
+        if not isinstance(raw_command, list) or not all(isinstance(part, str) for part in raw_command):
+            continue
+        command = [part for part in raw_command if part]
+        if command:
+            commands.append((label, command))
+    return commands
+
+
 def repo_ci_commands(repo: str, repo_path: Path, skip_install: bool) -> list[tuple[str, list[str]]]:
     runner = str(repo_config(repo).get("test_runner", "none")).strip().lower()
 
-    if repo == ROOT_REPO or runner == "none":
+    if repo == ROOT_REPO:
+        return []
+
+    configured = configured_repo_ci_commands(repo)
+    if configured:
+        if skip_install:
+            configured = [item for item in configured if item[0] != "Install"]
+        return [(label, wrap_repo_command_for_service(repo, repo_path, command)) for label, command in configured]
+
+    if runner == "none":
         return []
 
     if runner == "php":
@@ -1088,7 +1186,40 @@ def command_stack_ps(_: argparse.Namespace) -> int:
 
 
 def command_stack_up(args: argparse.Namespace) -> int:
-    return flow_stack_ops.command_stack_up(args, run_compose=run_compose)
+    return flow_stack_ops.command_stack_up(
+        args,
+        ensure_devcontainer_env=ensure_devcontainer_env,
+        run_compose=run_compose,
+    )
+
+
+def command_init(args: argparse.Namespace) -> int:
+    if not args.skip_doctor:
+        doctor_rc = command_doctor(argparse.Namespace(json=False))
+        if doctor_rc != 0:
+            return doctor_rc
+
+    env_rc = ensure_devcontainer_env(force=bool(args.force_secrets_sync))
+    if env_rc != 0:
+        return env_rc
+
+    if args.skip_stack:
+        return 0
+
+    up_rc = command_stack_up(argparse.Namespace(build=bool(args.build)))
+    if up_rc != 0:
+        return up_rc
+
+    stack_doctor_rc = command_stack_doctor(argparse.Namespace())
+    if stack_doctor_rc != 0:
+        return stack_doctor_rc
+
+    ps_rc = command_stack_ps(argparse.Namespace())
+    if ps_rc != 0:
+        return ps_rc
+
+    print(f"Gateway host health: http://127.0.0.1:{gateway_host_port()}/healthz")
+    return 0
 
 
 def command_stack_down(args: argparse.Namespace) -> int:
@@ -1127,8 +1258,17 @@ def command_stack_exec(args: argparse.Namespace) -> int:
 def command_stack_design(args: argparse.Namespace) -> int:
     return flow_stack_design.command_stack_design(
         args,
+        root=ROOT,
         stack_config_file=STACK_CONFIG_FILE,
+        root_repo=ROOT_REPO,
+        feature_specs=FEATURE_SPECS,
+        default_targets=DEFAULT_TARGETS,
+        resolve_spec=resolve_spec,
+        ensure_spec_ready_for_approval=ensure_spec_ready_for_approval,
+        resolve_runtime_pack=resolve_runtime_pack,
+        rel=rel,
         utc_now=utc_now,
+        write_state=write_state,
         json_dumps=json_dumps,
     )
 
@@ -1140,8 +1280,12 @@ def command_stack_plan(args: argparse.Namespace) -> int:
         stack_config_file=STACK_CONFIG_FILE,
         workspace_config_file=WORKSPACE_CONFIG_FILE,
         load_workspace_config=load_workspace_config,
+        resolve_spec=resolve_spec,
+        ensure_spec_ready_for_approval=ensure_spec_ready_for_approval,
         resolve_capability_pack=flow_stack_design.resolve_capability_pack,
         resolve_runtime_pack=resolve_runtime_pack,
+        rel=rel,
+        utc_now=utc_now,
         json_dumps=json_dumps,
     )
 
@@ -1156,6 +1300,8 @@ def command_stack_apply(args: argparse.Namespace) -> int:
         load_workspace_config=load_workspace_config,
         load_skills_config=load_skills_config,
         skills_entries=skills_entries,
+        resolve_spec=resolve_spec,
+        ensure_spec_ready_for_approval=ensure_spec_ready_for_approval,
         normalize_repo_path=normalize_repo_path,
         validate_identifier=validate_identifier,
         ensure_project_directory=lambda path, use_existing, rel=rel: flow_workspace_ops.ensure_project_directory(
@@ -1203,9 +1349,25 @@ def serialize_skill_entry(entry: dict[str, object]) -> dict[str, object]:
     return flow_serialize_skill_entry(entry, rel)
 
 
-def command_skills_doctor(_: argparse.Namespace) -> int:
+def command_skills_doctor(args: argparse.Namespace) -> int:
+    if not running_inside_workspace() and os.environ.get("FLOW_DELEGATED_TO_WORKSPACE") != "1":
+        context = detect_compose_context()
+        if context["active"]:
+            delegated_command = [
+                "env",
+                "FLOW_DELEGATED_TO_WORKSPACE=1",
+                f"FLOW_HOST_ROOT={workspace_host_root().resolve()}",
+                "python3",
+                "./flow",
+                "skills",
+                "doctor",
+            ]
+            if bool(getattr(args, "json", False)):
+                delegated_command.append("--json")
+            return run_workspace_tool(delegated_command, False, root_container_workdir())
+
     return flow_skills_ops.command_skills_doctor(
-        _,
+        args,
         load_skills_config=load_skills_config,
         skills_entries=skills_entries,
         normalize_skill_provider=normalize_skill_provider,
@@ -1238,6 +1400,28 @@ def command_skills_add(args: argparse.Namespace) -> int:
 
 
 def command_skills_sync(args: argparse.Namespace) -> int:
+    if not running_inside_workspace() and os.environ.get("FLOW_DELEGATED_TO_WORKSPACE") != "1":
+        context = detect_compose_context()
+        if context["active"]:
+            delegated_command = [
+                "env",
+                "FLOW_DELEGATED_TO_WORKSPACE=1",
+                f"FLOW_HOST_ROOT={workspace_host_root().resolve()}",
+                "python3",
+                "./flow",
+                "skills",
+                "sync",
+            ]
+            if args.provider:
+                delegated_command.extend(["--provider", str(args.provider)])
+            for name in args.name or []:
+                delegated_command.extend(["--name", str(name)])
+            if bool(args.dry_run):
+                delegated_command.append("--dry-run")
+            if bool(getattr(args, "json", False)):
+                delegated_command.append("--json")
+            return run_workspace_tool(delegated_command, False, root_container_workdir())
+
     return flow_skills_ops.command_skills_sync(
         args,
         require_dirs=require_dirs,
@@ -1595,11 +1779,14 @@ def command_spec_review(args: argparse.Namespace) -> int:
         spec_slug=spec_slug,
         analyze_spec=analyze_spec,
         repos_missing_test_refs=repos_missing_test_refs,
+        spec_dependency_findings=spec_dependency_findings,
         format_findings=format_findings,
         report_root=REPORT_ROOT,
         read_state=read_state,
         write_state=write_state,
         rel=rel,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
     )
 
 
@@ -1613,6 +1800,7 @@ def command_spec_approve(args: argparse.Namespace) -> int:
         read_state=read_state,
         write_state=write_state,
         rel=rel,
+        utc_now=utc_now,
     )
 
 
@@ -1681,6 +1869,7 @@ def command_slice_verify(args: argparse.Namespace) -> int:
         runtime_path=runtime_path,
         host_root_hint=lambda: str(workspace_host_root().resolve()),
         rel=rel,
+        utc_now=utc_now,
     )
 
 
@@ -1702,6 +1891,7 @@ def command_ci_spec(args: argparse.Namespace) -> int:
         analyze_spec=analyze_spec,
         test_reference_findings=test_reference_findings,
         repos_missing_test_refs=repos_missing_test_refs,
+        spec_dependency_findings=spec_dependency_findings,
         rel=rel,
         format_findings=format_findings,
         slugify=slugify,
@@ -1747,6 +1937,7 @@ def command_ci_integration(args: argparse.Namespace) -> int:
     return flow_command_ci_integration(
         args,
         require_dirs=require_dirs,
+        ensure_devcontainer_env=ensure_devcontainer_env,
         capture_compose=capture_compose,
         detect_compose_context=detect_compose_context,
         run_compose=run_compose,
@@ -1776,7 +1967,9 @@ def command_release_cut(args: argparse.Namespace) -> int:
         rel=rel,
         spec_slug=spec_slug,
         read_state=read_state,
+        root=ROOT,
         root_repo=ROOT_REPO,
+        plan_root=PLAN_ROOT,
         repo_head_sha=repo_head_sha,
         repo_root=repo_root,
         release_manifest_root=RELEASE_MANIFEST_ROOT,
@@ -1873,6 +2066,7 @@ def command_infra_status(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     commands = {
         "doctor": command_doctor,
+        "init": command_init,
         "stack_doctor": command_stack_doctor,
         "stack_ps": command_stack_ps,
         "stack_up": command_stack_up,
@@ -1928,6 +2122,8 @@ def build_parser() -> argparse.ArgumentParser:
         repo_names=REPO_NAMES,
         implementation_repos=implementation_repos,
         available_runtime_names=available_runtime_names,
+        available_service_runtime_names=available_service_runtime_names,
+        available_capability_names=flow_stack_design.available_capability_names,
         runtime_error_type=RuntimeCatalogError,
         root=ROOT,
     )

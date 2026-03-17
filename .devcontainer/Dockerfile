@@ -48,7 +48,7 @@ RUN npm install -g @tessl/cli
 RUN npm install -g bmad-method
 
 # ── Gateway deps ─────────────────────────────────────────────────────
-RUN python3 -m pip install --no-cache-dir fastapi uvicorn httpx python-multipart
+RUN python3 -m pip install --no-cache-dir fastapi uvicorn httpx python-multipart pyyaml
 
 COPY workspace-entrypoint.sh /usr/local/share/flow/workspace-entrypoint.sh
 RUN chmod +x /usr/local/share/flow/workspace-entrypoint.sh

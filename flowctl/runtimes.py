@@ -18,6 +18,8 @@ REQUIRED_RUNTIME_KEYS = {
     "agent_skill_refs",
 }
 
+CI_STEP_KEYS = ("install", "lint", "test", "build")
+
 
 class RuntimeCatalogError(Exception):
     pass
@@ -63,6 +65,23 @@ def available_runtime_names(root: Path) -> list[str]:
     return sorted(name for name in names if name)
 
 
+def _available_runtime_names_by_kind(root: Path, runtime_kind: str) -> list[str]:
+    names: list[str] = []
+    for runtime in available_runtime_names(root):
+        pack = resolve_runtime_pack(root, runtime, runtime, runtime)
+        if str(pack.get("runtime_kind", "project")).strip().lower() == runtime_kind:
+            names.append(runtime)
+    return sorted(names)
+
+
+def available_project_runtime_names(root: Path) -> list[str]:
+    return _available_runtime_names_by_kind(root, "project")
+
+
+def available_service_runtime_names(root: Path) -> list[str]:
+    return _available_runtime_names_by_kind(root, "service")
+
+
 def _runtime_pack_path(root: Path, runtime: str) -> Path:
     manifest = load_runtime_manifest(root)
     entry = manifest["runtimes"].get(runtime)
@@ -101,6 +120,52 @@ def _normalize_string_list(payload: dict[str, Any], key: str, runtime: str) -> l
     return [item for item in value if item]
 
 
+def _normalize_ci_config(payload: dict[str, Any], runtime: str) -> dict[str, list[str]]:
+    value = payload.get("ci", {})
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise RuntimeCatalogError(f"El runtime `{runtime}` debe declarar `ci` como objeto.")
+
+    commands: dict[str, list[str]] = {}
+    for step, raw_command in value.items():
+        if step not in CI_STEP_KEYS:
+            raise RuntimeCatalogError(
+                f"El runtime `{runtime}` declara un step CI no soportado: `{step}`."
+            )
+        if raw_command is None:
+            continue
+        if not isinstance(raw_command, list) or not all(isinstance(part, str) for part in raw_command):
+            raise RuntimeCatalogError(
+                f"El runtime `{runtime}` debe declarar `ci.{step}` como lista de strings."
+            )
+        command = [part for part in raw_command if part]
+        if not command:
+            continue
+        commands[step] = command
+    return commands
+
+
+def _normalize_runtime_bindings(payload: dict[str, Any], runtime: str) -> dict[str, dict[str, Any]]:
+    value = payload.get("bindings", {})
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise RuntimeCatalogError(f"El runtime `{runtime}` debe declarar `bindings` como objeto.")
+
+    bindings: dict[str, dict[str, Any]] = {}
+    for raw_service_runtime, raw_binding in value.items():
+        service_runtime = str(raw_service_runtime).strip()
+        if not service_runtime:
+            raise RuntimeCatalogError(f"El runtime `{runtime}` no puede declarar un binding con key vacia.")
+        if not isinstance(raw_binding, dict):
+            raise RuntimeCatalogError(
+                f"El runtime `{runtime}` debe declarar `bindings.{service_runtime}` como objeto."
+            )
+        bindings[service_runtime] = dict(raw_binding)
+    return bindings
+
+
 def _normalize_runtime_pack(runtime: str, payload: dict[str, Any]) -> dict[str, Any]:
     missing = [key for key in REQUIRED_RUNTIME_KEYS if key not in payload]
     if missing:
@@ -129,6 +194,8 @@ def _normalize_runtime_pack(runtime: str, payload: dict[str, Any]) -> dict[str, 
         "placeholder_dirs": _normalize_string_list(payload, "placeholder_dirs", runtime),
         "placeholder_files": dict(payload.get("placeholder_files", {})),
         "agent_skill_refs": _normalize_string_list(payload, "agent_skill_refs", runtime),
+        "ci": _normalize_ci_config(payload, runtime),
+        "bindings": _normalize_runtime_bindings(payload, runtime),
         "compose": compose,
         "notes": str(payload.get("notes", "")).strip(),
     }
@@ -165,6 +232,8 @@ def resolve_runtime_pack(root: Path, runtime: str, repo_name: str, repo_path: st
         "placeholder_dirs": _format_runtime_value(normalized["placeholder_dirs"], substitutions),
         "placeholder_files": placeholder_files,
         "agent_skill_refs": normalized["agent_skill_refs"],
+        "ci": _format_runtime_value(normalized["ci"], substitutions),
+        "bindings": _format_runtime_value(normalized["bindings"], substitutions),
         "compose": compose,
         "notes": normalized["notes"],
         "source": path,

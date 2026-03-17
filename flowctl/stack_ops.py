@@ -30,7 +30,15 @@ def command_stack_ps(_, *, run_compose: Callable[[list[str], bool | None], int])
     return run_compose(["ps"], None)
 
 
-def command_stack_up(args, *, run_compose: Callable[[list[str], bool | None], int]) -> int:
+def command_stack_up(
+    args,
+    *,
+    ensure_devcontainer_env: Callable[[], int],
+    run_compose: Callable[[list[str], bool | None], int],
+) -> int:
+    env_rc = ensure_devcontainer_env()
+    if env_rc != 0:
+        return env_rc
     command = ["up", "-d"]
     if args.build:
         command.append("--build")

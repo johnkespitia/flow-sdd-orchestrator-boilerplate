@@ -49,11 +49,30 @@ Qué pasa:
 - `stack plan` muestra qué proyectos, servicios y foundations se crearán
 - `stack apply` materializa repos/proyectos, servicios y specs base
 
+Alternativa spec-first:
+
+```bash
+python3 ./flow spec review stack-from-spec
+python3 ./flow stack plan --spec stack-from-spec --json
+python3 ./flow spec approve stack-from-spec --approver alice
+python3 ./flow stack design --spec stack-from-spec --json
+python3 ./flow stack apply --spec stack-from-spec --json
+```
+
+En ese modo la spec aprobada debe declarar `stack_projects`, `stack_services` y `stack_capabilities`.
+Para topologias mas explicitas puedes declarar tambien:
+
+- proyecto: `repo_code`, `compose_service`, `aliases`, `env`, `service_bindings`
+- proyecto: `default_targets`, `target_roots`, `use_existing_dir`
+- servicio: `env`, `ports`, `volumes`
+
 Importante:
 
 - esta V1 usa inferencia heurística local
 - no invoca un modelo externo
 - la topología resultante sigue pasando por validación del control plane
+- el prompt ya solo propone la spec draft; `stack apply` solo consume specs aprobadas
+- `stack plan --spec` puede correr sobre drafts review-clean para previsualizar el cambio
 
 ## Workflow 2: Agregar proyectos manualmente
 
@@ -73,6 +92,15 @@ Qué hace:
 - agrega servicios al `docker-compose` cuando corresponde
 
 ## Workflow 3: Skills, secrets y providers
+
+Para un primer arranque limpio del workspace:
+
+```bash
+python3 ./flow init
+```
+
+Eso materializa `.devcontainer/.env.generated` si falta, levanta el stack y deja el gateway listo
+para smoke checks desde el host.
 
 ### Skills
 
@@ -108,9 +136,9 @@ Esto cubre:
 El ciclo normal de una feature es:
 
 ```bash
-python3 ./flow spec create identity-bootstrap --title "Identity Bootstrap" --repo api
+python3 ./flow spec create identity-bootstrap --title "Identity Bootstrap" --repo api --runtime go-api --service postgres-service --capability graphql --depends-on spec-as-source-operating-model
 python3 ./flow spec review identity-bootstrap
-python3 ./flow spec approve identity-bootstrap
+python3 ./flow spec approve identity-bootstrap --approver alice
 python3 ./flow plan identity-bootstrap
 python3 ./flow slice start identity-bootstrap api-main
 python3 ./flow slice verify identity-bootstrap api-main
@@ -120,6 +148,7 @@ python3 ./flow status --json
 Qué valida el sistema:
 
 - que la spec exista y tenga frontmatter válido
+- que `depends_on`, runtimes, servicios y capabilities existan en el catálogo instalado
 - que la spec esté realmente lista antes de aprobar
 - que haya `[@test]`
 - que el plan solo ocurra después de `approved`
@@ -189,6 +218,9 @@ python3 ./flow stack exec workspace -- pwd
 
 Esto es la capa operativa del devcontainer y de los servicios del workspace.
 
+Si trabajas desde el shell host, `flow tessl`, `flow bmad`, `flow skills doctor`, `flow skills sync`
+y `flow ci repo` delegan automaticamente al servicio `workspace` cuando el stack ya esta activo.
+
 ## Workflow 8: Repos y guardrails
 
 ```bash
@@ -216,27 +248,30 @@ El gateway ya soporta:
 Arranque:
 
 ```bash
-python3 ./flow secrets sync
-python3 ./flow stack up
-docker compose exec gateway curl -fsSL http://127.0.0.1:8010/healthz
+python3 ./flow init
+curl -fsSL "http://127.0.0.1:${SOFTOS_GATEWAY_HOST_PORT:-8010}/healthz"
 ```
 
 Ejemplos:
 
 ```bash
-curl -X POST http://127.0.0.1:8010/v1/intents \
+curl http://127.0.0.1:${SOFTOS_GATEWAY_HOST_PORT:-8010}/v1/repos
+```
+
+```bash
+curl -X POST http://127.0.0.1:${SOFTOS_GATEWAY_HOST_PORT:-8010}/v1/intents \
   -H 'Content-Type: application/json' \
   -d '{"source":"api","intent":"status.get","payload":{}}'
 ```
 
 ```bash
-curl -X POST http://127.0.0.1:8010/webhooks/jira \
+curl -X POST http://127.0.0.1:${SOFTOS_GATEWAY_HOST_PORT:-8010}/webhooks/jira \
   -H 'Content-Type: application/json' \
-  -d '{"intent":"spec.create","payload":{"slug":"jira-demo","title":"Jira Demo","repos":["api"]}}'
+  -d '{"intent":"spec.create","payload":{"slug":"jira-demo","title":"Jira Demo","repos":["root"]}}'
 ```
 
 ```bash
-curl -X POST http://127.0.0.1:8010/webhooks/github \
+curl -X POST http://127.0.0.1:${SOFTOS_GATEWAY_HOST_PORT:-8010}/webhooks/github \
   -H 'Content-Type: application/json' \
   -H 'X-GitHub-Event: issue_comment' \
   -d '{"comment":{"body":"/flow status"},"issue":{"number":1,"comments_url":"https://api.github.test/repos/acme/demo/issues/1/comments"},"repository":{"full_name":"acme/demo"}}'
@@ -247,6 +282,9 @@ Comportamiento actual:
 - el gateway usa una cola secuencial persistida en SQLite
 - no ejecuta shell arbitrario
 - traduce eventos externos a intents cerrados
+- `GET /v1/repos` expone los codigos validos para clientes externos
+- cuando un intent requiere repo, el gateway resuelve codigos desde `workspace.config.json`; `root`
+  es el alias estable del repo raiz del workspace
 - si el provider real de feedback no está habilitado, usa `local-log`
 
 ## Workflow 10: Uso con IA

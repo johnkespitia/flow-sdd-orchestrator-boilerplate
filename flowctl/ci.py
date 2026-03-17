@@ -17,6 +17,7 @@ def command_ci_spec(
     analyze_spec,
     test_reference_findings,
     repos_missing_test_refs,
+    spec_dependency_findings,
     rel: Callable[[Path], str],
     format_findings,
     slugify: Callable[[str], str],
@@ -53,15 +54,20 @@ def command_ci_spec(
         frontmatter = analysis["frontmatter"]
         findings: list[str] = []
 
+        findings.extend(str(error) for error in analysis["frontmatter_errors"])
         for field in analysis["missing_frontmatter"]:
             findings.append(f"Falta el campo `{field}`.")
         findings.extend(str(error) for error in analysis["target_errors"])
         findings.extend(str(error) for error in analysis["test_errors"])
+        findings.extend(spec_dependency_findings(analysis))
         findings.extend(test_reference_findings(analysis))
         if analysis["todo_count"]:
             findings.append("La spec contiene `TODO`.")
         if frontmatter.get("status") != "approved":
-            findings.append("La spec debe estar en estado `approved` para pasar CI.")
+            findings.append(
+                "La spec debe estar en estado `approved` para pasar CI. "
+                "Si aun esta en `draft`, usa `flow spec review` para validarla y `flow spec approve` antes de correr este gate."
+            )
 
         missing_repo_tests = repos_missing_test_refs(analysis["target_index"], analysis["test_index"])
         if missing_repo_tests:
@@ -76,6 +82,7 @@ def command_ci_spec(
                 "spec": rel(spec_path),
                 "status": "passed" if passed else "failed",
                 "frontmatter_status": frontmatter.get("status", ""),
+                "schema_version": analysis["schema_version"],
                 "repos": list(analysis["target_index"]),
                 "findings": findings,
             }
@@ -309,6 +316,7 @@ def command_ci_integration(
     args,
     *,
     require_dirs: Callable[[], None],
+    ensure_devcontainer_env: Callable[[], int],
     capture_compose,
     detect_compose_context,
     run_compose,
@@ -331,6 +339,17 @@ def command_ci_integration(
     if shutil.which("docker") is None:
         raise SystemExit("No encontre `docker` en PATH para ejecutar CI de integracion.")
 
+    context = detect_compose_context()
+    env_ready_for_compose = True
+    if not context["active"] and args.auto_up:
+        env_rc = ensure_devcontainer_env()
+        if env_rc != 0:
+            env_ready_for_compose = False
+            findings.append("No pude materializar `.devcontainer/.env.generated` antes de validar Compose.")
+            checks.append(("FAIL", "Secrets bootstrap", "No se pudo generar el entorno del devcontainer."))
+        else:
+            checks.append(("PASS", "Secrets bootstrap", "El entorno del devcontainer esta listo para Compose."))
+
     config_check = capture_compose(["config", "--quiet"])
     if int(config_check["returncode"]) == 0:
         checks.append(("PASS", "Compose config", "La configuracion Compose es valida."))
@@ -338,8 +357,7 @@ def command_ci_integration(
         checks.append(("FAIL", "Compose config", "La configuracion Compose no pudo validarse."))
         findings.append("`docker compose config --quiet` fallo.")
 
-    context = detect_compose_context()
-    if not context["active"] and args.auto_up:
+    if not context["active"] and args.auto_up and env_ready_for_compose:
         up_args = ["up", "-d"]
         if args.build:
             up_args.append("--build")

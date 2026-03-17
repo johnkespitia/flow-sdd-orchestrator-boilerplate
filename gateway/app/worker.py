@@ -9,6 +9,18 @@ from .feedback import send_feedback
 from .store import TaskStore
 
 
+def _task_status(task: dict[str, object], result: dict[str, object]) -> str:
+    if int(result["exit_code"]) != 0:
+        return "failed"
+
+    if task.get("intent") == "spec.review":
+        parsed_output = result.get("parsed_output")
+        if isinstance(parsed_output, dict) and not bool(parsed_output.get("ready_to_approve", False)):
+            return "completed_with_findings"
+
+    return "succeeded"
+
+
 class TaskWorker:
     def __init__(self, settings: Settings, store: TaskStore) -> None:
         self.settings = settings
@@ -32,7 +44,7 @@ class TaskWorker:
                 continue
 
             result = run_flow_command(self.settings, task["command"])
-            status = "succeeded" if result["exit_code"] == 0 else "failed"
+            status = _task_status(task, result)
             finished_task = self.store.finish(
                 task["task_id"],
                 status=status,

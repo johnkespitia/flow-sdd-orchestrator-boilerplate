@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import re
 import shlex
+from pathlib import Path
 from typing import Any
 
 from .models import IntentRequest
+from .repos import resolve_repo_references
 
 
 class IntentError(ValueError):
@@ -18,40 +20,55 @@ def slugify(value: str) -> str:
     return lowered.strip("-")
 
 
-def _normalize_repos(raw: Any) -> list[str]:
-    if isinstance(raw, str):
-        return [item.strip() for item in raw.split(",") if item.strip()]
-    if isinstance(raw, list):
-        return [str(item).strip() for item in raw if str(item).strip()]
-    return []
-
-
-def build_flow_command(intent: str, payload: dict[str, Any]) -> list[str]:
+def build_flow_command(intent: str, payload: dict[str, Any], *, workspace_root: Path) -> list[str]:
     if intent == "status.get":
         return ["status", "--json"]
 
     if intent == "spec.create":
         slug = slugify(str(payload.get("slug", "")))
         title = str(payload.get("title", "")).strip()
-        repos = _normalize_repos(payload.get("repos"))
+        try:
+            repos = resolve_repo_references(payload, workspace_root=workspace_root)
+        except ValueError as exc:
+            raise IntentError(str(exc)) from exc
         if not slug or not title or not repos:
-            raise IntentError("`spec.create` requiere `slug`, `title` y `repos`.")
+            raise IntentError("`spec.create` requiere `slug`, `title` y al menos un repo/codigo.")
         command = ["spec", "create", slug, "--title", title]
         for repo in repos:
             command.extend(["--repo", repo])
+        for runtime in payload.get("required_runtimes", payload.get("runtimes", [])) or []:
+            candidate = str(runtime).strip()
+            if candidate:
+                command.extend(["--runtime", candidate])
+        for service in payload.get("required_services", payload.get("services", [])) or []:
+            candidate = str(service).strip()
+            if candidate:
+                command.extend(["--service", candidate])
+        for capability in payload.get("required_capabilities", payload.get("capabilities", [])) or []:
+            candidate = str(capability).strip()
+            if candidate:
+                command.extend(["--capability", candidate])
+        for dependency in payload.get("depends_on", []) or []:
+            candidate = str(dependency).strip()
+            if candidate:
+                command.extend(["--depends-on", candidate])
         return command
 
     if intent == "spec.review":
         slug = slugify(str(payload.get("slug", "")))
         if not slug:
             raise IntentError("`spec.review` requiere `slug`.")
-        return ["spec", "review", slug]
+        return ["spec", "review", slug, "--json"]
 
     if intent == "spec.approve":
         slug = slugify(str(payload.get("slug", "")))
         if not slug:
             raise IntentError("`spec.approve` requiere `slug`.")
-        return ["spec", "approve", slug]
+        command = ["spec", "approve", slug]
+        approver = str(payload.get("approver", "")).strip()
+        if approver:
+            command.extend(["--approver", approver])
+        return command
 
     if intent == "plan.create":
         slug = slugify(str(payload.get("slug", "")))
@@ -96,17 +113,40 @@ def parse_text_command(text: str, *, source: str, reply_to: dict[str, Any] | Non
             raise IntentError("`spec` requiere una accion y un slug.")
         action = tokens.pop(0).lower()
         slug = tokens.pop(0)
-        if action in {"review", "approve"}:
+        if action == "review":
             return IntentRequest(
                 source=source,
                 intent=f"spec.{action}",
                 payload={"slug": slug},
                 reply_to=reply_to,
             )
+        if action == "approve":
+            approver = None
+            index = 0
+            while index < len(tokens):
+                token = tokens[index]
+                if token == "--approver" and index + 1 < len(tokens):
+                    approver = tokens[index + 1]
+                    index += 2
+                    continue
+                raise IntentError(f"Flag no soportada en spec approve: {token}")
+            payload = {"slug": slug}
+            if approver:
+                payload["approver"] = approver
+            return IntentRequest(
+                source=source,
+                intent="spec.approve",
+                payload=payload,
+                reply_to=reply_to,
+            )
         if action != "create":
             raise IntentError(f"Accion de spec no soportada: {action}")
         title = None
         repos: list[str] = []
+        runtimes: list[str] = []
+        services: list[str] = []
+        capabilities: list[str] = []
+        depends_on: list[str] = []
         index = 0
         while index < len(tokens):
             token = tokens[index]
@@ -118,11 +158,35 @@ def parse_text_command(text: str, *, source: str, reply_to: dict[str, Any] | Non
                 repos.append(tokens[index + 1])
                 index += 2
                 continue
+            if token == "--runtime" and index + 1 < len(tokens):
+                runtimes.append(tokens[index + 1])
+                index += 2
+                continue
+            if token == "--service" and index + 1 < len(tokens):
+                services.append(tokens[index + 1])
+                index += 2
+                continue
+            if token == "--capability" and index + 1 < len(tokens):
+                capabilities.append(tokens[index + 1])
+                index += 2
+                continue
+            if token == "--depends-on" and index + 1 < len(tokens):
+                depends_on.append(tokens[index + 1])
+                index += 2
+                continue
             raise IntentError(f"Flag no soportada en spec create: {token}")
         return IntentRequest(
             source=source,
             intent="spec.create",
-            payload={"slug": slug, "title": title or slug.replace("-", " ").title(), "repos": repos},
+            payload={
+                "slug": slug,
+                "title": title or slug.replace("-", " ").title(),
+                "repos": repos,
+                "required_runtimes": runtimes,
+                "required_services": services,
+                "required_capabilities": capabilities,
+                "depends_on": depends_on,
+            },
             reply_to=reply_to,
         )
 
@@ -172,6 +236,10 @@ def intent_from_github(event: str, payload: dict[str, Any]) -> IntentRequest | N
         if "flow-spec" not in labels:
             return None
         repos = [label.split(":", 1)[1] for label in labels if label.startswith("flow-repo:")]
+        runtimes = [label.split(":", 1)[1] for label in labels if label.startswith("flow-runtime:")]
+        services = [label.split(":", 1)[1] for label in labels if label.startswith("flow-service:")]
+        capabilities = [label.split(":", 1)[1] for label in labels if label.startswith("flow-capability:")]
+        depends_on = [label.split(":", 1)[1] for label in labels if label.startswith("flow-depends-on:")]
         title = str(issue.get("title", "")).strip() or str(issue.get("number", "feature"))
         slug = slugify(f"{issue.get('number', 'gh')}-{title}")
         reply_to = {
@@ -184,7 +252,15 @@ def intent_from_github(event: str, payload: dict[str, Any]) -> IntentRequest | N
         return IntentRequest(
             source="github",
             intent="spec.create",
-            payload={"slug": slug, "title": title, "repos": repos},
+            payload={
+                "slug": slug,
+                "title": title,
+                "repos": repos,
+                "required_runtimes": runtimes,
+                "required_services": services,
+                "required_capabilities": capabilities,
+                "depends_on": depends_on,
+            },
             reply_to=reply_to,
         )
 
@@ -215,12 +291,24 @@ def intent_from_jira(payload: dict[str, Any]) -> IntentRequest | None:
 
     labels = [str(item).strip() for item in fields.get("labels", []) if str(item).strip()]
     repos = [label.split(":", 1)[1] for label in labels if label.startswith("flow-repo:")]
+    runtimes = [label.split(":", 1)[1] for label in labels if label.startswith("flow-runtime:")]
+    services = [label.split(":", 1)[1] for label in labels if label.startswith("flow-service:")]
+    capabilities = [label.split(":", 1)[1] for label in labels if label.startswith("flow-capability:")]
+    depends_on = [label.split(":", 1)[1] for label in labels if label.startswith("flow-depends-on:")]
     issue_key = str(issue.get("key", "")).strip()
     slug = slugify(f"{issue_key}-{title}") if issue_key else slugify(title)
     return IntentRequest(
         source="jira",
         intent="spec.create",
-        payload={"slug": slug, "title": title, "repos": repos},
+        payload={
+            "slug": slug,
+            "title": title,
+            "repos": repos,
+            "required_runtimes": runtimes,
+            "required_services": services,
+            "required_capabilities": capabilities,
+            "depends_on": depends_on,
+        },
         reply_to={
             "kind": "jira",
             "provider": "jira-comment",

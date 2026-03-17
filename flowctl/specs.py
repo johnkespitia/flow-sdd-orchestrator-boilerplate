@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
+
+import yaml
 
 
 @dataclass(frozen=True)
@@ -57,44 +59,141 @@ def all_spec_paths(config: SpecConfig) -> list[Path]:
     return sorted(config.specs_root.rglob("*.spec.md"))
 
 
-def parse_frontmatter(spec_path: Path) -> dict[str, object]:
-    text = spec_path.read_text(encoding="utf-8")
+def _extract_frontmatter_block(text: str) -> Optional[str]:
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
-        return {}
+        return None
 
     end = None
     for idx in range(1, len(lines)):
         if lines[idx].strip() == "---":
             end = idx
             break
-
     if end is None:
+        return None
+    return "\n".join(lines[1:end])
+
+
+def parse_frontmatter(spec_path: Path) -> dict[str, object]:
+    text = spec_path.read_text(encoding="utf-8")
+    frontmatter_text = _extract_frontmatter_block(text)
+    if frontmatter_text is None:
         return {}
+    try:
+        payload = yaml.safe_load(frontmatter_text)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{spec_path} tiene frontmatter YAML invalido: {exc}") from exc
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise ValueError(f"{spec_path} debe declarar un objeto YAML en el frontmatter.")
+    return {str(key): value for key, value in payload.items()}
 
-    data: dict[str, object] = {}
-    current_key: Optional[str] = None
 
-    for raw_line in lines[1:end]:
-        line = raw_line.rstrip()
-        match = re.match(r"^([A-Za-z0-9_-]+):\s*(.*)$", line)
-        if match:
-            key = match.group(1)
-            value = match.group(2).strip()
-            if value:
-                data[key] = value
-                current_key = None
-            else:
-                data[key] = []
-                current_key = key
+def _string_list_field(frontmatter: dict[str, object], key: str) -> tuple[list[str], list[str]]:
+    value = frontmatter.get(key)
+    if value is None:
+        return [], []
+    if isinstance(value, str):
+        candidate = value.strip()
+        return ([candidate] if candidate else []), []
+    if not isinstance(value, list):
+        return [], [f"`{key}` debe declararse como lista YAML o string."]
+
+    items: list[str] = []
+    errors: list[str] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, str):
+            errors.append(f"`{key}` debe contener strings; el item #{index} no es valido.")
             continue
+        candidate = item.strip()
+        if candidate:
+            items.append(candidate)
+    return items, errors
 
-        if current_key and line.strip().startswith("- "):
-            current = data.setdefault(current_key, [])
-            if isinstance(current, list):
-                current.append(line.strip()[2:].strip())
 
-    return data
+def _object_list_field(frontmatter: dict[str, object], key: str) -> tuple[list[dict[str, Any]], list[str]]:
+    value = frontmatter.get(key)
+    if value is None:
+        return [], []
+    if not isinstance(value, list):
+        return [], [f"`{key}` debe declararse como lista YAML."]
+
+    items: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            errors.append(f"`{key}` debe contener objetos; el item #{index} no es valido.")
+            continue
+        items.append({str(field): field_value for field, field_value in item.items()})
+    return items, errors
+
+
+def _is_yaml_scalar(value: Any) -> bool:
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def _mapping_findings(value: Any, label: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, dict):
+        return [f"`{label}` debe declararse como objeto YAML."]
+
+    findings: list[str] = []
+    for raw_key, raw_value in value.items():
+        key = str(raw_key).strip()
+        if not key:
+            findings.append(f"`{label}` no puede usar keys vacias.")
+            continue
+        if not _is_yaml_scalar(raw_value):
+            findings.append(f"`{label}.{key}` debe usar un valor escalar YAML.")
+    return findings
+
+
+def _string_list_findings(value: Any, label: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return [f"`{label}` debe declararse como lista."]
+
+    findings: list[str] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, str) or not item.strip():
+            findings.append(f"`{label}` item #{index} debe ser un string no vacio.")
+    return findings
+
+
+def _string_or_int_list_findings(value: Any, label: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return [f"`{label}` debe declararse como lista."]
+
+    findings: list[str] = []
+    for index, item in enumerate(value, start=1):
+        if isinstance(item, bool) or not isinstance(item, (str, int)):
+            findings.append(f"`{label}` item #{index} debe ser string o entero.")
+            continue
+        if isinstance(item, str) and not item.strip():
+            findings.append(f"`{label}` item #{index} no puede ser un string vacio.")
+    return findings
+
+
+def _schema_version(frontmatter: dict[str, object]) -> tuple[int, list[str]]:
+    value = frontmatter.get("schema_version")
+    if value is None:
+        return 1, []
+    if isinstance(value, bool):
+        return 1, ["`schema_version` debe ser un entero."]
+    if isinstance(value, int):
+        version = value
+    elif isinstance(value, str) and value.strip().isdigit():
+        version = int(value.strip())
+    else:
+        return 1, ["`schema_version` debe ser un entero."]
+    if version < 1:
+        return version, ["`schema_version` debe ser mayor o igual a 1."]
+    return version, []
 
 
 def replace_frontmatter_status(spec_path: Path, status: str) -> None:
@@ -255,8 +354,33 @@ def render_test_plan_hints(config: SpecConfig, repos: list[str]) -> str:
 
 def analyze_spec(spec_path: Path, *, config: SpecConfig) -> dict[str, object]:
     text = spec_path.read_text(encoding="utf-8")
-    frontmatter = parse_frontmatter(spec_path)
-    targets = list(frontmatter.get("targets", []))
+    frontmatter_errors: list[str] = []
+    try:
+        frontmatter = parse_frontmatter(spec_path)
+    except ValueError as exc:
+        frontmatter = {}
+        frontmatter_errors.append(str(exc))
+
+    schema_version, schema_errors = _schema_version(frontmatter)
+    frontmatter_errors.extend(schema_errors)
+    targets, target_type_errors = _string_list_field(frontmatter, "targets")
+    depends_on, depends_on_errors = _string_list_field(frontmatter, "depends_on")
+    required_runtimes, required_runtimes_errors = _string_list_field(frontmatter, "required_runtimes")
+    required_services, required_services_errors = _string_list_field(frontmatter, "required_services")
+    required_capabilities, required_capabilities_errors = _string_list_field(frontmatter, "required_capabilities")
+    stack_projects, stack_projects_errors = _object_list_field(frontmatter, "stack_projects")
+    stack_services, stack_services_errors = _object_list_field(frontmatter, "stack_services")
+    stack_capabilities, stack_capabilities_errors = _string_list_field(frontmatter, "stack_capabilities")
+    infra_targets, infra_targets_errors = _string_list_field(frontmatter, "infra_targets")
+    frontmatter_errors.extend(target_type_errors)
+    frontmatter_errors.extend(depends_on_errors)
+    frontmatter_errors.extend(required_runtimes_errors)
+    frontmatter_errors.extend(required_services_errors)
+    frontmatter_errors.extend(required_capabilities_errors)
+    frontmatter_errors.extend(stack_projects_errors)
+    frontmatter_errors.extend(stack_services_errors)
+    frontmatter_errors.extend(stack_capabilities_errors)
+    frontmatter_errors.extend(infra_targets_errors)
     target_index, target_errors = collect_routed_paths(targets, config=config)
     test_refs = extract_test_references(text, config=config)
     backticked_test_refs = extract_backticked_test_references(text)
@@ -264,8 +388,11 @@ def analyze_spec(spec_path: Path, *, config: SpecConfig) -> dict[str, object]:
     missing_frontmatter = [field for field in config.required_frontmatter_fields if not frontmatter.get(field)]
 
     return {
+        "spec_path": spec_path,
         "text": text,
         "frontmatter": frontmatter,
+        "frontmatter_errors": frontmatter_errors,
+        "schema_version": schema_version,
         "targets": targets,
         "target_index": target_index,
         "target_errors": target_errors,
@@ -273,6 +400,14 @@ def analyze_spec(spec_path: Path, *, config: SpecConfig) -> dict[str, object]:
         "backticked_test_refs": backticked_test_refs,
         "test_index": test_index,
         "test_errors": test_errors,
+        "depends_on": depends_on,
+        "required_runtimes": required_runtimes,
+        "required_services": required_services,
+        "required_capabilities": required_capabilities,
+        "stack_projects": stack_projects,
+        "stack_services": stack_services,
+        "stack_capabilities": stack_capabilities,
+        "infra_targets": infra_targets,
         "todo_count": count_todos(text, config=config),
         "missing_frontmatter": missing_frontmatter,
     }
@@ -304,11 +439,17 @@ def ensure_spec_ready_for_approval(
     config: SpecConfig,
     repo_root: Callable[[str], Path],
     validate_test_reference_patterns: Callable[[str, Path, list[str]], tuple[list[str], list[str], list[str]]],
+    available_project_runtime_names: Callable[[], list[str]],
+    available_service_runtime_names: Callable[[], list[str]],
+    available_capability_names: Callable[[], list[str]],
+    resolve_runtime_pack,
+    resolve_spec: Callable[[str], Path],
 ) -> dict[str, object]:
     analysis = analyze_spec(spec_path, config=config)
     blockers: list[str] = []
     frontmatter = analysis["frontmatter"]
 
+    blockers.extend(str(error) for error in analysis["frontmatter_errors"])
     for field in analysis["missing_frontmatter"]:
         blockers.append(f"Falta el campo de frontmatter `{field}`.")
 
@@ -324,6 +465,17 @@ def ensure_spec_ready_for_approval(
             config=config,
             repo_root=repo_root,
             validate_test_reference_patterns=validate_test_reference_patterns,
+        )
+    )
+    blockers.extend(
+        spec_dependency_findings(
+            analysis,
+            available_project_runtime_names=available_project_runtime_names,
+            available_service_runtime_names=available_service_runtime_names,
+            available_capability_names=available_capability_names,
+            resolve_runtime_pack=resolve_runtime_pack,
+            resolve_spec=resolve_spec,
+            parse_frontmatter=parse_frontmatter,
         )
     )
 
@@ -354,12 +506,195 @@ def format_findings(findings: list[str]) -> list[str]:
 
 
 def frontmatter_list(frontmatter: dict[str, object], key: str) -> list[str]:
-    value = frontmatter.get(key)
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    return [str(value)]
+    items, _ = _string_list_field(frontmatter, key)
+    return items
+
+
+def spec_dependency_findings(
+    analysis: dict[str, object],
+    *,
+    available_project_runtime_names: Callable[[], list[str]],
+    available_service_runtime_names: Callable[[], list[str]],
+    available_capability_names: Callable[[], list[str]],
+    resolve_runtime_pack,
+    resolve_spec: Callable[[str], Path],
+    parse_frontmatter: Callable[[Path], dict[str, object]],
+) -> list[str]:
+    findings: list[str] = []
+
+    try:
+        project_runtimes = set(available_project_runtime_names())
+    except Exception as exc:
+        findings.append(f"No pude cargar el catalogo de runtimes de proyecto: {exc}")
+        project_runtimes = set()
+    try:
+        service_runtimes = set(available_service_runtime_names())
+    except Exception as exc:
+        findings.append(f"No pude cargar el catalogo de runtimes de servicio: {exc}")
+        service_runtimes = set()
+    try:
+        capabilities = set(available_capability_names())
+    except Exception as exc:
+        findings.append(f"No pude cargar el catalogo de capabilities: {exc}")
+        capabilities = set()
+
+    for runtime in analysis.get("required_runtimes", []):
+        if runtime not in project_runtimes:
+            findings.append(f"El runtime requerido `{runtime}` no esta instalado como runtime de proyecto.")
+    for runtime in analysis.get("required_services", []):
+        if runtime not in service_runtimes:
+            findings.append(f"El servicio requerido `{runtime}` no esta instalado como runtime de servicio.")
+    for capability in analysis.get("required_capabilities", []):
+        if capability not in capabilities:
+            findings.append(f"La capability requerida `{capability}` no esta instalada o esta deshabilitada.")
+
+    declared_services: set[str] = set()
+    declared_service_runtimes: dict[str, str] = {}
+    for index, service in enumerate(analysis.get("stack_services", []), start=1):
+        if not isinstance(service, dict):
+            continue
+        name = str(service.get("name", "")).strip()
+        runtime = str(service.get("runtime", "")).strip()
+        if not name:
+            findings.append(f"`stack_services` item #{index} debe declarar `name`.")
+        if not runtime:
+            findings.append(f"`stack_services` item #{index} debe declarar `runtime`.")
+        if name in declared_services:
+            findings.append(f"`stack_services` contiene un nombre duplicado: `{name}`.")
+        if runtime and runtime not in service_runtimes:
+            findings.append(f"`stack_services` declara un runtime no instalado: `{runtime}`.")
+        findings.extend(_mapping_findings(service.get("env"), f"stack_services[{name or index}].env"))
+        findings.extend(_string_or_int_list_findings(service.get("ports"), f"stack_services[{name or index}].ports"))
+        findings.extend(_string_list_findings(service.get("volumes"), f"stack_services[{name or index}].volumes"))
+        if name:
+            declared_services.add(name)
+            declared_service_runtimes[name] = runtime
+
+    declared_projects: set[str] = set()
+    for index, project in enumerate(analysis.get("stack_projects", []), start=1):
+        if not isinstance(project, dict):
+            continue
+        name = str(project.get("name", "")).strip()
+        runtime = str(project.get("runtime", "")).strip()
+        path = str(project.get("path", name)).strip() if (project.get("path") is not None or name) else ""
+        if not name:
+            findings.append(f"`stack_projects` item #{index} debe declarar `name`.")
+        if not runtime:
+            findings.append(f"`stack_projects` item #{index} debe declarar `runtime`.")
+        if name in declared_projects:
+            findings.append(f"`stack_projects` contiene un nombre duplicado: `{name}`.")
+        if runtime and runtime not in project_runtimes:
+            findings.append(f"`stack_projects` declara un runtime no instalado: `{runtime}`.")
+        if project.get("port") is not None and not isinstance(project.get("port"), int):
+            findings.append(f"`stack_projects` item `{name or index}` debe declarar `port` como entero.")
+        if isinstance(project.get("port"), int) and int(project["port"]) <= 0:
+            findings.append(f"`stack_projects` item `{name or index}` debe usar un `port` positivo.")
+        if path and Path(path).is_absolute():
+            findings.append(f"`stack_projects` item `{name or index}` no puede usar un `path` absoluto.")
+        compose_service = project.get("compose_service")
+        if compose_service is not None and (not isinstance(compose_service, str) or not compose_service.strip()):
+            findings.append(
+                f"`stack_projects` item `{name or index}` debe declarar `compose_service` como string no vacio."
+            )
+        repo_code = project.get("repo_code")
+        if repo_code is not None and (not isinstance(repo_code, str) or not repo_code.strip()):
+            findings.append(
+                f"`stack_projects` item `{name or index}` debe declarar `repo_code` como string no vacio."
+            )
+        findings.extend(_string_list_findings(project.get("aliases"), f"stack_projects[{name or index}].aliases"))
+        findings.extend(_mapping_findings(project.get("env"), f"stack_projects[{name or index}].env"))
+        findings.extend(
+            _string_list_findings(project.get("default_targets"), f"stack_projects[{name or index}].default_targets")
+        )
+        findings.extend(
+            _string_list_findings(project.get("target_roots"), f"stack_projects[{name or index}].target_roots")
+        )
+        use_existing_dir = project.get("use_existing_dir")
+        if use_existing_dir is not None and not isinstance(use_existing_dir, bool):
+            findings.append(
+                f"`stack_projects` item `{name or index}` debe declarar `use_existing_dir` como booleano."
+            )
+
+        project_capabilities = project.get("capabilities", [])
+        if project_capabilities is not None and not isinstance(project_capabilities, list):
+            findings.append(
+                f"`stack_projects` item `{name or index}` debe declarar `capabilities` como lista."
+            )
+        elif isinstance(project_capabilities, list):
+            for capability in project_capabilities:
+                candidate = str(capability).strip()
+                if candidate and candidate not in capabilities:
+                    findings.append(
+                        f"`stack_projects` item `{name or index}` requiere la capability no instalada `{candidate}`."
+                    )
+
+        service_bindings = project.get("service_bindings", [])
+        runtime_pack: dict[str, Any] | None = None
+        if runtime and runtime in project_runtimes and name and path and not Path(path).is_absolute():
+            try:
+                candidate_pack = resolve_runtime_pack(runtime, name, path)
+                if isinstance(candidate_pack, dict):
+                    runtime_pack = candidate_pack
+            except Exception as exc:
+                findings.append(
+                    f"No pude resolver el runtime pack `{runtime}` para `stack_projects[{name or index}]`: {exc}"
+                )
+        if service_bindings is not None and not isinstance(service_bindings, list):
+            findings.append(
+                f"`stack_projects` item `{name or index}` debe declarar `service_bindings` como lista."
+            )
+        elif isinstance(service_bindings, list):
+            for service_name in service_bindings:
+                candidate = str(service_name).strip()
+                if candidate and candidate not in declared_services:
+                    findings.append(
+                        f"`stack_projects` item `{name or index}` referencia un servicio no declarado: `{candidate}`."
+                    )
+                    continue
+                if candidate and runtime_pack is not None:
+                    bindings = runtime_pack.get("bindings", {})
+                    service_runtime = declared_service_runtimes.get(candidate, "")
+                    if (
+                        isinstance(bindings, dict)
+                        and service_runtime
+                        and service_runtime not in bindings
+                        and candidate not in bindings
+                    ):
+                        findings.append(
+                            f"`stack_projects` item `{name or index}` no tiene binding declarado entre "
+                            f"`{runtime}` y `{service_runtime}`."
+                        )
+
+        if name:
+            declared_projects.add(name)
+
+    for capability in analysis.get("stack_capabilities", []):
+        if capability not in capabilities:
+            findings.append(f"`stack_capabilities` declara una capability no instalada: `{capability}`.")
+
+    current_spec_path = analysis.get("spec_path")
+    current_spec = current_spec_path.resolve() if isinstance(current_spec_path, Path) else None
+    for dependency in analysis.get("depends_on", []):
+        try:
+            dependency_path = resolve_spec(dependency)
+        except SystemExit:
+            findings.append(f"`depends_on` referencia una spec inexistente: `{dependency}`.")
+            continue
+        if current_spec and dependency_path.resolve() == current_spec:
+            findings.append("`depends_on` no puede referenciar la misma spec.")
+            continue
+        try:
+            dependency_frontmatter = parse_frontmatter(dependency_path)
+        except ValueError as exc:
+            findings.append(f"La spec dependiente `{dependency}` tiene frontmatter invalido: {exc}")
+            continue
+        dependency_status = str(dependency_frontmatter.get("status", "")).strip() or "missing"
+        if dependency_status != "approved":
+            findings.append(
+                f"`depends_on` requiere specs aprobadas: `{dependency}` esta en `{dependency_status}`."
+            )
+
+    return findings
 
 
 def resolve_spec(identifier: str, *, config: SpecConfig, slugify: Callable[[str], str]) -> Path:

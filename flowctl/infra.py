@@ -28,6 +28,8 @@ def command_infra_plan(
     spec_path = resolve_spec(args.spec)
     slug = spec_slug(spec_path)
     analysis = analyze_spec(spec_path)
+    if analysis["frontmatter"].get("status") != "approved":
+        raise SystemExit(f"La spec `{rel(spec_path)}` debe estar en `approved` antes de planear infraestructura.")
     infra_targets = frontmatter_list(analysis["frontmatter"], "infra_targets")
     if not infra_targets:
         raise SystemExit(f"La spec `{rel(spec_path)}` no declara `infra_targets`.")

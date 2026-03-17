@@ -1,7 +1,55 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Callable
+
+
+def _release_slice_findings(
+    slug: str,
+    state: dict[str, object],
+    *,
+    plan_root: Path,
+    root: Path,
+    rel: Callable[[Path], str],
+) -> list[str]:
+    plan_path = plan_root / f"{slug}.json"
+    if not plan_path.exists():
+        return [f"No existe plan para `{slug}`. Ejecuta `python3 ./flow plan {slug}` antes del release."]
+
+    try:
+        plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"El plan `{rel(plan_path)}` no contiene JSON valido: {exc}."]
+
+    slices = plan_payload.get("slices", [])
+    if not isinstance(slices, list) or not slices:
+        return [f"El plan `{rel(plan_path)}` no declara slices verificables."]
+
+    slice_results = state.get("slice_results", {})
+    if not isinstance(slice_results, dict):
+        slice_results = {}
+
+    findings: list[str] = []
+    for slice_payload in slices:
+        if not isinstance(slice_payload, dict):
+            continue
+        slice_name = str(slice_payload.get("name", "")).strip()
+        if not slice_name:
+            continue
+        result = slice_results.get(slice_name)
+        if not isinstance(result, dict):
+            findings.append(f"La slice `{slice_name}` no tiene verificacion registrada.")
+            continue
+        if str(result.get("status", "")).strip() != "passed":
+            findings.append(f"La slice `{slice_name}` no paso su verificacion mas reciente.")
+        report = str(result.get("report", "")).strip()
+        if not report:
+            findings.append(f"La slice `{slice_name}` no registro un reporte de verificacion.")
+            continue
+        if not (root / report).exists():
+            findings.append(f"La slice `{slice_name}` referencia un reporte inexistente: `{report}`.")
+    return findings
 
 
 def command_release_cut(
@@ -16,7 +64,9 @@ def command_release_cut(
     rel: Callable[[Path], str],
     spec_slug: Callable[[Path], str],
     read_state,
+    root: Path,
     root_repo: str,
+    plan_root: Path,
     repo_head_sha: Callable[[str], str],
     repo_root,
     release_manifest_root: Path,
@@ -52,6 +102,16 @@ def command_release_cut(
         repos_involved.update(repos)
         slug = spec_slug(spec_path)
         state = read_state(slug)
+        slice_findings = _release_slice_findings(
+            slug,
+            state,
+            plan_root=plan_root,
+            root=root,
+            rel=rel,
+        )
+        if slice_findings:
+            joined = "\n".join(f"- {finding}" for finding in slice_findings)
+            raise SystemExit(f"La feature `{slug}` no esta lista para release:\n{joined}")
         features.append(
             {
                 "slug": slug,

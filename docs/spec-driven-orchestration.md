@@ -39,8 +39,11 @@ El workspace expone `python3 ./flow` como control plane.
 python3 ./flow stack doctor
 python3 ./flow stack ps
 python3 ./flow stack design --prompt "quiero una api en golang con postgresql y graphql"
+python3 ./flow stack design --spec stack-from-spec
 python3 ./flow stack plan --json
+python3 ./flow stack plan --spec stack-from-spec --json
 python3 ./flow stack apply --json
+python3 ./flow stack apply --spec stack-from-spec --json
 python3 ./flow tessl -- --help
 python3 ./flow skills doctor
 python3 ./flow skills sync --dry-run
@@ -53,7 +56,7 @@ python3 ./flow add-project backend --runtime php --port 8000
 python3 ./flow add-project frontend --runtime pnpm --port 5173
 python3 ./flow spec create identity-bootstrap --title "Identity Bootstrap" --repo backend
 python3 ./flow spec review identity-bootstrap
-python3 ./flow spec approve identity-bootstrap
+python3 ./flow spec approve identity-bootstrap --approver alice
 python3 ./flow plan identity-bootstrap
 python3 ./flow slice start identity-bootstrap backend-main
 python3 ./flow slice verify identity-bootstrap backend-main
@@ -66,6 +69,25 @@ python3 ./flow release status --version 2026.03.14-1
 python3 ./flow infra status identity-bootstrap
 python3 ./flow status
 ```
+
+Cuando usas `--spec`, la topología del stack ya no nace del prompt sino del frontmatter aprobado
+de la spec (`stack_projects`, `stack_services`, `stack_capabilities`).
+
+Los objetos de topología ya pueden cargar detalles materializables como:
+
+- proyectos: `repo_code`, `compose_service`, `aliases`, `env`, `service_bindings`
+- proyectos: `default_targets`, `target_roots`, `use_existing_dir`
+- servicios: `env`, `ports`, `volumes`
+
+Los `service_bindings` ya no dependen de lógica hardcodeada en Python. El runtime pack del
+proyecto puede declarar `bindings` por runtime de servicio y desde ahí derivar `environment`
+y `depends_on`.
+
+Gates:
+
+- `spec review` valida drafts
+- `stack design --spec` y `stack plan --spec` permiten preview sobre drafts listos para aprobar
+- `ci spec` y `stack apply --spec` requieren `approved`
 
 BMAD también se invoca desde el mismo control plane:
 

@@ -8,7 +8,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .config import Settings, load_settings
 from .intents import IntentError, build_flow_command, intent_from_github, intent_from_jira, parse_text_command
-from .models import IntentRequest, TaskAccepted, TaskView
+from .models import IntentRequest, RepoCatalogView, TaskAccepted, TaskView
+from .repos import repo_catalog_payload
 from .security import verify_bearer_token, verify_github_signature, verify_slack_signature
 from .store import TaskStore
 from .worker import TaskWorker
@@ -48,7 +49,11 @@ app = FastAPI(title="SoftOS Gateway", version="0.1.0", lifespan=lifespan)
 def enqueue_intent(app_request: Request, intent_request: IntentRequest) -> dict[str, Any]:
     settings: Settings = app_request.app.state.settings
     store: TaskStore = app_request.app.state.store
-    command = build_flow_command(intent_request.intent, intent_request.payload)
+    command = build_flow_command(
+        intent_request.intent,
+        intent_request.payload,
+        workspace_root=settings.workspace_root,
+    )
     return store.enqueue(
         source=intent_request.source,
         intent=intent_request.intent,
@@ -79,6 +84,15 @@ async def create_intent(intent_request: IntentRequest, request: Request) -> Task
     except IntentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _accepted_payload(task)
+
+
+@app.get("/v1/repos", response_model=RepoCatalogView)
+async def list_repos(request: Request) -> RepoCatalogView:
+    settings: Settings = request.app.state.settings
+    auth_header = request.headers.get("authorization")
+    if settings.gateway_api_token and not verify_bearer_token(auth_header, settings.gateway_api_token):
+        raise HTTPException(status_code=401, detail="Invalid API token.")
+    return RepoCatalogView(**repo_catalog_payload(settings.workspace_root))
 
 
 @app.get("/v1/tasks/{task_id}", response_model=TaskView)

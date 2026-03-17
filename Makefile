@@ -2,9 +2,12 @@ FLOW = python3 ./flow
 
 # ── Init ─────────────────────────────────────────────────────────────
 
-.PHONY: init submodules hooks-install
+.PHONY: init first-run submodules hooks-install
 
-init: submodules hooks-install up install ## Bootstrap completo: submódulos + hooks + servicios + dependencias
+init: submodules hooks-install first-run ## Bootstrap root-only: submódulos + hooks + flow init
+
+first-run:
+	$(FLOW) init $(ARGS)
 
 submodules:
 	git submodule update --init --recursive
@@ -142,7 +145,8 @@ help:
 	@echo "  ─────────────────────────────────────────"
 	@echo ""
 	@echo "  Init:"
-	@echo "    make init            Bootstrap completo (submódulos + hooks + up + install)"
+	@echo "    make init            Bootstrap root-only (submódulos + hooks + flow init)"
+	@echo "    make first-run       Ejecuta flow init (secrets + stack + doctor + status)"
 	@echo "    make submodules      Inicializa/actualiza submódulos git"
 	@echo "    make hooks-install   Configura hooks versionados del workspace"
 	@echo ""

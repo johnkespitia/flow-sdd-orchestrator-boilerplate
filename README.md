@@ -77,7 +77,7 @@ Eso genera un workspace nuevo:
 ## Después de crear tu workspace
 
 1. Abre el root en devcontainer
-2. Valida el scaffold
+2. Ejecuta el primer arranque
 3. Diseña o agrega los proyectos que realmente necesites con `flow stack design|plan|apply` o `flow add-project`
 4. Ajusta [`workspace.config.json`](workspace.config.json) si tu routing requiere reglas adicionales
 5. Si tu stack necesita otro runtime base, cambia los runtime packs o [`.devcontainer/docker-compose.yml`](.devcontainer/docker-compose.yml)
@@ -93,6 +93,7 @@ Nota:
   `node_modules/` y el store de `pnpm`
 
 ```bash
+python3 ./flow init
 python3 ./flow doctor
 python3 ./flow stack doctor
 python3 ./flow tessl -- --help
@@ -110,6 +111,18 @@ python3 ./flow release --help
 python3 ./flow infra --help
 ```
 
+`flow init` materializa `.devcontainer/.env.generated` si falta, levanta el stack y deja visible la
+URL de health del gateway. Si `8010` ya esta ocupado en tu host, puedes mover el puerto expuesto
+sin editar el repo:
+
+```bash
+SOFTOS_GATEWAY_HOST_PORT=18010 python3 ./flow init --build
+```
+
+Desde tu shell host, una vez el servicio `workspace` este arriba, `flow tessl`, `flow bmad`,
+`flow skills doctor`, `flow skills sync` y `flow ci repo` delegan automaticamente al devcontainer.
+Para ejecutar algo arbitrario dentro del workspace desde host, usa `python3 ./flow stack exec workspace -- ...`.
+
 Si necesitas un tercer proyecto de implementación, puedes registrarlo desde el control plane:
 
 ```bash
@@ -121,6 +134,11 @@ python3 ./flow add-project mobile --runtime pnpm --port 4173
 Eso actualiza `workspace.config.json`, crea el directorio placeholder y, si el runtime lo soporta,
 agrega el servicio al `docker-compose` del devcontainer junto con auxiliares del runtime. El
 runtime `php`, por ejemplo, agrega `db` si todavía no existe.
+
+Los runtime packs tambien pueden declarar CI minimo reproducible. `flow add-project` persiste esos
+steps en `workspace.config.json` para que `flow ci repo` no dependa solo de deteccion heuristica.
+Si hace falta, puedes overridearlos por proyecto con `--ci-install`, `--ci-lint`, `--ci-test`,
+`--ci-build` o desactivar defaults con `--no-ci-step`.
 
 Tambien puedes partir desde una intencion conversacional y dejar que el control plane diseñe el
 stack inicial sobre el chasis limpio:
@@ -137,6 +155,34 @@ Ese flujo:
 - agrega servicios standalone como `postgres` o `mongo` sin crear repos falsos
 - crea proyectos reales de implementacion con runtime packs como `go-api`
 - genera foundation specs derivadas desde `workspace.capabilities.json`, por ejemplo GraphQL
+
+Si ya tienes una spec aprobada, tambien puedes derivar el stack desde la spec misma:
+
+```bash
+python3 ./flow stack design --spec stack-from-spec --json
+python3 ./flow stack plan --spec stack-from-spec --json
+python3 ./flow stack apply --spec stack-from-spec --json
+```
+
+En ese modo la topologia debe venir declarada en el frontmatter con `stack_projects`,
+`stack_services` y `stack_capabilities`.
+
+Matiz operativo:
+
+- `flow spec review` valida una spec en `draft`
+- `flow stack design --spec` y `flow stack plan --spec` pueden previsualizar una spec `draft` si ya esta lista para aprobar
+- `flow ci spec` y `flow stack apply --spec` siguen exigiendo `status: approved`
+
+Campos estructurales soportados ahora:
+
+- `stack_projects[*].name`, `runtime`, `path`, `port`
+- `stack_projects[*].repo_code`, `compose_service`, `aliases`
+- `stack_projects[*].service_bindings`, `capabilities`, `env`
+- `stack_projects[*].default_targets`, `target_roots`, `use_existing_dir`
+- `stack_services[*].name`, `runtime`, `env`, `ports`, `volumes`
+
+`stack design --prompt` ya no materializa el stack. Solo redacta una spec draft con esos
+campos explicitados para review. El manifest real se deriva despues con `--spec`.
 
 ## Gateway de Integraciones
 
@@ -162,9 +208,8 @@ Notas:
 Arranque basico:
 
 ```bash
-python3 ./flow secrets sync
-python3 ./flow stack up
-docker compose exec gateway curl -fsSL http://127.0.0.1:8010/healthz
+python3 ./flow init
+curl -fsSL "http://127.0.0.1:${SOFTOS_GATEWAY_HOST_PORT:-8010}/healthz"
 ```
 
 Las skills y tiles del workspace también se gobiernan desde el control plane:
@@ -184,6 +229,10 @@ dejando `workspace.skills.json` reservado para capacidades del agente:
 python3 ./flow add-project api --runtime php --port 8000
 python3 ./flow add-project web --runtime pnpm --port 5173
 ```
+
+Los runtime packs tambien pueden declarar `bindings` por runtime de servicio. Ese contrato define
+como un proyecto se enlaza con servicios como `postgres-service` o `mongo-service`, incluyendo
+`environment` y `depends_on`, sin tocar el core de `flow`.
 
 Los providers de CD e infraestructura se gobiernan igual:
 
@@ -210,6 +259,11 @@ make hooks-install
 `flow contract verify` usa los contratos generados en `contracts/generated/**` para detectar drift
 estructural entre contrato e implementacion antes de llegar a integración.
 
+En el gateway, los intents que requieren repo aceptan codigos resueltos desde
+`workspace.config.json`. Para el repo raiz del workspace puedes usar siempre `root`, aunque el
+`root_repo` real haya sido renombrado por el bootstrap.
+Si un cliente externo no conoce esos codigos, puede descubrirlos con `GET /v1/repos`.
+
 ## Modelo operativo
 
 La separación de responsabilidades es esta:
@@ -235,9 +289,9 @@ Regla base:
 python3 ./flow stack design --prompt "quiero una api en golang que se conecte a postgresql y sea consumible usando graphql"
 python3 ./flow stack plan
 python3 ./flow stack apply
-python3 ./flow spec create identity-bootstrap --title "Identity Bootstrap" --repo api
+python3 ./flow spec create identity-bootstrap --title "Identity Bootstrap" --repo api --runtime go-api --service postgres-service --capability graphql --depends-on spec-as-source-operating-model
 python3 ./flow spec review identity-bootstrap
-python3 ./flow spec approve identity-bootstrap
+python3 ./flow spec approve identity-bootstrap --approver alice
 python3 ./flow plan identity-bootstrap
 python3 ./flow slice start identity-bootstrap api-main
 python3 ./flow slice verify identity-bootstrap api-main
@@ -246,6 +300,8 @@ python3 ./flow release status --version 2026.03.14-1
 python3 ./flow infra status spec-driven-delivery-bootstrap
 python3 ./flow status
 ```
+
+`flow spec create` ya puede dejar una spec v2 con `schema_version`, `depends_on`, `required_runtimes`, `required_services` y `required_capabilities`. `spec review` y `ci spec` validan esos campos contra los catálogos instalados del workspace.
 
 ## Stack local
 
@@ -258,17 +314,22 @@ El devcontainer incluido trae:
 
 Ese stack es intencionalmente mínimo. La topología nace vacía y se expande con `flow add-project`.
 Si prefieres un bootstrap declarativo, la topología tambien puede nacer desde `flow stack design`
-y materializarse luego con `flow stack apply`.
+y materializarse luego con `flow stack apply`, ya sea desde `--prompt` o desde una spec aprobada con `--spec`.
 
 ## Comandos útiles
 
 ```bash
 python3 ./flow --help
+python3 ./flow init
 python3 ./flow stack design --prompt "quiero una api en golang con postgresql y graphql"
+python3 ./flow stack design --spec stack-from-spec
 python3 ./flow stack plan --json
+python3 ./flow stack plan --spec stack-from-spec --json
 python3 ./flow stack apply --json
+python3 ./flow stack apply --spec stack-from-spec --json
 python3 ./flow add-project mobile --runtime pnpm --port 4173
 python3 ./flow stack ps
+python3 ./flow stack exec workspace -- pwd
 python3 ./flow tessl -- --help
 python3 ./flow bmad -- --help
 python3 ./flow ci spec --all

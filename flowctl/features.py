@@ -10,6 +10,13 @@ from pathlib import Path
 from typing import Callable, Optional
 
 
+def render_yaml_list(key: str, values: list[str]) -> list[str]:
+    items = [str(value).strip() for value in values if str(value).strip()]
+    if not items:
+        return [f"{key}: []"]
+    return [f"{key}:"] + [f"  - {item}" for item in items]
+
+
 def load_plan_and_slice(
     slug: str,
     slice_name: str,
@@ -56,6 +63,12 @@ def command_spec_create(
     slug = slugify(args.slug)
     title = args.title.strip()
     repos = args.repo or implementation_repos()[:1] or [root_repo]
+    required_runtimes = [str(item).strip() for item in getattr(args, "runtime", []) or [] if str(item).strip()]
+    required_services = [str(item).strip() for item in getattr(args, "service", []) or [] if str(item).strip()]
+    required_capabilities = [
+        str(item).strip() for item in getattr(args, "capability", []) or [] if str(item).strip()
+    ]
+    depends_on = [slugify(str(item)) for item in getattr(args, "depends_on", []) or [] if str(item).strip()]
     spec_path = feature_specs / f"{slug}.spec.md"
     if spec_path.exists():
         raise SystemExit(f"La spec ya existe: {rel(spec_path)}")
@@ -65,10 +78,18 @@ def command_spec_create(
     body = "\n".join(
         [
             "---",
-            f"name: {title}",
-            "description: TODO describir el resultado observable",
+            "schema_version: 2",
+            f"name: {json.dumps(title, ensure_ascii=True)}",
+            f"description: {json.dumps('TODO describir el resultado observable', ensure_ascii=True)}",
             "status: draft",
             "owner: platform",
+            *render_yaml_list("depends_on", depends_on),
+            *render_yaml_list("required_runtimes", required_runtimes),
+            *render_yaml_list("required_services", required_services),
+            *render_yaml_list("required_capabilities", required_capabilities),
+            "stack_projects: []",
+            "stack_services: []",
+            "stack_capabilities: []",
             "targets:",
             target_block,
             "---",
@@ -84,6 +105,7 @@ def command_spec_create(
             "- por que existe ahora",
             "- que foundations gobiernan esta feature",
             "- que repos estan afectados",
+            "- que runtimes, servicios o capabilities deben existir para materializarla",
             "",
             "## Problema a resolver",
             "",
@@ -134,6 +156,7 @@ def command_spec_create(
             "- El repo se deduce desde `targets`.",
             "- Cada slice debe pertenecer a un solo repo.",
             "- El plan operativo vive en `.flow/plans/**`.",
+            "- Las dependencias estructurales viven en el frontmatter y deben resolverse antes de aprobar.",
             "",
             "## Criterios de aceptacion",
             "",
@@ -180,11 +203,14 @@ def command_spec_review(
     spec_slug: Callable[[Path], str],
     analyze_spec: Callable[[Path], dict[str, object]],
     repos_missing_test_refs: Callable[[dict[str, list[dict[str, str]]], dict[str, list[dict[str, str]]]], list[str]],
+    spec_dependency_findings: Callable[[dict[str, object]], list[str]],
     format_findings: Callable[[list[str]], list[str]],
     report_root: Path,
     read_state: Callable[[str], dict[str, object]],
     write_state: Callable[[str, dict[str, object]], None],
     rel: Callable[[Path], str],
+    utc_now: Callable[[], str],
+    json_dumps: Callable[[object], str],
 ) -> int:
     require_dirs()
     spec_path = resolve_spec(args.spec)
@@ -196,11 +222,13 @@ def command_spec_review(
     medium_priority: list[str] = []
     low_priority: list[str] = []
 
+    high_priority.extend(str(error) for error in analysis["frontmatter_errors"])
     for field in analysis["missing_frontmatter"]:
         high_priority.append(f"Falta el campo de frontmatter `{field}`.")
 
     high_priority.extend(str(error) for error in analysis["target_errors"])
     high_priority.extend(str(error) for error in analysis["test_errors"])
+    high_priority.extend(spec_dependency_findings(analysis))
 
     description = str(frontmatter.get("description", "")).strip().lower()
     if not description or description.startswith("todo"):
@@ -252,11 +280,43 @@ def command_spec_review(
         ## Notas
 
         - Estado actual del frontmatter: `{status}`
+        - Schema version: `{analysis['schema_version']}`
         - Targets declarados: `{len(analysis['targets'])}`
         - Referencias `[@test]`: `{len(analysis['test_refs'])}`
+        - `depends_on`: `{len(analysis['depends_on'])}`
+        - `required_runtimes`: `{len(analysis['required_runtimes'])}`
+        - `required_services`: `{len(analysis['required_services'])}`
+        - `required_capabilities`: `{len(analysis['required_capabilities'])}`
+        - `stack_projects`: `{len(analysis['stack_projects'])}`
+        - `stack_services`: `{len(analysis['stack_services'])}`
+        - `stack_capabilities`: `{len(analysis['stack_capabilities'])}`
         """
     )
     report_path.write_text(report, encoding="utf-8")
+
+    payload = {
+        "spec": rel(spec_path),
+        "report": rel(report_path),
+        "ready_to_approve": ready_to_approve,
+        "result": "ready_to_approve" if ready_to_approve else "changes_required",
+        "reviewed_at": utc_now(),
+        "frontmatter_status": status,
+        "schema_version": analysis["schema_version"],
+        "targets_declared": len(analysis["targets"]),
+        "test_refs": len(analysis["test_refs"]),
+        "depends_on": list(analysis["depends_on"]),
+        "required_runtimes": list(analysis["required_runtimes"]),
+        "required_services": list(analysis["required_services"]),
+        "required_capabilities": list(analysis["required_capabilities"]),
+        "stack_projects": list(analysis["stack_projects"]),
+        "stack_services": list(analysis["stack_services"]),
+        "stack_capabilities": list(analysis["stack_capabilities"]),
+        "findings": {
+            "high": high_priority,
+            "medium": medium_priority,
+            "low": low_priority,
+        },
+    }
 
     state = read_state(slug)
     state.update(
@@ -264,9 +324,19 @@ def command_spec_review(
             "feature": slug,
             "spec_path": rel(spec_path),
             "status": "reviewing-spec",
+            "last_review": {
+                "report": rel(report_path),
+                "ready_to_approve": ready_to_approve,
+                "reviewed_at": payload["reviewed_at"],
+                "result": payload["result"],
+                "spec_mtime_ns": spec_path.stat().st_mtime_ns,
+            },
         }
     )
     write_state(slug, state)
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+        return 0
     print(rel(report_path))
     return 0
 
@@ -281,12 +351,41 @@ def command_spec_approve(
     read_state: Callable[[str], dict[str, object]],
     write_state: Callable[[str, dict[str, object]], None],
     rel: Callable[[Path], str],
+    utc_now: Callable[[], str],
 ) -> int:
     spec_path = resolve_spec(args.spec)
     slug = spec_slug(spec_path)
+    state = read_state(slug)
+    review = state.get("last_review", {})
+    if not isinstance(review, dict):
+        review = {}
+
+    if not review:
+        raise SystemExit(
+            f"La spec `{rel(spec_path)}` requiere una review previa. Ejecuta `python3 ./flow spec review {slug}`."
+        )
+    if not bool(review.get("ready_to_approve")):
+        raise SystemExit(
+            f"La ultima review de `{rel(spec_path)}` no quedo lista para aprobar. Revisa `{review.get('report', 'sin reporte')}`."
+        )
+    reviewed_mtime = int(review.get("spec_mtime_ns", 0) or 0)
+    current_mtime = spec_path.stat().st_mtime_ns
+    if reviewed_mtime != current_mtime:
+        raise SystemExit(
+            f"La spec `{rel(spec_path)}` cambio despues de la ultima review. Ejecuta `python3 ./flow spec review {slug}` de nuevo."
+        )
+
+    approver = (
+        str(getattr(args, "approver", "") or "").strip()
+        or os.environ.get("FLOW_APPROVER", "").strip()
+        or os.environ.get("USER", "").strip()
+        or os.environ.get("USERNAME", "").strip()
+    )
+    if not approver:
+        raise SystemExit("`spec approve` requiere `--approver` o una identidad en `FLOW_APPROVER/USER`.")
+
     analysis = ensure_spec_ready_for_approval(spec_path)
     replace_frontmatter_status(spec_path, "approved")
-    state = read_state(slug)
     state.update(
         {
             "feature": slug,
@@ -294,10 +393,15 @@ def command_spec_approve(
             "spec_path": rel(spec_path),
             "status": "approved-spec",
             "repos": list(analysis["target_index"]),
+            "last_approval": {
+                "approver": approver,
+                "approved_at": utc_now(),
+                "review_report": review.get("report"),
+            },
         }
     )
     write_state(slug, state)
-    print(f"Spec aprobada: {rel(spec_path)}")
+    print(f"Spec aprobada por {approver}: {rel(spec_path)}")
     return 0
 
 
@@ -492,6 +596,15 @@ def command_slice_start(
 
     state = read_state(slug)
     state["status"] = "slice-started"
+    slice_results = state.get("slice_results")
+    if not isinstance(slice_results, dict):
+        slice_results = {}
+        state["slice_results"] = slice_results
+    slice_results[args.slice] = {
+        "status": "started",
+        "handoff": rel(handoff_path),
+        "repo": str(selected["repo"]),
+    }
     write_state(slug, state)
 
     print(command)
@@ -522,6 +635,7 @@ def command_slice_verify(
     runtime_path: Callable[[Path], Path],
     host_root_hint: Callable[[], str],
     rel: Callable[[Path], str],
+    utc_now: Callable[[], str],
 ) -> int:
     slug = slugify(args.spec)
     plan, selected, _ = load_plan_and_slice(slug, args.slice)
@@ -551,7 +665,14 @@ def command_slice_verify(
 
     repo_path = runtime_path(Path(str(selected["repo_path"])))
     planned_worktree = runtime_path(Path(str(selected["worktree"])))
-    inspection_path = planned_worktree if planned_worktree.exists() else repo_path
+    if planned_worktree.exists():
+        try:
+            repo_relative_path = repo_path.resolve().relative_to(root.resolve())
+            inspection_path = planned_worktree / repo_relative_path
+        except ValueError:
+            inspection_path = planned_worktree
+    else:
+        inspection_path = repo_path
 
     findings: list[str] = []
     checks: list[tuple[str, str, str]] = []
@@ -696,6 +817,16 @@ def command_slice_verify(
     state["status"] = "in-review" if not has_failures else "implementing"
     state["last_verification_report"] = rel(report_path)
     state["last_verification_result"] = "passed" if not has_failures else "failed"
+    slice_results = state.get("slice_results")
+    if not isinstance(slice_results, dict):
+        slice_results = {}
+        state["slice_results"] = slice_results
+    slice_results[args.slice] = {
+        "status": "passed" if not has_failures else "failed",
+        "report": rel(report_path),
+        "repo": repo_name,
+        "verified_at": utc_now(),
+    }
     write_state(slug, state)
     print(rel(report_path))
     return 1 if has_failures else 0

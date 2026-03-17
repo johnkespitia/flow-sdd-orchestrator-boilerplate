@@ -44,16 +44,31 @@
       "require": {
         "php": "^8.2"
       }
-    }
+    },
+    "artisan": "#!/usr/bin/env php\n<?php\n\n$command = $argv[1] ?? '';\nif ($command === 'test') {\n    fwrite(STDOUT, \"placeholder tests for {name}\\n\");\n    exit(0);\n}\n\nfwrite(STDOUT, \"placeholder artisan for {name}\\n\");\nexit(0);\n"
   },
   "agent_skill_refs": [
     "workspace/spec-driven-workspace"
   ],
+  "ci": {
+    "install": [
+      "composer",
+      "install",
+      "--no-interaction",
+      "--prefer-dist"
+    ],
+    "test": [
+      "php",
+      "artisan",
+      "test"
+    ]
+  },
   "compose": {
     "dockerfile": "backend.Dockerfile",
     "mount_target": "/app",
     "working_dir": "/app",
     "command": "sleep infinity",
+    "default_port": 8000,
     "environment": {
       "APP_ENV": "local",
       "APP_DEBUG": "true",

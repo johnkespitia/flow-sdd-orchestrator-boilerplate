@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from pathlib import Path
 from typing import Callable, Optional
+
+CI_STEP_KEYS = ("install", "lint", "test", "build")
 
 
 def normalize_repo_path(value: str) -> str:
@@ -47,6 +50,35 @@ def write_workspace_config(workspace_config_file: Path, payload: dict[str, objec
         json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
         encoding="utf-8",
     )
+
+
+def parse_ci_command(value: str, step: str) -> list[str]:
+    command = [part for part in shlex.split(value) if part]
+    if not command:
+        raise SystemExit(f"`--ci-{step}` debe incluir un comando ejecutable.")
+    return command
+
+
+def resolve_ci_config(args, defaults: dict[str, object]) -> dict[str, list[str]]:
+    raw_defaults = defaults.get("ci", {})
+    configured: dict[str, list[str]] = {}
+    if isinstance(raw_defaults, dict):
+        for step in CI_STEP_KEYS:
+            raw_command = raw_defaults.get(step)
+            if isinstance(raw_command, list) and all(isinstance(part, str) for part in raw_command):
+                command = [part for part in raw_command if part]
+                if command:
+                    configured[step] = command
+
+    for step in args.no_ci_step or []:
+        configured.pop(step, None)
+
+    for step in CI_STEP_KEYS:
+        raw_override = getattr(args, f"ci_{step}", None)
+        if raw_override is not None:
+            configured[step] = parse_ci_command(raw_override, step)
+
+    return configured
 
 
 def ensure_project_directory(path: Path, *, use_existing: bool, rel: Callable[[Path], str]) -> None:
@@ -103,6 +135,7 @@ def command_add_project(
     default_targets = list(args.default_target or defaults["default_targets"])
     test_runner = args.test_runner or str(defaults["test_runner"])
     test_hint = args.test_hint if args.test_hint is not None else defaults["test_hint"]
+    ci_config = resolve_ci_config(args, defaults)
     if args.port is not None and not 1 <= args.port <= 65535:
         raise SystemExit("`--port` debe estar entre 1 y 65535.")
     compose_enabled = not args.no_compose and defaults["compose"] is not None
@@ -146,6 +179,8 @@ def command_add_project(
     }
     if test_hint:
         updated_config["repos"][repo_name]["test_hint"] = test_hint
+    if ci_config:
+        updated_config["repos"][repo_name]["ci"] = ci_config
     write_workspace_config(workspace_config_file, updated_config)
 
     if compose_enabled:
@@ -168,6 +203,7 @@ def command_add_project(
     print(f"- runtime_source: {rel(Path(defaults['source']))}")
     print(f"- compose_service: {service_name if compose_enabled else 'skipped'}")
     print(f"- agent_skill_refs: {', '.join(defaults['agent_skill_refs']) if defaults['agent_skill_refs'] else 'none'}")
+    print(f"- ci_steps: {', '.join(ci_config) if ci_config else 'none'}")
     print(f"- config: {workspace_config_file.name}")
     if missing_skill_refs:
         print(f"- warning: faltan skills referenciadas en {skills_config_file.name}: {', '.join(missing_skill_refs)}")

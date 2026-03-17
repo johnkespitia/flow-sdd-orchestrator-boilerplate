@@ -1,8 +1,35 @@
 ---
+schema_version: 2
 name: <Feature Name>
 description: <Descripcion breve y concreta>
 status: draft
 owner: platform
+depends_on: []
+required_runtimes: []
+required_services: []
+required_capabilities: []
+# Example:
+# stack_projects:
+#   - name: api
+#     runtime: go-api
+#     path: api
+#     repo_code: api
+#     compose_service: api
+#     port: 8080
+#     service_bindings: [postgres]
+#     env:
+#       DATABASE_URL: postgres://app:app@postgres:5432/app_dev?sslmode=disable
+stack_projects: []
+# Example:
+# stack_services:
+#   - name: postgres
+#     runtime: postgres-service
+#     env:
+#       POSTGRES_DB: app_dev
+#     volumes:
+#       - workspace-postgres-data:/var/lib/postgresql/data
+stack_services: []
+stack_capabilities: []
 targets:
   - ../../<implementation-repo>/app/**
   - ../../<implementation-repo>/tests/**
@@ -19,6 +46,7 @@ Describir el comportamiento observable que esta feature debe introducir en el si
 - por que existe ahora
 - que foundations gobiernan esta feature
 - si afecta backend, frontend o ambos
+- que runtimes, servicios o capabilities deben existir para materializarla
 
 ## Problema a resolver
 
@@ -70,6 +98,7 @@ Describir el comportamiento observable que esta feature debe introducir en el si
 - El repo se deduce desde `targets`.
 - Cada slice debe pertenecer a un solo repo.
 - El plan operativo vive en `.flow/plans/**`.
+- Las dependencias estructurales viven en el frontmatter y deben resolverse antes de aprobar.
 
 ## Criterios de aceptacion
 
