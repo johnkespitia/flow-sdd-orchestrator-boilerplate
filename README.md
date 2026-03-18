@@ -5,7 +5,7 @@ Template repo para levantar un workspace de `Spec As Source` con:
 - `specs/**` como fuente de verdad
 - `flow` como control plane del SDLC y del stack
 - Tessl como capa metodológica de SDD
-- BMAD como runtime de orquestación opcional pero ya integrado
+- BMAD como runtime de orquestación por defecto encima de `flow`
 - devcontainer reproducible para el equipo
 - repos de implementación separados del root del workspace
 
@@ -13,7 +13,7 @@ No es un producto específico. Es una base reusable para crear workspaces agenti
 
 ## Qué trae
 
-- `flow`: CLI del workspace para `stack`, `tessl`, `skills`, `bmad`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `submodule`, `secrets`, `drift`, `status`
+- `flow`: CLI del workspace para `stack`, `tessl`, `skills`, `bmad`, `workflow`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `submodule`, `secrets`, `drift`, `status`
 - `workspace.config.json`: routing configurable de repos, targets y test runners
 - `flowctl/`: módulos internos del control plane para el refactor incremental
 - `workspace.skills.json`: capacidades del agente, separadas del scaffolding
@@ -102,6 +102,7 @@ python3 ./flow secrets doctor
 python3 ./flow secrets scan --all --json
 python3 ./flow providers doctor
 python3 ./flow bmad -- status
+python3 ./flow workflow doctor --json
 python3 ./flow submodule doctor --json
 python3 ./flow ci spec --all
 python3 ./flow drift check --all --json
@@ -204,12 +205,20 @@ Notas:
 - la cola es secuencial y persiste en `gateway/data/tasks.db`
 - el feedback usa `workspace.providers.json`
 - si Slack, GitHub o Jira no tienen credenciales reales, el feedback cae en `local-log`
+- el intake externo nuevo entra por `workflow.intake`, no por `spec.create`, para que BMAD y Tessl participen desde el inicio
 
 Arranque basico:
 
 ```bash
 python3 ./flow init
 curl -fsSL "http://127.0.0.1:${SOFTOS_GATEWAY_HOST_PORT:-8010}/healthz"
+```
+
+Happy path nuevo para una iniciativa:
+
+```bash
+python3 ./flow workflow intake users-api --title "Users API" --repo root --runtime go-api --service postgres-service --json
+python3 ./flow workflow next-step users-api --json
 ```
 
 Las skills y tiles del workspace también se gobiernan desde el control plane:
@@ -242,6 +251,10 @@ python3 ./flow providers list
 python3 ./flow release promote --version 2026.03.14-1 --env preview --provider local-hooks
 python3 ./flow infra plan spec-driven-delivery-bootstrap --env preview --provider local-hooks
 ```
+
+Si exportas `SOFTOS_SLACK_WEBHOOK_URL`, los hooks locales publican un resumen final del delivery:
+fallo en `release promote`, `infra plan` o `infra apply`, y `change ready` cuando `infra apply`
+termina en verde.
 
 Los secrets y guardrails de repos también entran por el control plane:
 
@@ -289,12 +302,11 @@ Regla base:
 python3 ./flow stack design --prompt "quiero una api en golang que se conecte a postgresql y sea consumible usando graphql"
 python3 ./flow stack plan
 python3 ./flow stack apply
-python3 ./flow spec create identity-bootstrap --title "Identity Bootstrap" --repo api --runtime go-api --service postgres-service --capability graphql --depends-on spec-as-source-operating-model
+python3 ./flow workflow intake identity-bootstrap --title "Identity Bootstrap" --repo root --runtime go-api --service postgres-service --capability graphql --depends-on spec-as-source-operating-model
 python3 ./flow spec review identity-bootstrap
 python3 ./flow spec approve identity-bootstrap --approver alice
-python3 ./flow plan identity-bootstrap
-python3 ./flow slice start identity-bootstrap api-main
-python3 ./flow slice verify identity-bootstrap api-main
+python3 ./flow workflow execute-feature identity-bootstrap --start-slices --json
+python3 ./flow workflow next-step identity-bootstrap --json
 python3 ./flow ci spec --all
 python3 ./flow release status --version 2026.03.14-1
 python3 ./flow infra status spec-driven-delivery-bootstrap
@@ -302,6 +314,7 @@ python3 ./flow status
 ```
 
 `flow spec create` ya puede dejar una spec v2 con `schema_version`, `depends_on`, `required_runtimes`, `required_services` y `required_capabilities`. `spec review` y `ci spec` validan esos campos contra los catálogos instalados del workspace.
+`flow workflow intake`, `workflow next-step` y `workflow execute-feature` elevan BMAD y Tessl a entrypoint operativo: intake, recomendación de workflow y handoffs para ejecutores/slices.
 
 ## Stack local
 

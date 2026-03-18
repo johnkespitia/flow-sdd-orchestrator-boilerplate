@@ -93,6 +93,36 @@ def build_parser(
     bmad.add_argument("args", nargs=argparse.REMAINDER, help="Arguments passed to the BMAD command.")
     bmad.set_defaults(func=commands["bmad"])
 
+    workflow = subparsers.add_parser("workflow", help="Run the BMAD-first, Tessl-backed orchestration layer.")
+    workflow_subparsers = workflow.add_subparsers(dest="workflow_command", required=True)
+
+    workflow_doctor = workflow_subparsers.add_parser("doctor", help="Validate that BMAD and Tessl are ready as the default orchestration layer.")
+    workflow_doctor.add_argument("--json", action="store_true", help="Print the workflow doctor payload as JSON.")
+    workflow_doctor.set_defaults(func=commands["workflow_doctor"])
+
+    workflow_intake = workflow_subparsers.add_parser("intake", help="Create a draft spec plus orchestration handoff anchored in BMAD and Tessl.")
+    workflow_intake.add_argument("slug", help="Stable feature slug.")
+    workflow_intake.add_argument("--title", required=True, help="Human title for the feature spec.")
+    workflow_intake.add_argument("--repo", action="append", help="Repo id or alias (`root`) from `workspace.config.json`. Repeatable.")
+    workflow_intake.add_argument("--runtime", action="append", choices=available_runtime_names(root), help="Required project runtime. Repeatable.")
+    workflow_intake.add_argument("--service", action="append", choices=available_service_runtime_names(root), help="Required service runtime. Repeatable.")
+    workflow_intake.add_argument("--capability", action="append", choices=available_capability_names(root), help="Required workspace capability. Repeatable.")
+    workflow_intake.add_argument("--depends-on", action="append", help="Required upstream spec slug. Repeatable.")
+    workflow_intake.add_argument("--json", action="store_true", help="Print the intake bundle as JSON.")
+    workflow_intake.set_defaults(func=commands["workflow_intake"])
+
+    workflow_next = workflow_subparsers.add_parser("next-step", help="Summarize the next orchestrated step for a feature.")
+    workflow_next.add_argument("spec", help="Spec slug or path.")
+    workflow_next.add_argument("--json", action="store_true", help="Print the summary as JSON.")
+    workflow_next.set_defaults(func=commands["workflow_next_step"])
+
+    workflow_execute = workflow_subparsers.add_parser("execute-feature", help="Prepare an approved feature for executor subagents.")
+    workflow_execute.add_argument("spec", help="Spec slug or path.")
+    workflow_execute.add_argument("--refresh-plan", action="store_true", help="Regenerate the flow plan before producing handoffs.")
+    workflow_execute.add_argument("--start-slices", action="store_true", help="Materialize worktrees and handoffs for every planned slice.")
+    workflow_execute.add_argument("--json", action="store_true", help="Print the execution bundle as JSON.")
+    workflow_execute.set_defaults(func=commands["workflow_execute_feature"])
+
     skills = subparsers.add_parser("skills", help="Manage assistant skills through a versioned workspace manifest.")
     skills_subparsers = skills.add_subparsers(dest="skills_command", required=True)
     for name, help_text in [

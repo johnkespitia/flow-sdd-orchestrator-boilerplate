@@ -31,6 +31,9 @@ a intents controlados sobre `python3 ./flow`.
 ## Intents soportados
 
 - `status.get`
+- `workflow.intake`
+- `workflow.next_step`
+- `workflow.execute_feature`
 - `spec.create`
 - `spec.review`
 - `spec.approve`
@@ -40,7 +43,7 @@ a intents controlados sobre `python3 ./flow`.
 
 ## Codigos de repo
 
-Para `spec.create`, labels `flow-repo:<...>` y comandos tipo `/flow spec create ... --repo ...`,
+Para `workflow.intake` y `spec.create`, labels `flow-repo:<...>` y comandos tipo `/flow workflow intake ... --repo ...`,
 el valor puede ser:
 
 - el id real del repo en `workspace.config.json`
@@ -49,7 +52,10 @@ el valor puede ser:
 
 Si el cliente no conoce esos codigos, puede descubrirlos con `GET /v1/repos`.
 
-`spec.create` tambien acepta metadata declarativa:
+`workflow.intake` y `spec.create` tambien aceptan metadata declarativa:
 
-- flags CLI `/flow spec create ... --runtime <pack> --service <pack> --capability <capability> --depends-on <spec>`
+- flags CLI `/flow workflow intake ... --runtime <pack> --service <pack> --capability <capability> --depends-on <spec>`
 - labels inbound `flow-runtime:<pack>`, `flow-service:<pack>`, `flow-capability:<capability>` y `flow-depends-on:<spec>`
+
+Los webhooks inbound que abren una iniciativa nueva usan `workflow.intake` por defecto. `spec.create`
+queda disponible como API de bajo nivel, pero ya no es el happy path recomendado.

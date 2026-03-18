@@ -1,5 +1,7 @@
 {
   "name": "workspace/spec-driven-workspace",
   "version": "0.1.0",
-  "description": "Workspace-local tile for root-centered Spec As Source orchestration."
+  "summary": "Root-centered Spec As Source guidance for the workspace control plane.",
+  "description": "Workspace-local tile for root-centered Spec As Source orchestration.",
+  "docs": "index.md"
 }

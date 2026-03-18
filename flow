@@ -22,6 +22,7 @@ from flowctl import specs as flow_specs
 from flowctl import stack_design as flow_stack_design
 from flowctl import stack_ops as flow_stack_ops
 from flowctl import tooling as flow_tooling
+from flowctl import workflows as flow_workflows
 from flowctl import workspace_ops as flow_workspace_ops
 from flowctl.contracts import (
     contract_match_files as contracts_match_files,
@@ -173,6 +174,7 @@ DRIFT_REPORT_ROOT = REPORT_ROOT / "drift"
 REPO_REPORT_ROOT = REPORT_ROOT / "repo"
 CONTRACT_REPORT_ROOT = REPORT_ROOT / "contracts"
 SECRET_SCAN_REPORT_ROOT = REPORT_ROOT / "secret-scan"
+WORKFLOW_REPORT_ROOT = REPORT_ROOT / "workflows"
 SPECS_ROOT = ROOT / "specs"
 FEATURE_SPECS = SPECS_ROOT / "features"
 DEVCONTAINER_COMPOSE_FILE = ROOT / ".devcontainer" / "docker-compose.yml"
@@ -461,6 +463,7 @@ def require_dirs() -> None:
             REPO_REPORT_ROOT,
             CONTRACT_REPORT_ROOT,
             SECRET_SCAN_REPORT_ROOT,
+            WORKFLOW_REPORT_ROOT,
             FLOW_ROOT / "runs",
             RELEASE_ROOT,
             RELEASE_MANIFEST_ROOT,
@@ -1218,6 +1221,10 @@ def command_init(args: argparse.Namespace) -> int:
     if ps_rc != 0:
         return ps_rc
 
+    workflow_doctor_rc = command_workflow_doctor(argparse.Namespace(json=False))
+    if workflow_doctor_rc != 0:
+        return workflow_doctor_rc
+
     print(f"Gateway host health: http://127.0.0.1:{gateway_host_port()}/healthz")
     return 0
 
@@ -1342,6 +1349,75 @@ def command_bmad(args: argparse.Namespace) -> int:
         running_inside_workspace=running_inside_workspace,
         run_local_tool=run_local_tool,
         run_workspace_tool=run_workspace_tool,
+    )
+
+
+def command_workflow_doctor(args: argparse.Namespace) -> int:
+    return flow_workflows.command_workflow_doctor(
+        args,
+        require_dirs=require_dirs,
+        root=ROOT,
+        rel=rel,
+        capture_workspace_tool=capture_workspace_tool,
+        bmad_command_prefix=bmad_command_prefix,
+        load_skills_config=load_skills_config,
+        skills_entries=skills_entries,
+        json_dumps=json_dumps,
+    )
+
+
+def command_workflow_intake(args: argparse.Namespace) -> int:
+    return flow_workflows.command_workflow_intake(
+        args,
+        require_dirs=require_dirs,
+        root=ROOT,
+        root_repo=ROOT_REPO,
+        feature_specs=FEATURE_SPECS,
+        workflow_report_root=WORKFLOW_REPORT_ROOT,
+        state_path=state_path,
+        spec_create_callable=command_spec_create,
+        slugify=slugify,
+        rel=rel,
+        load_skills_config=load_skills_config,
+        skills_entries=skills_entries,
+        capture_workspace_tool=capture_workspace_tool,
+        bmad_command_prefix=bmad_command_prefix,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
+    )
+
+
+def command_workflow_next_step(args: argparse.Namespace) -> int:
+    return flow_workflows.command_workflow_next_step(
+        args,
+        require_dirs=require_dirs,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        analyze_spec=analyze_spec,
+        read_state=read_state,
+        plan_root=PLAN_ROOT,
+        workflow_report_root=WORKFLOW_REPORT_ROOT,
+        root=ROOT,
+        rel=rel,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
+    )
+
+
+def command_workflow_execute_feature(args: argparse.Namespace) -> int:
+    return flow_workflows.command_workflow_execute_feature(
+        args,
+        require_dirs=require_dirs,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        plan_root=PLAN_ROOT,
+        workflow_report_root=WORKFLOW_REPORT_ROOT,
+        plan_callable=command_plan,
+        slice_start_callable=command_slice_start,
+        root=ROOT,
+        rel=rel,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
     )
 
 
@@ -2081,6 +2157,10 @@ def build_parser() -> argparse.ArgumentParser:
         "stack_apply": command_stack_apply,
         "tessl": command_tessl,
         "bmad": command_bmad,
+        "workflow_doctor": command_workflow_doctor,
+        "workflow_intake": command_workflow_intake,
+        "workflow_next_step": command_workflow_next_step,
+        "workflow_execute_feature": command_workflow_execute_feature,
         "skills_doctor": command_skills_doctor,
         "skills_list": command_skills_list,
         "skills_add": command_skills_add,

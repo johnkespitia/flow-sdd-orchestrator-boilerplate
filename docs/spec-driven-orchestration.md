@@ -97,6 +97,15 @@ python3 ./flow bmad -- status
 python3 ./flow bmad -- install --tools none --yes
 ```
 
+La capa recomendada ya no arranca con `spec create` directo, sino con `workflow`:
+
+```bash
+python3 ./flow workflow doctor --json
+python3 ./flow workflow intake identity-bootstrap --title "Identity Bootstrap" --repo root --runtime go-api --service postgres-service --json
+python3 ./flow workflow next-step identity-bootstrap --json
+python3 ./flow workflow execute-feature identity-bootstrap --start-slices --json
+```
+
 ## Flujo
 
 1. crear spec

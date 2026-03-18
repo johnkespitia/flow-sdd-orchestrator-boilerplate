@@ -136,11 +136,11 @@ Esto cubre:
 El ciclo normal de una feature es:
 
 ```bash
-python3 ./flow spec create identity-bootstrap --title "Identity Bootstrap" --repo api --runtime go-api --service postgres-service --capability graphql --depends-on spec-as-source-operating-model
+python3 ./flow workflow intake identity-bootstrap --title "Identity Bootstrap" --repo root --runtime go-api --service postgres-service --capability graphql --depends-on spec-as-source-operating-model --json
+python3 ./flow workflow next-step identity-bootstrap --json
 python3 ./flow spec review identity-bootstrap
 python3 ./flow spec approve identity-bootstrap --approver alice
-python3 ./flow plan identity-bootstrap
-python3 ./flow slice start identity-bootstrap api-main
+python3 ./flow workflow execute-feature identity-bootstrap --start-slices --json
 python3 ./flow slice verify identity-bootstrap api-main
 python3 ./flow status --json
 ```
@@ -150,6 +150,7 @@ Qué valida el sistema:
 - que la spec exista y tenga frontmatter válido
 - que `depends_on`, runtimes, servicios y capabilities existan en el catálogo instalado
 - que la spec esté realmente lista antes de aprobar
+- que `workflow doctor` mantenga verde BMAD + Tessl como capa orquestadora por defecto
 - que haya `[@test]`
 - que el plan solo ocurra después de `approved`
 - que `slice verify` respete estado, ownership y test links
@@ -205,6 +206,10 @@ python3 ./flow infra plan identity-bootstrap --env preview --provider local-hook
 python3 ./flow infra apply identity-bootstrap --env preview --provider local-hooks --json
 python3 ./flow infra status identity-bootstrap --json
 ```
+
+Si exportas `SOFTOS_SLACK_WEBHOOK_URL`, los hooks locales notifican a Slack cuando una entrega
+queda lista (`change ready` al terminar `infra apply`) o cuando falla `release promote`,
+`infra plan` o `infra apply`.
 
 ## Workflow 7: Stack runtime y operaciones
 

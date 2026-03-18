@@ -24,7 +24,7 @@ def build_flow_command(intent: str, payload: dict[str, Any], *, workspace_root: 
     if intent == "status.get":
         return ["status", "--json"]
 
-    if intent == "spec.create":
+    if intent in {"spec.create", "workflow.intake"}:
         slug = slugify(str(payload.get("slug", "")))
         title = str(payload.get("title", "")).strip()
         try:
@@ -32,8 +32,8 @@ def build_flow_command(intent: str, payload: dict[str, Any], *, workspace_root: 
         except ValueError as exc:
             raise IntentError(str(exc)) from exc
         if not slug or not title or not repos:
-            raise IntentError("`spec.create` requiere `slug`, `title` y al menos un repo/codigo.")
-        command = ["spec", "create", slug, "--title", title]
+            raise IntentError(f"`{intent}` requiere `slug`, `title` y al menos un repo/codigo.")
+        command = ["workflow", "intake", slug, "--title", title] if intent == "workflow.intake" else ["spec", "create", slug, "--title", title]
         for repo in repos:
             command.extend(["--repo", repo])
         for runtime in payload.get("required_runtimes", payload.get("runtimes", [])) or []:
@@ -52,6 +52,24 @@ def build_flow_command(intent: str, payload: dict[str, Any], *, workspace_root: 
             candidate = str(dependency).strip()
             if candidate:
                 command.extend(["--depends-on", candidate])
+        command.append("--json")
+        return command
+
+    if intent == "workflow.next_step":
+        slug = slugify(str(payload.get("slug", "")))
+        if not slug:
+            raise IntentError("`workflow.next_step` requiere `slug`.")
+        return ["workflow", "next-step", slug, "--json"]
+
+    if intent == "workflow.execute_feature":
+        slug = slugify(str(payload.get("slug", "")))
+        if not slug:
+            raise IntentError("`workflow.execute_feature` requiere `slug`.")
+        command = ["workflow", "execute-feature", slug, "--json"]
+        if bool(payload.get("refresh_plan")):
+            command.append("--refresh-plan")
+        if bool(payload.get("start_slices")):
+            command.append("--start-slices")
         return command
 
     if intent == "spec.review":
@@ -105,6 +123,97 @@ def parse_text_command(text: str, *, source: str, reply_to: dict[str, Any] | Non
             source=source,
             intent="plan.create",
             payload={"slug": tokens[0]},
+            reply_to=reply_to,
+        )
+
+    if head == "workflow":
+        if not tokens:
+            raise IntentError("`workflow` requiere una accion.")
+        action = tokens.pop(0).lower().replace("-", "_")
+        if action == "next_step":
+            if not tokens:
+                raise IntentError("`workflow next-step` requiere un slug.")
+            return IntentRequest(
+                source=source,
+                intent="workflow.next_step",
+                payload={"slug": tokens[0]},
+                reply_to=reply_to,
+            )
+        if action == "execute_feature":
+            if not tokens:
+                raise IntentError("`workflow execute-feature` requiere un slug.")
+            slug = tokens.pop(0)
+            refresh_plan = False
+            start_slices = False
+            index = 0
+            while index < len(tokens):
+                token = tokens[index]
+                if token == "--refresh-plan":
+                    refresh_plan = True
+                    index += 1
+                    continue
+                if token == "--start-slices":
+                    start_slices = True
+                    index += 1
+                    continue
+                raise IntentError(f"Flag no soportada en workflow execute-feature: {token}")
+            return IntentRequest(
+                source=source,
+                intent="workflow.execute_feature",
+                payload={"slug": slug, "refresh_plan": refresh_plan, "start_slices": start_slices},
+                reply_to=reply_to,
+            )
+        if action != "intake":
+            raise IntentError(f"Accion de workflow no soportada: {action}")
+        if not tokens:
+            raise IntentError("`workflow intake` requiere un slug.")
+        slug = tokens.pop(0)
+        title = None
+        repos: list[str] = []
+        runtimes: list[str] = []
+        services: list[str] = []
+        capabilities: list[str] = []
+        depends_on: list[str] = []
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            if token == "--title" and index + 1 < len(tokens):
+                title = tokens[index + 1]
+                index += 2
+                continue
+            if token == "--repo" and index + 1 < len(tokens):
+                repos.append(tokens[index + 1])
+                index += 2
+                continue
+            if token == "--runtime" and index + 1 < len(tokens):
+                runtimes.append(tokens[index + 1])
+                index += 2
+                continue
+            if token == "--service" and index + 1 < len(tokens):
+                services.append(tokens[index + 1])
+                index += 2
+                continue
+            if token == "--capability" and index + 1 < len(tokens):
+                capabilities.append(tokens[index + 1])
+                index += 2
+                continue
+            if token == "--depends-on" and index + 1 < len(tokens):
+                depends_on.append(tokens[index + 1])
+                index += 2
+                continue
+            raise IntentError(f"Flag no soportada en workflow intake: {token}")
+        return IntentRequest(
+            source=source,
+            intent="workflow.intake",
+            payload={
+                "slug": slug,
+                "title": title or slug.replace("-", " ").title(),
+                "repos": repos,
+                "required_runtimes": runtimes,
+                "required_services": services,
+                "required_capabilities": capabilities,
+                "depends_on": depends_on,
+            },
             reply_to=reply_to,
         )
 
@@ -251,7 +360,7 @@ def intent_from_github(event: str, payload: dict[str, Any]) -> IntentRequest | N
         }
         return IntentRequest(
             source="github",
-            intent="spec.create",
+            intent="workflow.intake",
             payload={
                 "slug": slug,
                 "title": title,
@@ -299,7 +408,7 @@ def intent_from_jira(payload: dict[str, Any]) -> IntentRequest | None:
     slug = slugify(f"{issue_key}-{title}") if issue_key else slugify(title)
     return IntentRequest(
         source="jira",
-        intent="spec.create",
+        intent="workflow.intake",
         payload={
             "slug": slug,
             "title": title,
