@@ -1970,6 +1970,7 @@ def command_release_cut(args: argparse.Namespace) -> int:
         root=ROOT,
         root_repo=ROOT_REPO,
         plan_root=PLAN_ROOT,
+        git_changed_files=git_changed_files,
         repo_head_sha=repo_head_sha,
         repo_root=repo_root,
         release_manifest_root=RELEASE_MANIFEST_ROOT,

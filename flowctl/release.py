@@ -67,6 +67,7 @@ def command_release_cut(
     root: Path,
     root_repo: str,
     plan_root: Path,
+    git_changed_files: Callable[[Path], tuple[list[str], str | None]],
     repo_head_sha: Callable[[str], str],
     repo_root,
     release_manifest_root: Path,
@@ -122,6 +123,21 @@ def command_release_cut(
                 "test_refs": analysis["test_refs"],
             }
         )
+
+    dirty_repo_findings: list[str] = []
+    for repo in sorted(repos_involved):
+        changed_files, git_error = git_changed_files(repo_root(repo))
+        if git_error:
+            dirty_repo_findings.append(f"No pude inspeccionar cambios locales de `{repo}`: {git_error}")
+            continue
+        if not changed_files:
+            continue
+        preview = ", ".join(f"`{path}`" for path in changed_files[:5])
+        suffix = " ..." if len(changed_files) > 5 else ""
+        dirty_repo_findings.append(f"`{repo}` tiene cambios sin commit: {preview}{suffix}")
+    if dirty_repo_findings:
+        joined = "\n".join(f"- {finding}" for finding in dirty_repo_findings)
+        raise SystemExit(f"No puedo cortar un release con cambios locales sin commit:\n{joined}")
 
     manifest = {
         "version": version,

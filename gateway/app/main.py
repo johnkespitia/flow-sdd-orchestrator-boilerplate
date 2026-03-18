@@ -118,6 +118,8 @@ async def slack_commands(request: Request) -> PlainTextResponse:
         raise HTTPException(status_code=401, detail="Invalid Slack signature.")
 
     form = await request.form()
+    if str(form.get("ssl_check", "")).strip() == "1":
+        return PlainTextResponse("")
     text = str(form.get("text", "")).strip()
     response_url = str(form.get("response_url", "")).strip()
     try:

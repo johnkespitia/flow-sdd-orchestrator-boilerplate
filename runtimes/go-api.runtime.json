@@ -30,7 +30,7 @@
     "tests"
   ],
   "placeholder_files": {
-    "go.mod": "module workspace/{name}\n\ngo 1.23.0\n",
+    "go.mod": "module workspace/{name}\n\ngo 1.18\n",
     "cmd/api/main.go": "package main\n\nimport \"fmt\"\n\nfunc main() {\n    fmt.Println(\"{name} bootstrap\")\n}\n"
   },
   "agent_skill_refs": [
@@ -77,8 +77,8 @@
   },
   "compose": {
     "dockerfile": "go.Dockerfile",
-    "mount_target": "/app",
-    "working_dir": "/app",
+    "mount_target": "/workspace/{repo_path}",
+    "working_dir": "/workspace/{repo_path}",
     "command": "sleep infinity",
     "default_port": 8080,
     "networks": [

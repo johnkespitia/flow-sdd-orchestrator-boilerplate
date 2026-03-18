@@ -45,7 +45,7 @@
         "requires": []
       },
       "slack-webhook": {
-        "enabled": false,
+        "enabled": true,
         "entrypoint": "scripts/providers/feedback/slack_webhook.sh",
         "requires": [
           "curl"
