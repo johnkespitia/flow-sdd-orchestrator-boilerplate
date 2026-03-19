@@ -34,7 +34,8 @@
     "cmd/api/main.go": "package main\n\nimport \"fmt\"\n\nfunc main() {\n    fmt.Println(\"{name} bootstrap\")\n}\n"
   },
   "agent_skill_refs": [
-    "workspace/spec-driven-workspace"
+    "workspace/spec-driven-workspace",
+    "workspace/go-api-golang-pro"
   ],
   "ci": {
     "install": [
@@ -71,6 +72,16 @@
       "depends_on": {
         "{service_name}": {
           "condition": "service_started"
+        }
+      }
+    },
+    "mysql-service": {
+      "environment": {
+        "DATABASE_URL": "app:app@tcp({service_name}:3306)/app_dev"
+      },
+      "depends_on": {
+        "{service_name}": {
+          "condition": "service_healthy"
         }
       }
     }

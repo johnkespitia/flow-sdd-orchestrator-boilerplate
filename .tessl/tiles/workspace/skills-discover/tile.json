@@ -1,0 +1,7 @@
+{
+  "name": "workspace/skills-discover",
+  "version": "0.1.0",
+  "summary": "Guía para descubrir e instalar skills desde tessl.io y skills.sh.",
+  "description": "Skill preconfigurado para buscar, listar e instalar skills en el workspace.",
+  "docs": "index.md"
+}

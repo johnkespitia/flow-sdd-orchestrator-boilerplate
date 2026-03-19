@@ -133,6 +133,24 @@ def build_parser(
         parser_item.add_argument("--json", action="store_true", help="Print the result as JSON.")
         parser_item.set_defaults(func=commands[f"skills_{name}"])
 
+    skills_context = skills_subparsers.add_parser(
+        "context",
+        help="Resolve runtime and agent_skill_refs for a repo or for repos affected by a spec.",
+    )
+    skills_context.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    skills_context.add_argument("--repo", help="Repo id from workspace.config.json.")
+    skills_context.add_argument("--spec", help="Spec slug or path; resolves repos from targets.")
+    skills_context.set_defaults(func=commands["skills_context"])
+
+    skills_discover = skills_subparsers.add_parser(
+        "discover",
+        help="Search for skills in tessl.io and skills.sh by term (via Skyll API).",
+    )
+    skills_discover.add_argument("query", nargs="?", default="", help="Search term (e.g. golang, react, testing).")
+    skills_discover.add_argument("--limit", type=int, default=10, help="Max results (1-50, default 10).")
+    skills_discover.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    skills_discover.set_defaults(func=commands["skills_discover"])
+
     skills_add = skills_subparsers.add_parser("add", help="Register a skill entry in `workspace.skills.json`.")
     skills_add.add_argument("name", help="Stable manifest name for the skill entry.")
     skills_add.add_argument("--provider", required=True, help="Provider id: `tessl` or `skills-sh`.")

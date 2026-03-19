@@ -22,7 +22,8 @@
   ],
   "placeholder_files": {},
   "agent_skill_refs": [
-    "workspace/spec-driven-workspace"
+    "workspace/spec-driven-workspace",
+    "workspace/skills-discover"
   ],
   "compose": null,
   "notes": "Runtime base agnóstico para repos sin scaffolding de lenguaje."

@@ -9,6 +9,16 @@
   },
   "entries": [
     {
+      "name": "workspace/skills-discover",
+      "provider": "tessl",
+      "kind": "tile",
+      "source": ".tessl/tiles/workspace/skills-discover",
+      "enabled": true,
+      "required": false,
+      "sync": false,
+      "notes": "Skill preconfigurado para descubrir e instalar skills en tessl.io y skills.sh."
+    },
+    {
       "name": "workspace/spec-driven-workspace",
       "provider": "tessl",
       "kind": "tile",

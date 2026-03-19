@@ -50,6 +50,28 @@
   "agent_skill_refs": [
     "workspace/spec-driven-workspace"
   ],
+  "bindings": {
+    "postgres-service": {
+      "environment": {
+        "DATABASE_URL": "postgresql://app:app@{service_name}:5432/app_dev"
+      },
+      "depends_on": {
+        "{service_name}": {
+          "condition": "service_healthy"
+        }
+      }
+    },
+    "mysql-service": {
+      "environment": {
+        "DATABASE_URL": "mysql://app:app@{service_name}:3306/app_dev"
+      },
+      "depends_on": {
+        "{service_name}": {
+          "condition": "service_healthy"
+        }
+      }
+    }
+  },
   "ci": {
     "install": [
       "pnpm",

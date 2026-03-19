@@ -4,6 +4,9 @@ import json
 import shlex
 import shutil
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -65,9 +68,13 @@ def tessl_skill_commands(entry: dict[str, object], *, rel: Callable[[Path], str]
 
 
 def skills_sh_commands(entry: dict[str, object]) -> list[list[str]]:
-    command = ["npx", "-y", "skills", "add", str(entry["source"]), *[str(item) for item in entry.get("args", [])]]
-    if not command_has_flag(command, "-y", "--yes"):
-        command.append("-y")
+    command = [
+        "npx", "-y", "skills", "add", str(entry["source"]),
+        *[str(item) for item in entry.get("args", [])],
+        "--yes",       # CLI skills: modo no interactivo
+        "--project",   # scope explícito: instalar en ./.agents/skills/
+        "--also", "cursor",  # agente destino: Cursor (evita prompt de 42 agentes)
+    ]
     return [command]
 
 
@@ -82,6 +89,235 @@ def skill_entry_commands(entry: dict[str, object], *, rel: Callable[[Path], str]
 
 def skills_report_stamp(*, utc_now: Callable[[], str]) -> str:
     return utc_now().replace(":", "").replace("-", "").replace("+00:00", "Z")
+
+
+def _resolve_skill_path(
+    skill_name: str,
+    *,
+    root: Path,
+    skills_entries_by_name: dict[str, dict[str, object]],
+    rel: Callable[[Path], str],
+) -> str | None:
+    """
+    Resuelve el path del skill a partir del nombre.
+    - tessl con source local: .tessl/tiles/workspace/<tile>/
+    - skills-sh con args --skill X: .agents/skills/X/
+    """
+    entry = skills_entries_by_name.get(skill_name)
+    if not entry:
+        return None
+    provider = str(entry.get("provider", ""))
+    if provider == "tessl":
+        local_path = entry.get("local_source_path")
+        if isinstance(local_path, Path) and local_path.exists():
+            return rel(local_path)
+        return None
+    if provider == "skills-sh":
+        args = entry.get("args") or []
+        if not isinstance(args, list):
+            return None
+        for i, a in enumerate(args):
+            if str(a).strip() == "--skill" and i + 1 < len(args):
+                skill_id = str(args[i + 1]).strip()
+                if skill_id:
+                    agents_skill = root / ".agents" / "skills" / skill_id
+                    if agents_skill.exists():
+                        return rel(agents_skill)
+                    return f".agents/skills/{skill_id}"
+        return None
+    return None
+
+
+def command_skills_context(
+    args,
+    *,
+    root: Path,
+    load_workspace_config: Callable[[], dict[str, object]],
+    load_skills_config: Callable[[], dict[str, object]],
+    skills_entries: Callable[[dict[str, object]], tuple[list[dict[str, object]], list[str]]],
+    resolve_runtime_pack,
+    resolve_spec: Callable[[str], Path] | None,
+    analyze_spec: Callable[[Path], dict[str, object]] | None,
+    rel: Callable[[Path], str],
+    json_dumps: Callable[[object], str],
+) -> int:
+    """
+    Resuelve runtime y agent_skill_refs para un repo o para los repos afectados por una spec.
+    Salida JSON para que la IA obtenga el contexto de skills sin parsear manifests.
+    Incluye path de cada skill para que la IA los localice en .agents/skills/ o .tessl/tiles/.
+    """
+    workspace = load_workspace_config()
+    repos_config = workspace.get("repos", {})
+    if not isinstance(repos_config, dict):
+        raise SystemExit("workspace.config.json debe definir `repos`.")
+
+    repo_arg = getattr(args, "repo", None)
+    spec_arg = getattr(args, "spec", None)
+
+    if repo_arg:
+        repo_name = str(repo_arg).strip()
+        if repo_name not in repos_config:
+            raise SystemExit(f"No existe el repo `{repo_name}` en workspace.config.json.")
+        repo_list = [repo_name]
+    elif spec_arg and resolve_spec and analyze_spec:
+        spec_path = resolve_spec(str(spec_arg))
+        analysis = analyze_spec(spec_path)
+        target_index = analysis.get("target_index", {})
+        if not isinstance(target_index, dict):
+            target_index = {}
+        repo_list = sorted(target_index.keys()) if target_index else []
+        if not repo_list:
+            # Spec sin targets o solo root; incluir root_repo
+            root_repo = str(workspace.get("project", {}).get("root_repo", "workspace-root"))
+            if root_repo in repos_config:
+                repo_list = [root_repo]
+    else:
+        raise SystemExit("Indica --repo <repo> o --spec <spec>.")
+
+    skills_payload = load_skills_config()
+    entries, _errors = skills_entries(skills_payload)
+    entries_by_name = {str(e.get("name", "")).strip(): e for e in entries if str(e.get("name", "")).strip()}
+
+    contexts: list[dict[str, object]] = []
+    for repo_name in repo_list:
+        repo_entry = repos_config.get(repo_name, {})
+        if not isinstance(repo_entry, dict):
+            continue
+        runtime = str(repo_entry.get("runtime", "")).strip()
+        agent_skill_refs = repo_entry.get("agent_skill_refs")
+        if isinstance(agent_skill_refs, list):
+            agent_skill_refs = [str(s).strip() for s in agent_skill_refs if str(s).strip()]
+        else:
+            agent_skill_refs = []
+        if not runtime:
+            runtime = "generic"
+        if not agent_skill_refs and runtime:
+            try:
+                pack = resolve_runtime_pack(root, runtime, repo_name, str(repo_entry.get("path", repo_name)))
+                agent_skill_refs = list(pack.get("agent_skill_refs", []))
+            except Exception:
+                pass
+        agent_skills = []
+        for ref in agent_skill_refs:
+            path = _resolve_skill_path(
+                ref,
+                root=root,
+                skills_entries_by_name=entries_by_name,
+                rel=rel,
+            )
+            agent_skills.append({"name": ref, "path": path})
+
+        contexts.append({
+            "repo": repo_name,
+            "runtime": runtime,
+            "agent_skill_refs": agent_skill_refs,
+            "agent_skills": agent_skills,
+        })
+
+    payload = {"contexts": contexts}
+    if getattr(args, "json", False):
+        print(json_dumps(payload))
+        return 0
+    for ctx in contexts:
+        skills_str = ", ".join(ctx["agent_skill_refs"]) or "none"
+        print(f"{ctx['repo']}: runtime={ctx['runtime']}, skills={skills_str}")
+    return 0
+
+
+SKYLL_API_BASE = "https://api.skyll.app"
+
+
+def _fetch_skyll_search(query: str, limit: int = 10) -> dict[str, object]:
+    """Consulta Skyll API (skills.sh + registry) para buscar skills por término."""
+    params = urllib.parse.urlencode({"q": query, "limit": min(limit, 50), "include_content": "false"})
+    url = f"{SKYLL_API_BASE}/search?{params}"
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode())
+
+
+def command_skills_discover(
+    args,
+    *,
+    json_dumps: Callable[[object], str],
+) -> int:
+    """
+    Busca skills en tessl.io y skills.sh (vía Skyll API) por término.
+    Devuelve candidatos sin instalar. Usa --json para salida estructurada.
+    """
+    query = str(getattr(args, "query", "") or "").strip()
+    if not query:
+        raise SystemExit("Indica un término de búsqueda: flow skills discover <query>")
+
+    limit = int(getattr(args, "limit", 10) or 10)
+    limit = max(1, min(50, limit))
+
+    try:
+        data = _fetch_skyll_search(query, limit=limit)
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"No se pudo conectar a Skyll API: {exc}") from exc
+    except (json.JSONDecodeError, OSError) as exc:
+        raise SystemExit(f"Error al procesar respuesta de Skyll: {exc}") from exc
+
+    skills_raw = data.get("skills") or []
+    candidates: list[dict[str, object]] = []
+    for s in skills_raw:
+        if not isinstance(s, dict):
+            continue
+        source = str(s.get("source", "")).strip()
+        skill_id = str(s.get("id", "")).strip()
+        if not source or not skill_id:
+            continue
+        refs = s.get("refs") or {}
+        skills_sh_url = str(refs.get("skills_sh", "") or "") if isinstance(refs, dict) else ""
+        github_url = str(refs.get("github", "") or "") if isinstance(refs, dict) else ""
+        # Repo root para npx skills add (sin /tree/... ni /skills/...)
+        if github_url and "/tree/" in github_url:
+            source_url = github_url.split("/tree/")[0]
+        elif github_url:
+            source_url = github_url
+        else:
+            source_url = f"https://github.com/{source}"
+        install_count = s.get("install_count")
+        if install_count is not None and not isinstance(install_count, (int, float)):
+            install_count = 0
+        relevance = s.get("relevance_score")
+        if relevance is not None and not isinstance(relevance, (int, float)):
+            relevance = None
+        candidates.append({
+            "source": source,
+            "skill_id": skill_id,
+            "identifier": f"{source}@{skill_id}",
+            "source_url": source_url,
+            "install_count": install_count,
+            "relevance_score": relevance,
+            "skills_sh_url": skills_sh_url,
+            "github_url": github_url,
+            "title": str(s.get("title", skill_id)),
+            "description": str(s.get("description", "")).strip() or None,
+        })
+
+    payload = {
+        "query": query,
+        "count": len(candidates),
+        "candidates": candidates,
+        "install_hint": "flow skills add <name> --provider skills-sh --source <source_url> --arg=--skill --arg=<skill_id>",
+    }
+
+    if getattr(args, "json", False):
+        print(json_dumps(payload))
+        return 0
+
+    print(f"Skills encontrados para '{query}' ({len(candidates)}):")
+    for c in candidates:
+        inst = c.get("install_count")
+        inst_str = f" ({inst} installs)" if inst is not None else ""
+        print(f"  - {c['identifier']}{inst_str}")
+        print(f"    {c.get('skills_sh_url') or c.get('github_url') or ''}")
+        desc = c.get("description")
+        if desc:
+            print(f"    {desc[:80]}{'...' if len(desc) > 80 else ''}")
+    return 0
 
 
 def command_skills_doctor(

@@ -1,0 +1,48 @@
+{
+  "runtime_kind": "service",
+  "target_roots": [],
+  "default_targets": [],
+  "test_runner": "none",
+  "test_hint": null,
+  "test_required_roots": [],
+  "placeholder_dirs": [],
+  "placeholder_files": {},
+  "agent_skill_refs": [
+    "workspace/spec-driven-workspace"
+  ],
+  "compose": {
+    "image": "mysql:8.0",
+    "restart": "unless-stopped",
+    "volumes": [
+      "workspace-mysql-data:/var/lib/mysql"
+    ],
+    "environment": {
+      "MYSQL_ROOT_PASSWORD": "root",
+      "MYSQL_DATABASE": "app_dev",
+      "MYSQL_USER": "app",
+      "MYSQL_PASSWORD": "app"
+    },
+    "healthcheck": {
+      "test": [
+        "CMD",
+        "mysqladmin",
+        "ping",
+        "-h",
+        "localhost",
+        "-u",
+        "root",
+        "-proot"
+      ],
+      "interval": "5s",
+      "timeout": "3s",
+      "retries": 10
+    },
+    "named_volumes": [
+      "workspace-mysql-data"
+    ],
+    "networks": [
+      "{network_name}"
+    ]
+  },
+  "notes": "Servicio standalone de MySQL para workspaces spec-driven."
+}

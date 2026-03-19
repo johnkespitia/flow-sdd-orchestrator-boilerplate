@@ -1465,6 +1465,28 @@ def command_skills_list(args: argparse.Namespace) -> int:
     )
 
 
+def command_skills_context(args: argparse.Namespace) -> int:
+    return flow_skills_ops.command_skills_context(
+        args,
+        root=ROOT,
+        load_workspace_config=load_workspace_config,
+        load_skills_config=load_skills_config,
+        skills_entries=skills_entries,
+        resolve_runtime_pack=resolve_runtime_pack,
+        resolve_spec=resolve_spec,
+        analyze_spec=analyze_spec,
+        rel=rel,
+        json_dumps=json_dumps,
+    )
+
+
+def command_skills_discover(args: argparse.Namespace) -> int:
+    return flow_skills_ops.command_skills_discover(
+        args,
+        json_dumps=json_dumps,
+    )
+
+
 def command_skills_add(args: argparse.Namespace) -> int:
     return flow_skills_ops.command_skills_add(
         args,
@@ -2228,6 +2250,8 @@ def build_parser() -> argparse.ArgumentParser:
         "workflow_execute_feature": command_workflow_execute_feature,
         "skills_doctor": command_skills_doctor,
         "skills_list": command_skills_list,
+        "skills_context": command_skills_context,
+        "skills_discover": command_skills_discover,
         "skills_add": command_skills_add,
         "skills_sync": command_skills_sync,
         "skills_install": command_skills_install,

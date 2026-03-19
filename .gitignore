@@ -13,6 +13,7 @@ gateway/data/*.log
 .flow/plans/*
 .flow/reports/*
 .flow/runs/*
+.agents/
 !.flow/state/.gitkeep
 !.flow/plans/.gitkeep
 !.flow/reports/.gitkeep

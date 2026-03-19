@@ -1,63 +1,43 @@
 {
   "project": {
-    "display_name": "Spec-Driven Workspace Boilerplate",
-    "root_repo": "workspace-root"
+    "display_name": "Flow SDD Orchestrator Boilerplate",
+    "root_repo": "sdd-workspace-boilerplate"
   },
   "repos": {
-    "workspace-root": {
+    "sdd-workspace-boilerplate": {
       "path": ".",
-      "compose_service": "workspace",
       "kind": "root",
-      "repo_strategy": "plain",
       "slice_prefix": "root",
-      "default_targets": [
-        "../../.devcontainer/**",
-        "../../Makefile",
-        "../../README.md"
-      ],
-      "contract_roots": [
-        ".devcontainer",
-        ".github",
-        "docs",
-        "flow",
-        "flowctl",
-        "gateway",
-        "runtimes",
-        "scripts",
-        "specs"
-      ],
-      "test_required_roots": [],
+      "compose_service": "workspace",
       "target_roots": [
-        ".github",
-        ".devcontainer",
-        ".flow",
-        ".gitignore",
-        ".gitmodules",
-        ".tessl",
         "AGENTS.md",
-        "Makefile",
         "README.md",
-        "_bmad",
-        "docs",
         "flow",
-        "flowctl",
-        "gateway",
-        "capabilities",
-        "releases",
-        "runtimes",
-        "scripts",
-        "specs",
         "templates",
-        "tessl.json",
+        "specs",
+        "docs",
+        ".tessl",
+        ".github",
+        "scripts",
+        "flowctl",
+        "capabilities",
+        "runtimes",
         "workspace.capabilities.json",
         "workspace.config.json",
         "workspace.providers.json",
         "workspace.runtimes.json",
         "workspace.secrets.json",
+        "workspace.skills.json",
         "workspace.stack.json",
-        "workspace.skills.json"
+        "Makefile"
       ],
-      "test_runner": "none"
+      "default_targets": [
+        "../../specs/**/*.spec.md",
+        "../../docs/**/*.md",
+        "../../flow",
+        "../../workspace.config.json",
+        "../../workspace.stack.json"
+      ]
     }
   }
 }

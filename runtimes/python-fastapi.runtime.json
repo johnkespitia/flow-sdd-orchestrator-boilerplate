@@ -1,0 +1,80 @@
+{
+  "runtime_kind": "project",
+  "target_roots": [
+    ".github",
+    "AGENTS.md",
+    "README.md",
+    "requirements.txt",
+    "main.py",
+    "app",
+    "tests"
+  ],
+  "default_targets": [
+    "../../{path}/app/**",
+    "../../{path}/tests/**",
+    "../../{path}/main.py"
+  ],
+  "test_runner": "pytest",
+  "test_hint": "../../{path}/tests",
+  "test_required_roots": [
+    "requirements.txt",
+    "app",
+    "tests"
+  ],
+  "placeholder_dirs": [
+    "app",
+    "tests"
+  ],
+  "placeholder_files": {
+    "requirements.txt": "fastapi\nuvicorn\npytest\n",
+    "main.py": "from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get(\"/\")\ndef read_root():\n    return {\"Hello\": \"{name} bootstrap\"}\n",
+    "app/__init__.py": ""
+  },
+  "agent_skill_refs": [
+    "workspace/spec-driven-workspace"
+  ],
+  "ci": {
+    "install": [
+      "pip",
+      "install",
+      "-r",
+      "requirements.txt"
+    ],
+    "test": [
+      "pytest"
+    ]
+  },
+  "bindings": {
+    "postgres-service": {
+      "environment": {
+        "DATABASE_URL": "postgresql://app:app@{service_name}:5432/app_dev"
+      },
+      "depends_on": {
+        "{service_name}": {
+          "condition": "service_healthy"
+        }
+      }
+    },
+    "mysql-service": {
+      "environment": {
+        "DATABASE_URL": "mysql+pymysql://app:app@{service_name}:3306/app_dev"
+      },
+      "depends_on": {
+        "{service_name}": {
+          "condition": "service_healthy"
+        }
+      }
+    }
+  },
+  "compose": {
+    "dockerfile": "backend.Dockerfile",
+    "mount_target": "/app",
+    "working_dir": "/app",
+    "command": "uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
+    "default_port": 8000,
+    "networks": [
+      "{network_name}"
+    ]
+  },
+  "notes": "Runtime para servicios Python/FastAPI con contrato de app y tests."
+}
