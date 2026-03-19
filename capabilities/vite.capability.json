@@ -1,0 +1,26 @@
+{
+  "title": "Vite Build Tool Foundation",
+  "summary": "Agrega Vite como herramienta de desarrollo y build a un proyecto Node.",
+  "required_runtimes": ["node"],
+  "agent_skill_refs": [
+    "workspace/vite-expert"
+  ],
+  "placeholder_files": {
+    "package.json": {
+      "devDependencies": {
+        "vite": "latest"
+      },
+      "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "preview": "vite preview"
+      }
+    },
+    "vite.config.js": "import { defineConfig } from 'vite';\n\nexport default defineConfig({});\n",
+    "index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <div id=\"app\"></div>\n    <script type=\"module\" src=\"/src/main.js\"></script>\n  </body>\n</html>\n"
+  },
+  "compose_override": {
+    "command": "pnpm dev --host",
+    "ports": ["5173:5173"]
+  }
+}

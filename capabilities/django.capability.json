@@ -1,0 +1,16 @@
+{
+  "title": "Django Web Foundation",
+  "summary": "Agrega Django a un runtime Python.",
+  "required_runtimes": ["python"],
+  "agent_skill_refs": [
+    "workspace/django-expert"
+  ],
+  "placeholder_files": {
+    "requirements.txt": "django\ngunicorn\npsycopg2-binary\n",
+    "manage.py": "#!/usr/bin/env python\nimport os\nimport sys\n",
+    "app/wsgi.py": ""
+  },
+  "compose_override": {
+    "command": "python manage.py runserver 0.0.0.0:8000"
+  }
+}

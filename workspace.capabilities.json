@@ -3,6 +3,42 @@
     "graphql": {
       "enabled": true,
       "source": "capabilities/graphql.capability.json"
+    },
+    "fastapi": {
+      "enabled": true,
+      "source": "capabilities/fastapi.capability.json"
+    },
+    "django": {
+      "enabled": true,
+      "source": "capabilities/django.capability.json"
+    },
+    "laravel": {
+      "enabled": true,
+      "source": "capabilities/laravel.capability.json"
+    },
+    "nestjs": {
+      "enabled": true,
+      "source": "capabilities/nestjs.capability.json"
+    },
+    "nextjs": {
+      "enabled": true,
+      "source": "capabilities/nextjs.capability.json"
+    },
+    "vite": {
+      "enabled": true,
+      "source": "capabilities/vite.capability.json"
+    },
+    "typescript": {
+      "enabled": true,
+      "source": "capabilities/typescript.capability.json"
+    },
+    "vite-react": {
+      "enabled": true,
+      "source": "capabilities/vite-react.capability.json"
+    },
+    "vite-vue": {
+      "enabled": true,
+      "source": "capabilities/vite-vue.capability.json"
     }
   }
 }

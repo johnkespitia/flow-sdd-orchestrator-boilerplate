@@ -1,0 +1,33 @@
+{
+  "title": "NestJS Backend Foundation",
+  "summary": "Agrega NestJS a un runtime de Node.",
+  "required_runtimes": ["node"],
+  "agent_skill_refs": [
+    "workspace/nestjs-expert"
+  ],
+  "placeholder_files": {
+    "package.json": {
+      "dependencies": {
+        "@nestjs/common": "latest",
+        "@nestjs/core": "latest",
+        "@nestjs/platform-express": "latest",
+        "reflect-metadata": "latest",
+        "rxjs": "latest"
+      },
+      "scripts": {
+        "start": "nest start",
+        "start:dev": "nest start --watch"
+      }
+    },
+    "nest-cli.json": {
+      "collection": "@nestjs/schematics",
+      "sourceRoot": "src"
+    },
+    "src/main.ts": "import { NestFactory } from '@nestjs/core';\nimport { AppModule } from './app.module';\n\nasync function bootstrap() {\n  const app = await NestFactory.create(AppModule);\n  await app.listen(3000);\n}\nbootstrap();\n",
+    "src/app.module.ts": "import { Module } from '@nestjs/common';\n@Module({})\nexport class AppModule {}\n"
+  },
+  "compose_override": {
+    "command": "pnpm start:dev",
+    "ports": ["3000:3000"]
+  }
+}

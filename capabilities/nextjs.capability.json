@@ -1,0 +1,29 @@
+{
+  "title": "Next.js Web Foundation",
+  "summary": "Agrega Next.js (Pages/App Router) a un runtime de Node.",
+  "required_runtimes": ["node"],
+  "agent_skill_refs": [
+    "workspace/nextjs-expert"
+  ],
+  "placeholder_files": {
+    "package.json": {
+      "dependencies": {
+        "next": "latest",
+        "react": "latest",
+        "react-dom": "latest"
+      },
+      "scripts": {
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next start",
+        "lint": "next lint"
+      }
+    },
+    "next.config.js": "/** @type {import('next').NextConfig} */\nconst nextConfig = {};\nmodule.exports = nextConfig;\n",
+    "app/page.tsx": "export default function Home() {\n  return <h1>Hello, Next.js!</h1>;\n}\n"
+  },
+  "compose_override": {
+    "command": "pnpm dev",
+    "ports": ["3000:3000"]
+  }
+}

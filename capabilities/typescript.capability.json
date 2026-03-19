@@ -1,0 +1,34 @@
+{
+  "title": "TypeScript Language Foundation",
+  "summary": "Agrega TypeScript a un proyecto Node para tipado estático.",
+  "required_runtimes": ["node"],
+  "agent_skill_refs": [
+    "workspace/typescript-expert"
+  ],
+  "placeholder_files": {
+    "package.json": {
+      "devDependencies": {
+        "typescript": "latest",
+        "@types/node": "latest"
+      },
+      "scripts": {
+        "typecheck": "tsc --noEmit",
+        "build": "tsc"
+      }
+    },
+    "tsconfig.json": {
+      "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "node",
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "outDir": "dist"
+      },
+      "include": ["src/**/*"],
+      "exclude": ["node_modules", "tests"]
+    }
+  },
+  "notes": "Agrega TypeScript y su configuración base a proyectos Node."
+}

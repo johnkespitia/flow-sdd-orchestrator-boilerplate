@@ -4,9 +4,21 @@
       "enabled": true,
       "source": "runtimes/generic.runtime.json"
     },
-    "go-api": {
+    "go": {
       "enabled": true,
-      "source": "runtimes/go-api.runtime.json"
+      "source": "runtimes/go.runtime.json"
+    },
+    "node": {
+      "enabled": true,
+      "source": "runtimes/node.runtime.json"
+    },
+    "php": {
+      "enabled": true,
+      "source": "runtimes/php.runtime.json"
+    },
+    "python": {
+      "enabled": true,
+      "source": "runtimes/python.runtime.json"
     },
     "mongo-service": {
       "enabled": true,
@@ -15,26 +27,6 @@
     "postgres-service": {
       "enabled": true,
       "source": "runtimes/postgres-service.runtime.json"
-    },
-    "php": {
-      "enabled": true,
-      "source": "runtimes/php.runtime.json"
-    },
-    "pnpm": {
-      "enabled": true,
-      "source": "runtimes/pnpm.runtime.json"
-    },
-    "nextjs": {
-      "enabled": true,
-      "source": "runtimes/nextjs.runtime.json"
-    },
-    "nestjs": {
-      "enabled": true,
-      "source": "runtimes/nestjs.runtime.json"
-    },
-    "python-fastapi": {
-      "enabled": true,
-      "source": "runtimes/python-fastapi.runtime.json"
     },
     "mysql-service": {
       "enabled": true,

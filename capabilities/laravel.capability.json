@@ -1,0 +1,20 @@
+{
+  "title": "Laravel Framework Foundation",
+  "summary": "Agrega Laravel a un runtime PHP.",
+  "required_runtimes": ["php"],
+  "agent_skill_refs": [
+    "workspace/laravel-expert"
+  ],
+  "placeholder_files": {
+    "composer.json": {
+      "require": {
+        "laravel/framework": "^10.0"
+      }
+    },
+    "artisan": "#!/usr/bin/env php\n<?php\n// Laravel stub\n",
+    "public/index.php": "<?php\n// Laravel entrypoint\n"
+  },
+  "compose_override": {
+    "command": "php artisan serve --host=0.0.0.0 --port=8000"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "runtime_kind": "project",
+  "target_roots": [
+    ".github",
+    "AGENTS.md",
+    "README.md",
+    "requirements.txt",
+    "tests"
+  ],
+  "default_targets": [
+    "../../{path}/app/**",
+    "../../{path}/tests/**"
+  ],
+  "test_runner": "pytest",
+  "test_hint": "../../{path}/tests",
+  "test_required_roots": [
+    "requirements.txt",
+    "tests"
+  ],
+  "placeholder_dirs": [
+    "tests"
+  ],
+  "placeholder_files": {
+    "requirements.txt": "pytest\n",
+    "AGENTS.md": "# Python Agent Context\n\nEste repositorio es un microservicio en Python.\n"
+  },
+  "agent_skill_refs": [
+    "workspace/spec-driven-workspace",
+    "workspace/python-core"
+  ],
+  "ci": {
+    "install": ["pip", "install", "-r", "requirements.txt"],
+    "test": ["pytest"]
+  },
+  "compose": {
+    "dockerfile": "backend.Dockerfile",
+    "mount_target": "/app",
+    "working_dir": "/app",
+    "command": "sleep infinity",
+    "networks": ["{network_name}"]
+  },
+  "notes": "Runtime base para proyectos Python."
+}

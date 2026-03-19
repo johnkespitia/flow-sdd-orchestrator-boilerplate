@@ -3,52 +3,54 @@
   "target_roots": [
     ".github",
     "AGENTS.md",
-    "composer.json",
+    "package.json",
+    "pnpm-lock.yaml",
     "src",
     "tests",
-    "public"
+    "tsconfig.json"
   ],
   "default_targets": [
     "../../{path}/src/**",
     "../../{path}/tests/**"
   ],
-  "test_runner": "php",
+  "test_runner": "pnpm",
   "test_hint": "../../{path}/tests",
   "test_required_roots": [
-    "composer.json",
+    "package.json",
+    "pnpm-lock.yaml",
     "src",
-    "tests"
+    "tests",
+    "tsconfig.json"
   ],
   "placeholder_dirs": [
     "src",
-    "tests",
-    "public"
+    "tests"
   ],
   "placeholder_files": {
-    "composer.json": {
+    "package.json": {
       "name": "{name}",
-      "type": "project",
-      "require": {
-        "php": "^8.2"
+      "private": true,
+      "version": "0.0.0",
+      "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
       }
     },
-    "public/index.php": "<?php\necho 'Hello from generic PHP runtime';\n"
+    "AGENTS.md": "# Node.js Agent Context\n\nEste repositorio es un proyecto en Node.js.\n"
   },
   "agent_skill_refs": [
     "workspace/spec-driven-workspace",
-    "workspace/php-core"
+    "workspace/node-core"
   ],
   "ci": {
-    "install": ["composer", "install"],
-    "test": ["vendor/bin/phpunit"]
+    "install": ["pnpm", "install"],
+    "test": ["pnpm", "test"]
   },
   "compose": {
     "dockerfile": "backend.Dockerfile",
     "mount_target": "/app",
     "working_dir": "/app",
-    "command": "php -S 0.0.0.0:8000 -t public",
-    "default_port": 8000,
+    "command": "sleep infinity",
     "networks": ["{network_name}"]
   },
-  "notes": "Runtime genérico de PHP 8.2."
+  "notes": "Runtime base para proyectos Node.js."
 }

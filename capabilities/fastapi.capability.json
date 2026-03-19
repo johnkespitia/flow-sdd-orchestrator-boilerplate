@@ -1,0 +1,15 @@
+{
+  "title": "FastAPI Web Foundation",
+  "summary": "Agrega las dependencias y la estructura base de FastAPI a un proyecto Python.",
+  "required_runtimes": ["python"],
+  "agent_skill_refs": [
+    "workspace/fastapi-expert"
+  ],
+  "placeholder_files": {
+    "requirements.txt": "fastapi\nuvicorn\n",
+    "main.py": "from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get(\"/\")\ndef read_root():\n    return {\"Hello\": \"{name} with FastAPI\"}\n"
+  },
+  "compose_override": {
+    "command": "uvicorn main:app --host 0.0.0.0 --port {port} --reload"
+  }
+}
