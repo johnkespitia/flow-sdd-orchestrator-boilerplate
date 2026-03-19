@@ -2,6 +2,10 @@
   "title": "Vite Build Tool Foundation",
   "summary": "Agrega Vite como herramienta de desarrollo y build a un proyecto Node.",
   "required_runtimes": ["node"],
+  "target_roots": [
+    "vite.config.js",
+    "index.html"
+  ],
   "agent_skill_refs": [
     "workspace/vite-expert"
   ],

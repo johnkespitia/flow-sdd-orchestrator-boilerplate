@@ -2,6 +2,10 @@
   "title": "Laravel Framework Foundation",
   "summary": "Agrega Laravel a un runtime PHP.",
   "required_runtimes": ["php"],
+  "target_roots": [
+    "artisan",
+    "public"
+  ],
   "agent_skill_refs": [
     "workspace/laravel-expert"
   ],

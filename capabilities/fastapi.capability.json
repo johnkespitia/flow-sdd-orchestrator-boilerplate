@@ -2,6 +2,10 @@
   "title": "FastAPI Web Foundation",
   "summary": "Agrega las dependencias y la estructura base de FastAPI a un proyecto Python.",
   "required_runtimes": ["python"],
+  "target_roots": [
+    "main.py",
+    "app"
+  ],
   "agent_skill_refs": [
     "workspace/fastapi-expert"
   ],

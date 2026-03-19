@@ -2,6 +2,11 @@
   "title": "Vite + Vue Solution Stack",
   "summary": "Stack de frontend moderno usando Vite, Vue 3 y soporte para SFC (.vue).",
   "required_runtimes": ["node"],
+  "target_roots": [
+    "vite.config.js",
+    "index.html",
+    "src"
+  ],
   "agent_skill_refs": [
     "workspace/vite-expert",
     "workspace/vue-expert"

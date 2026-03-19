@@ -2,6 +2,10 @@
   "title": "Django Web Foundation",
   "summary": "Agrega Django a un runtime Python.",
   "required_runtimes": ["python"],
+  "target_roots": [
+    "manage.py",
+    "app"
+  ],
   "agent_skill_refs": [
     "workspace/django-expert"
   ],

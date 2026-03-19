@@ -2,6 +2,11 @@
   "title": "Vite + React Solution Stack",
   "summary": "Stack de frontend moderno usando Vite, React y soporte para JSX.",
   "required_runtimes": ["node"],
+  "target_roots": [
+    "vite.config.js",
+    "index.html",
+    "src"
+  ],
   "agent_skill_refs": [
     "workspace/vite-expert",
     "workspace/react-expert"

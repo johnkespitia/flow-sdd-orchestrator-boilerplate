@@ -2,6 +2,9 @@
   "title": "TypeScript Language Foundation",
   "summary": "Agrega TypeScript a un proyecto Node para tipado estático.",
   "required_runtimes": ["node"],
+  "target_roots": [
+    "tsconfig.json"
+  ],
   "agent_skill_refs": [
     "workspace/typescript-expert"
   ],

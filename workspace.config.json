@@ -38,54 +38,6 @@
         "../../workspace.config.json",
         "../../workspace.stack.json"
       ]
-    },
-    "my-python-api": {
-      "path": "my-python-api",
-      "compose_service": "my-python-api",
-      "kind": "implementation",
-      "runtime": "python-fastapi",
-      "repo_strategy": "plain",
-      "slice_prefix": "my-python-api",
-      "default_targets": [
-        "../../my-python-api/app/**",
-        "../../my-python-api/tests/**",
-        "../../my-python-api/main.py"
-      ],
-      "target_roots": [
-        ".github",
-        "AGENTS.md",
-        "README.md",
-        "requirements.txt",
-        "main.py",
-        "app",
-        "tests"
-      ],
-      "contract_roots": [
-        "requirements.txt",
-        "app",
-        "tests"
-      ],
-      "test_required_roots": [
-        "requirements.txt",
-        "app",
-        "tests"
-      ],
-      "agent_skill_refs": [
-        "workspace/spec-driven-workspace"
-      ],
-      "test_runner": "pytest",
-      "test_hint": "../../my-python-api/tests",
-      "ci": {
-        "install": [
-          "pip",
-          "install",
-          "-r",
-          "requirements.txt"
-        ],
-        "test": [
-          "pytest"
-        ]
-      }
     }
   }
 }

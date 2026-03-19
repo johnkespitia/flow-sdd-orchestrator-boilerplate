@@ -2,6 +2,12 @@
   "title": "Next.js Web Foundation",
   "summary": "Agrega Next.js (Pages/App Router) a un runtime de Node.",
   "required_runtimes": ["node"],
+  "target_roots": [
+    "next.config.js",
+    "public",
+    "app",
+    "pages"
+  ],
   "agent_skill_refs": [
     "workspace/nextjs-expert"
   ],

@@ -2,6 +2,10 @@
   "title": "NestJS Backend Foundation",
   "summary": "Agrega NestJS a un runtime de Node.",
   "required_runtimes": ["node"],
+  "target_roots": [
+    "nest-cli.json",
+    "src"
+  ],
   "agent_skill_refs": [
     "workspace/nestjs-expert"
   ],

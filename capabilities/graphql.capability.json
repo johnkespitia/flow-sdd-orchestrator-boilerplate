@@ -1,6 +1,10 @@
 {
   "title": "GraphQL API Foundation",
   "summary": "Define la capacidad GraphQL del workspace como contrato de schema, transporte y resolvers.",
+  "target_roots": [
+    "schema",
+    "resolvers"
+  ],
   "foundation_specs": [
     {
       "path": "specs/000-foundation/generated/graphql-api-foundation.spec.md",

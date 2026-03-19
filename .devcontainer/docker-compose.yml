@@ -32,6 +32,20 @@ services:
     networks:
       - workspace
 
+  # ── Added project: my-modern-web (node) ───────────────────────────
+  my-modern-web:
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+    volumes:
+      - ../my-modern-web:/app:cached
+    working_dir: /app
+    command: "sleep infinity"
+    ports:
+      - 3000:3000
+    networks:
+      - workspace
+
 volumes:
   workspace-pnpm-store:
 
