@@ -146,6 +146,29 @@ def build_parser(
     skills_add.add_argument("--no-sync", action="store_true", help="Exclude the entry from default `skills sync`.")
     skills_add.set_defaults(func=commands["skills_add"])
 
+    skills_install = skills_subparsers.add_parser(
+        "install",
+        help="Resolve and register a skill from Tessl or skills.sh, and optionally attach it to a runtime.",
+    )
+    skills_install.add_argument(
+        "identifier",
+        help="Skill identifier or source. Tessl se resuelve primero; skills.sh despues.",
+    )
+    skills_install.add_argument(
+        "--name",
+        help="Optional manifest entry name. Defaults to the identifier.",
+    )
+    skills_install.add_argument(
+        "--provider",
+        help="Optional provider hint: `tessl` or `skills-sh`. Required when the identifier matches both.",
+    )
+    skills_install.add_argument(
+        "--runtime",
+        choices=available_runtime_names(root),
+        help="Optional runtime pack id whose `agent_skill_refs` will be updated.",
+    )
+    skills_install.set_defaults(func=commands["skills_install"])
+
     skills_sync = skills_subparsers.add_parser("sync", help="Synchronize registered skills through their providers.")
     skills_sync.add_argument("--provider", help="Optional provider filter: `tessl` or `skills-sh`.")
     skills_sync.add_argument("--name", action="append", help="Optional manifest entry name to sync. Repeatable.")

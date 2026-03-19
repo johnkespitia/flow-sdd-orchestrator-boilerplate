@@ -5,7 +5,7 @@ import shlex
 import shutil
 import sys
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 
 def skills_provider_config(payload: dict[str, object], provider: str) -> dict[str, object]:
@@ -247,6 +247,141 @@ def command_skills_add(
     print(f"- source: {entry['source']}")
     print(f"- requires: {', '.join(entry['requires']) if entry['requires'] else 'none'}")
     print(f"- config: {skills_config_file.name}")
+    return 0
+
+
+def _first(iterable: Iterable[object]) -> object | None:
+    for item in iterable:
+        return item
+    return None
+
+
+def command_skills_install(  # type: ignore[too-many-arguments]
+    args,
+    *,
+    load_skills_config,
+    write_skills_config: Callable[[dict[str, object]], None],
+    normalize_skill_provider: Callable[[str], str],
+    normalize_skill_entry,
+    skills_config_file: Path,
+) -> int:
+    """
+    Flujo de alto nivel:
+    1. Recibe un identificador de skill (`identifier`) y un nombre opcional (`--name`).
+    2. Si el provider no viene fijado, intenta construir dos candidatos:
+       - Tessl (tile/package remoto o local).
+       - skills-sh (package).
+       Si ambos son validos, devuelve listado y exige `--provider` explicito.
+    3. Registra/actualiza la entrada en `workspace.skills.json` si no existia.
+    4. Si `--runtime` viene informado, delega la actualizacion del runtime al caller.
+    """
+
+    payload = load_skills_config()
+    providers = payload.setdefault("providers", {})
+    entries = payload.setdefault("entries", [])
+    if not isinstance(providers, dict) or not isinstance(entries, list):
+        raise SystemExit(f"{skills_config_file.name} debe definir `providers` y `entries`.")
+
+    identifier = str(args.identifier).strip()
+    if not identifier:
+        raise SystemExit("Debes indicar un identificador de skill para instalar.")
+
+    manifest_name = str(getattr(args, "name", "") or "").strip() or identifier
+
+    # Si ya existe una entrada con ese nombre, reutilizarla en vez de crear una nueva.
+    existing_raw = _first(
+        item
+        for item in entries
+        if isinstance(item, dict) and str(item.get("name", "")).strip() == manifest_name
+    )
+    if existing_raw is not None:
+        # Nada que registrar; dejamos que el caller actualice runtimes.
+        print(f"Skill ya registrada en {skills_config_file.name}: {manifest_name}")
+        return 0
+
+    provider_arg = getattr(args, "provider", None)
+    chosen_provider: str | None = None
+    candidate_entries: list[dict[str, object]] = []
+
+    def _build_candidate(provider_value: str) -> dict[str, object] | None:
+        provider = normalize_skill_provider(provider_value)
+        kind = "package" if provider == "skills-sh" else "tile"
+        candidate = {
+            "name": manifest_name,
+            "provider": provider,
+            "kind": kind,
+            "source": identifier,
+            "enabled": True,
+            "required": False,
+            "sync": True,
+            "args": [],
+            "requires": [],
+            "notes": "",
+        }
+        # Usamos el normalizador para validar la entrada y derivar metadata como local_source_path.
+        try:
+            normalized = normalize_skill_entry(candidate, len(entries) + 1)
+        except ValueError:
+            return None
+        return normalized
+
+    if provider_arg:
+        # Provider explicito: solo un candidato.
+        normalized = _build_candidate(provider_arg)
+        if normalized is None:
+            raise SystemExit(f"No se pudo construir una entrada valida para provider `{provider_arg}`.")
+        candidate_entries = [normalized]
+    else:
+        # Heuristica de resolucion: primero Tessl, luego skills-sh.
+        tessl_candidate = _build_candidate("tessl")
+        if tessl_candidate is not None:
+            candidate_entries.append(tessl_candidate)
+        skills_sh_candidate = _build_candidate("skills-sh")
+        if skills_sh_candidate is not None:
+            candidate_entries.append(skills_sh_candidate)
+
+    if not candidate_entries:
+        raise SystemExit(
+            f"No se pudo resolver `{identifier}` como skill valido ni en Tessl ni en skills.sh."
+        )
+
+    if len(candidate_entries) > 1 and not provider_arg:
+        print("Se encontraron multiples posibles providers para este identificador:")
+        for entry in candidate_entries:
+            print(
+                f"- {entry['provider']}: name={entry['name']}, kind={entry['kind']}, source={entry['source']}"
+            )
+        print(
+            "\nReintenta con `--provider tessl` o `--provider skills-sh` para desambiguar."
+        )
+        return 1
+
+    chosen = candidate_entries[0]
+    chosen_provider = str(chosen["provider"])
+
+    providers.setdefault(chosen_provider, {"enabled": True})
+    # Reinsertamos sin `local_source_path` para mantener el shape original del manifest.
+    raw_entry = {
+        "name": chosen["name"],
+        "provider": chosen["provider"],
+        "kind": chosen["kind"],
+        "source": chosen["source"],
+        "enabled": chosen["enabled"],
+        "required": chosen["required"],
+        "sync": chosen["sync"],
+        "args": chosen["args"],
+        "requires": chosen["requires"],
+        "notes": chosen["notes"],
+    }
+    entries.append(raw_entry)
+    write_skills_config(payload)
+
+    print(f"Skill instalada en {skills_config_file.name}: {chosen['name']}")
+    print(f"- provider: {chosen_provider}")
+    print(f"- source: {chosen['source']}")
+    print(f"- kind: {chosen['kind']}")
+
+    # La actualizacion de runtime corre a cargo del wrapper en `flow`, que recibe `args.runtime`.
     return 0
 
 

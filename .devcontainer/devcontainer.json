@@ -7,7 +7,9 @@
   "initializeCommand": "git submodule update --init --recursive",
   "postCreateCommand": "cd /workspace && make install",
   "containerEnv": {
-    "FLOW_HOST_ROOT": "${localWorkspaceFolder}"
+    "FLOW_HOST_ROOT": "${localWorkspaceFolder}",
+    "GH_TOKEN": "${localEnv:GH_TOKEN}",
+    "GITHUB_TOKEN": "${localEnv:GITHUB_TOKEN}"
   },
   "mounts": [
     "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached"

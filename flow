@@ -49,6 +49,7 @@ from flowctl.context import (
     load_providers_config as flow_load_providers_config,
     load_secrets_config as flow_load_secrets_config,
     load_skills_config as flow_load_skills_config,
+    load_json_object,
 )
 from flowctl.infra import (
     command_infra_apply as flow_command_infra_apply,
@@ -1514,6 +1515,70 @@ def command_skills_sync(args: argparse.Namespace) -> int:
     )
 
 
+def _update_runtime_skill_refs(runtime: str, skill_name: str) -> None:
+    """
+    Actualiza el runtime pack JSON correspondiente para incluir `skill_name`
+    en `agent_skill_refs`, si aun no esta presente.
+    """
+    manifest_path = ROOT / "workspace.runtimes.json"
+    try:
+        manifest = load_json_object(manifest_path, "runtimes")
+    except SystemExit:
+        return
+
+    runtimes = manifest.get("runtimes", {})
+    if not isinstance(runtimes, dict) or runtime not in runtimes:
+        return
+
+    entry = runtimes[runtime]
+    if not isinstance(entry, dict):
+        return
+
+    source = str(entry.get("source", "")).strip()
+    if not source:
+        return
+
+    pack_path = (ROOT / source).resolve()
+    try:
+        pack_payload = json.loads(pack_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if not isinstance(pack_payload, dict):
+        return
+
+    agent_refs = pack_payload.get("agent_skill_refs")
+    if not isinstance(agent_refs, list):
+        agent_refs = []
+    if skill_name not in agent_refs:
+        agent_refs.append(skill_name)
+    pack_payload["agent_skill_refs"] = agent_refs
+    pack_path.write_text(json.dumps(pack_payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
+def command_skills_install(args: argparse.Namespace) -> int:
+    """
+    Wrapper de alto nivel:
+    - delega el registro del skill a `skills_ops.command_skills_install`.
+    - si `--runtime` viene informado, actualiza el runtime pack para referenciar el skill.
+    """
+    exit_code = flow_skills_ops.command_skills_install(
+        args,
+        load_skills_config=load_skills_config,
+        write_skills_config=write_skills_config,
+        normalize_skill_provider=normalize_skill_provider,
+        normalize_skill_entry=normalize_skill_entry,
+        skills_config_file=SKILLS_CONFIG_FILE,
+    )
+    if exit_code != 0:
+        return exit_code
+
+    runtime = getattr(args, "runtime", None)
+    name = str(getattr(args, "name", "") or "").strip() or str(args.identifier).strip()
+    if runtime:
+        _update_runtime_skill_refs(str(runtime), name)
+    return 0
+
+
 def command_providers_doctor(args: argparse.Namespace) -> int:
     return flow_command_providers_doctor(
         args,
@@ -2165,6 +2230,7 @@ def build_parser() -> argparse.ArgumentParser:
         "skills_list": command_skills_list,
         "skills_add": command_skills_add,
         "skills_sync": command_skills_sync,
+        "skills_install": command_skills_install,
         "providers_doctor": command_providers_doctor,
         "providers_list": command_providers_list,
         "submodule_doctor": command_submodule_doctor,

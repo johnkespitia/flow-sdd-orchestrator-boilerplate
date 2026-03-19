@@ -46,6 +46,9 @@ python3 ./flow stack apply --json
 python3 ./flow stack apply --spec stack-from-spec --json
 python3 ./flow tessl -- --help
 python3 ./flow skills doctor
+python3 ./flow skills list
+python3 ./flow skills install demo/skill --provider skills-sh --runtime go-api
+python3 ./flow skills sync --dry-run
 python3 ./flow skills sync --dry-run
 python3 ./flow secrets doctor
 python3 ./flow secrets sync --dry-run
