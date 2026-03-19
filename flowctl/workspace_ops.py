@@ -209,7 +209,10 @@ def command_add_project(
     for relative_path, content in placeholder_files.items():
         target_file = destination / relative_path
         if not target_file.exists():
-            target_file.write_text(content, encoding="utf-8")
+            if isinstance(content, dict):
+                target_file.write_text(json.dumps(content, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+            else:
+                target_file.write_text(str(content), encoding="utf-8")
 
     updated_config = json.loads(json.dumps(workspace_config))
     updated_config["repos"][repo_name] = {
