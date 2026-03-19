@@ -113,6 +113,10 @@ def command_add_project(
     add_service_to_compose,
     runtime_catalog_error_type,
 ) -> int:
+    from .stack_design import (
+        resolve_capability_pack,
+        StackDesignError as capability_catalog_error_type,
+    )
     require_dirs()
     repo_name = validate_identifier(args.name, "nombre del proyecto")
     if repo_name in repo_config:
@@ -131,7 +135,24 @@ def command_add_project(
     if str(defaults.get("runtime_kind", "project")) != "project":
         raise SystemExit(f"El runtime `{runtime}` es de tipo `service`; no se puede registrar con `flow add-project`.")
 
+    capabilities = [c.strip() for c in (args.capabilities or "").split(",") if c.strip()]
+    capability_packs = []
+    for cap in capabilities:
+        try:
+            pack, _ = resolve_capability_pack(root, cap)
+            required_runtimes = pack.get("required_runtimes", [])
+            if required_runtimes and runtime not in required_runtimes:
+                raise SystemExit(f"La capability `{cap}` requiere uno de estos runtimes: {', '.join(required_runtimes)}. Se intento usar con `{runtime}`.")
+            capability_packs.append(pack)
+        except capability_catalog_error_type as exc:
+            raise SystemExit(str(exc)) from exc
+
     target_roots = list(args.target_root or defaults["target_roots"])
+    for pack in capability_packs:
+        for root_item in pack.get("target_roots", []):
+            if root_item not in target_roots:
+                target_roots.append(root_item)
+
     default_targets = list(args.default_target or defaults["default_targets"])
     test_runner = args.test_runner or str(defaults["test_runner"])
     test_hint = args.test_hint if args.test_hint is not None else defaults["test_hint"]
@@ -139,25 +160,53 @@ def command_add_project(
     if args.port is not None and not 1 <= args.port <= 65535:
         raise SystemExit("`--port` debe estar entre 1 y 65535.")
     compose_enabled = not args.no_compose and defaults["compose"] is not None
+
+    for pack in capability_packs:
+        if "compose_override" in pack:
+            compose_enabled = True
+
     service_name = validate_identifier(args.service_name or repo_name, "nombre del servicio")
 
     destination = root / repo_path
     ensure_project_directory(destination, use_existing=args.use_existing_dir, rel=rel)
 
-    agents_text, readme_text = repo_placeholder_text(root_repo, repo_name, defaults["agent_skill_refs"])
+    agent_skill_refs = list(defaults["agent_skill_refs"])
+    for pack in capability_packs:
+        for skill_ref in pack.get("agent_skill_refs", []):
+            if skill_ref not in agent_skill_refs:
+                agent_skill_refs.append(skill_ref)
+
+    agents_text, readme_text = repo_placeholder_text(root_repo, repo_name, agent_skill_refs)
     if not (destination / "AGENTS.md").exists():
         (destination / "AGENTS.md").write_text(agents_text, encoding="utf-8")
     if not (destination / "README.md").exists():
         (destination / "README.md").write_text(readme_text, encoding="utf-8")
 
-    for directory in defaults["placeholder_dirs"]:
+    placeholder_dirs = list(defaults["placeholder_dirs"])
+    for pack in capability_packs:
+        for p_dir in pack.get("placeholder_dirs", []):
+            if p_dir not in placeholder_dirs:
+                placeholder_dirs.append(p_dir)
+
+    for directory in placeholder_dirs:
         target_dir = destination / directory
         target_dir.mkdir(parents=True, exist_ok=True)
         gitkeep = target_dir / ".gitkeep"
         if not gitkeep.exists():
             gitkeep.write_text("", encoding="utf-8")
 
-    for relative_path, content in defaults["placeholder_files"].items():
+    placeholder_files = dict(defaults["placeholder_files"])
+    for pack in capability_packs:
+        for rel_path, content in pack.get("placeholder_files", {}).items():
+            if rel_path in placeholder_files:
+                if isinstance(placeholder_files[rel_path], dict) and isinstance(content, dict):
+                    placeholder_files[rel_path].update(content)
+                else:
+                    placeholder_files[rel_path] = content
+            else:
+                placeholder_files[rel_path] = content
+
+    for relative_path, content in placeholder_files.items():
         target_file = destination / relative_path
         if not target_file.exists():
             target_file.write_text(content, encoding="utf-8")
@@ -168,13 +217,14 @@ def command_add_project(
         "compose_service": service_name if compose_enabled else repo_name,
         "kind": "implementation",
         "runtime": runtime,
+        "capabilities": capabilities,
         "repo_strategy": "plain",
         "slice_prefix": slugify(repo_name),
         "default_targets": default_targets,
         "target_roots": target_roots,
-        "contract_roots": list(defaults["test_required_roots"]),
-        "test_required_roots": list(defaults["test_required_roots"]),
-        "agent_skill_refs": list(defaults["agent_skill_refs"]),
+        "contract_roots": target_roots,
+        "test_required_roots": target_roots,
+        "agent_skill_refs": agent_skill_refs,
         "test_runner": test_runner,
     }
     if test_hint:
@@ -193,16 +243,18 @@ def command_add_project(
         if errors:
             raise SystemExit("\n".join(f"- {error}" for error in errors))
         known_skill_refs = {str(entry["name"]) for entry in entries}
-        missing_skill_refs = [ref for ref in defaults["agent_skill_refs"] if ref not in known_skill_refs]
+        missing_skill_refs = [ref for ref in agent_skill_refs if ref not in known_skill_refs]
     except SystemExit:
-        missing_skill_refs = list(defaults["agent_skill_refs"])
+        missing_skill_refs = list(agent_skill_refs)
 
     print(f"Proyecto agregado: {repo_name}")
     print(f"- path: {repo_path}")
     print(f"- runtime: {runtime}")
+    if capabilities:
+        print(f"- capabilities: {', '.join(capabilities)}")
     print(f"- runtime_source: {rel(Path(defaults['source']))}")
     print(f"- compose_service: {service_name if compose_enabled else 'skipped'}")
-    print(f"- agent_skill_refs: {', '.join(defaults['agent_skill_refs']) if defaults['agent_skill_refs'] else 'none'}")
+    print(f"- agent_skill_refs: {', '.join(agent_skill_refs) if agent_skill_refs else 'none'}")
     print(f"- ci_steps: {', '.join(ci_config) if ci_config else 'none'}")
     print(f"- config: {workspace_config_file.name}")
     if missing_skill_refs:

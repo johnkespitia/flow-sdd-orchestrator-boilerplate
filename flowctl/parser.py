@@ -363,6 +363,7 @@ def build_parser(
     except runtime_error_type:
         runtime_help = "manifest unavailable"
     add_project.add_argument("--runtime", default="generic", help=f"Runtime pack id for targets, scaffolding and compose integration. Disponibles: {runtime_help}.")
+    add_project.add_argument("--capabilities", help="Optional framework capabilities (comma-separated). e.g. nextjs,typescript")
     add_project.add_argument("--service-name", help="Compose service name. Defaults to the project id.")
     add_project.add_argument("--port", type=int, help="Optional port to expose for the new compose service.")
     add_project.add_argument("--no-compose", action="store_true", help="Skip compose service scaffolding even if the runtime provides a template.")
