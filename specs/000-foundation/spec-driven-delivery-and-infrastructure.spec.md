@@ -39,6 +39,7 @@ Extender el workspace para que la misma spec del root gobierne:
 - validación estructural de specs
 - validación por repo afectado
 - smoke checks del stack
+- en modo `--changed`, resolver un `base` válido para evitar fallas por rangos Git inválidos (si `before` no existe, usar fallback al parent de `head`)
 
 ### Release
 

@@ -14,6 +14,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -38,14 +39,45 @@ jobs:
       - name: Spec-driven CI
         shell: bash
         run: |
+          set -euo pipefail
+          HEAD_SHA="${{ github.sha }}"
+          MODE="all"
+          BASE_SHA=""
+
+          ensure_commit() {
+            local sha="$1"
+            if [ -z "$sha" ] || [ "$sha" = "0000000000000000000000000000000000000000" ]; then
+              return 1
+            fi
+            if git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+              return 0
+            fi
+            git fetch --no-tags origin "${sha}" || true
+            git cat-file -e "${sha}^{commit}" 2>/dev/null
+          }
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            python3 ./flow ci spec --changed --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.sha }}"
-            python3 ./flow drift check --changed --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.sha }}" --json
-            python3 ./flow contract verify --changed --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.sha }}" --json
-          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            python3 ./flow ci spec --changed --base "${{ github.event.before }}" --head "${{ github.sha }}"
-            python3 ./flow drift check --changed --base "${{ github.event.before }}" --head "${{ github.sha }}" --json
-            python3 ./flow contract verify --changed --base "${{ github.event.before }}" --head "${{ github.sha }}" --json
+            CANDIDATE_BASE="${{ github.event.pull_request.base.sha }}"
+            if ensure_commit "$CANDIDATE_BASE" && ensure_commit "$HEAD_SHA"; then
+              MODE="changed"
+              BASE_SHA="$CANDIDATE_BASE"
+            fi
+          else
+            CANDIDATE_BASE="${{ github.event.before }}"
+            if ensure_commit "$CANDIDATE_BASE" && ensure_commit "$HEAD_SHA"; then
+              MODE="changed"
+              BASE_SHA="$CANDIDATE_BASE"
+            elif PARENT_SHA="$(git rev-parse "${HEAD_SHA}^" 2>/dev/null)"; then
+              MODE="changed"
+              BASE_SHA="$PARENT_SHA"
+              echo "Falling back to HEAD parent as base: ${BASE_SHA}"
+            fi
+          fi
+
+          if [ "$MODE" = "changed" ]; then
+            python3 ./flow ci spec --changed --base "$BASE_SHA" --head "$HEAD_SHA"
+            python3 ./flow drift check --changed --base "$BASE_SHA" --head "$HEAD_SHA" --json
+            python3 ./flow contract verify --changed --base "$BASE_SHA" --head "$HEAD_SHA" --json
           else
             python3 ./flow ci spec --all
             python3 ./flow drift check --all --json
@@ -71,6 +103,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
