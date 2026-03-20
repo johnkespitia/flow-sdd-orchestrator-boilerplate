@@ -1,4 +1,4 @@
-# Flow SDD Orchestrator Boilerplate
+# Flow SDD Orchestrator Boilerplate SoftOS
 
 Template repo para levantar un workspace de `Spec As Source` con:
 
