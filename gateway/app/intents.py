@@ -436,9 +436,10 @@ def intent_from_github(event: str, payload: dict[str, Any]) -> IntentRequest | N
         repository_full_name: str,
         title_suffix: str = "",
         description_override: str = "",
+        require_flow_spec_label: bool = True,
     ) -> IntentRequest | None:
         labels = [str(item.get("name", "")).strip() for item in issue.get("labels", []) if isinstance(item, dict)]
-        if "flow-spec" not in labels:
+        if require_flow_spec_label and "flow-spec" not in labels:
             return None
         repos = [label.split(":", 1)[1] for label in labels if label.startswith("flow-repo:")]
         if not repos:
@@ -516,6 +517,7 @@ def intent_from_github(event: str, payload: dict[str, Any]) -> IntentRequest | N
                 repository_full_name=repository_full_name,
                 title_suffix=suffix,
                 description_override=comment_context,
+                require_flow_spec_label=False,
             )
         return None
 

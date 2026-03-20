@@ -52,14 +52,14 @@
         ]
       },
       "github-comment": {
-        "enabled": false,
+        "enabled": true,
         "entrypoint": "scripts/providers/feedback/github_comment.sh",
         "requires": [
           "curl"
         ]
       },
       "jira-comment": {
-        "enabled": false,
+        "enabled": true,
         "entrypoint": "scripts/providers/feedback/jira_comment.sh",
         "requires": [
           "curl"
