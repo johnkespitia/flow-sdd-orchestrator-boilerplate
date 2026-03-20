@@ -31,3 +31,10 @@ services:
       - "${SOFTOS_GATEWAY_HOST_PORT:-8010}:8010"
     networks:
       - workspace
+
+volumes:
+  workspace-pnpm-store:
+
+networks:
+  workspace:
+    driver: bridge

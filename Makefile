@@ -39,45 +39,36 @@ logs:
 
 # ── Shells ───────────────────────────────────────────────────────────
 
-.PHONY: sh sh-backend sh-frontend sh-db
+.PHONY: sh sh-service sh-db
 
 sh:
 	$(FLOW) stack sh workspace
 
-sh-backend:
-	$(FLOW) stack sh backend
-
-sh-frontend:
-	$(FLOW) stack sh frontend
+sh-service:
+	@if [ -z "$(SERVICE)" ]; then echo "usage: make sh-service SERVICE=<compose_service>"; exit 2; fi
+	$(FLOW) stack sh $(SERVICE)
 
 sh-db:
 	$(FLOW) stack exec db -- mysql -u app -papp app_dev
 
 # ── Dev servers ──────────────────────────────────────────────────────
 
-.PHONY: serve-backend serve-frontend serve
+.PHONY: serve
 
-serve-backend:
-	$(FLOW) stack exec backend -- php artisan serve --host=0.0.0.0 --port=8000
-
-serve-frontend:
-	$(FLOW) stack exec frontend -- pnpm dev --host 0.0.0.0
-
-serve: ## Arranca backend y frontend en paralelo
-	@make serve-backend &
-	@make serve-frontend
+serve:
+	@echo "Root-only chassis: define explicit service command."
+	@echo "Example: make flow ARGS='stack exec <service> -- <command>'"
 
 # ── Dependencias ─────────────────────────────────────────────────────
 
-.PHONY: install-backend install-frontend install
+.PHONY: install install-service
 
-install-backend:
-	$(FLOW) stack exec backend -- sh -lc 'if [ -f composer.json ]; then composer install; else echo "skip backend install: composer.json missing"; fi'
+install:
+	$(FLOW) stack exec workspace -- sh -lc 'if [ -f composer.json ]; then composer install; elif [ -f package.json ]; then pnpm install; else echo "skip install: no composer.json/package.json in workspace root"; fi'
 
-install-frontend:
-	$(FLOW) stack exec frontend -- sh -lc 'if [ -f package.json ]; then pnpm install; else echo "skip frontend install: package.json missing"; fi'
-
-install: install-backend install-frontend
+install-service:
+	@if [ -z "$(SERVICE)" ]; then echo "usage: make install-service SERVICE=<compose_service>"; exit 2; fi
+	$(FLOW) stack exec $(SERVICE) -- sh -lc 'if [ -f composer.json ]; then composer install; elif [ -f package.json ]; then pnpm install; else echo "skip install: no composer.json/package.json"; fi'
 
 # ── Cleanup ──────────────────────────────────────────────────────────
 
@@ -160,19 +151,15 @@ help:
 	@echo ""
 	@echo "  Shells:"
 	@echo "    make sh              Shell en workspace"
-	@echo "    make sh-backend      Shell en backend"
-	@echo "    make sh-frontend     Shell en frontend"
+	@echo "    make sh-service SERVICE=<svc> Shell en un servicio especifico"
 	@echo "    make sh-db           Consola MySQL"
 	@echo ""
 	@echo "  Dev servers:"
-	@echo "    make serve-backend   Laravel en :8000"
-	@echo "    make serve-frontend  Vite en :5173"
-	@echo "    make serve           Ambos en paralelo"
+	@echo "    make serve           Muestra uso para ejecutar comandos por servicio"
 	@echo ""
 	@echo "  Dependencias:"
-	@echo "    make install-backend   composer install"
-	@echo "    make install-frontend  pnpm install"
-	@echo "    make install           Ambos"
+	@echo "    make install           Instala deps en workspace root (si aplica)"
+	@echo "    make install-service SERVICE=<svc> Instala deps en servicio especifico"
 	@echo ""
 	@echo "  Cleanup:"
 	@echo "    make clean           Detiene y elimina contenedores"

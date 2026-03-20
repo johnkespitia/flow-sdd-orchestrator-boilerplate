@@ -97,7 +97,7 @@ def command_stack_exec(
 ) -> int:
     command = normalize_passthrough(args.command)
     if not command:
-        raise SystemExit("Debes indicar un comando despues del servicio. Ejemplo: `flow stack exec backend -- php artisan about`.")
+        raise SystemExit("Debes indicar un comando despues del servicio. Ejemplo: `flow stack exec workspace -- ls -la`.")
     interactive = not args.no_tty
     workdir = workspace_path if args.service == workspace_service else None
     return run_compose(
