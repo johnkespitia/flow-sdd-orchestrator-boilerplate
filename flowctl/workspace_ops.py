@@ -52,6 +52,33 @@ def write_workspace_config(workspace_config_file: Path, payload: dict[str, objec
     )
 
 
+def deep_merge_mapping(base: dict[str, object], override: dict[str, object]) -> dict[str, object]:
+    merged = json.loads(json.dumps(base))
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge_mapping(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def parse_json_object(value: object) -> Optional[dict[str, object]]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip()
+    if not candidate.startswith("{"):
+        return None
+    try:
+        payload = json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
 def parse_ci_command(value: str, step: str) -> list[str]:
     command = [part for part in shlex.split(value) if part]
     if not command:
@@ -159,11 +186,27 @@ def command_add_project(
     ci_config = resolve_ci_config(args, defaults)
     if args.port is not None and not 1 <= args.port <= 65535:
         raise SystemExit("`--port` debe estar entre 1 y 65535.")
-    compose_enabled = not args.no_compose and defaults["compose"] is not None
-
+    compose_overrides: list[dict[str, object]] = []
     for pack in capability_packs:
-        if "compose_override" in pack:
-            compose_enabled = True
+        compose_override = pack.get("compose_override")
+        if compose_override is None:
+            continue
+        if not isinstance(compose_override, dict):
+            raise SystemExit("Las capabilities deben declarar `compose_override` como objeto.")
+        compose_overrides.append(compose_override)
+
+    compose_config: Optional[dict[str, object]] = None
+    if isinstance(defaults.get("compose"), dict):
+        compose_config = json.loads(json.dumps(defaults["compose"]))
+    if compose_overrides:
+        if compose_config is None:
+            raise SystemExit(
+                "No se puede aplicar `compose_override` sin `compose` base en el runtime."
+            )
+        for override in compose_overrides:
+            compose_config = deep_merge_mapping(compose_config, override)
+
+    compose_enabled = not args.no_compose and compose_config is not None
 
     service_name = validate_identifier(args.service_name or repo_name, "nombre del servicio")
 
@@ -199,8 +242,10 @@ def command_add_project(
     for pack in capability_packs:
         for rel_path, content in pack.get("placeholder_files", {}).items():
             if rel_path in placeholder_files:
-                if isinstance(placeholder_files[rel_path], dict) and isinstance(content, dict):
-                    placeholder_files[rel_path].update(content)
+                current_object = parse_json_object(placeholder_files[rel_path])
+                incoming_object = parse_json_object(content)
+                if current_object is not None and incoming_object is not None:
+                    placeholder_files[rel_path] = deep_merge_mapping(current_object, incoming_object)
                 else:
                     placeholder_files[rel_path] = content
             else:
@@ -209,6 +254,7 @@ def command_add_project(
     for relative_path, content in placeholder_files.items():
         target_file = destination / relative_path
         if not target_file.exists():
+            target_file.parent.mkdir(parents=True, exist_ok=True)
             if isinstance(content, dict):
                 target_file.write_text(json.dumps(content, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
             else:
@@ -236,8 +282,8 @@ def command_add_project(
         updated_config["repos"][repo_name]["ci"] = ci_config
     write_workspace_config(workspace_config_file, updated_config)
 
-    if compose_enabled:
-        add_service_to_compose(service_name, repo_path, runtime, args.port, defaults["compose"])
+    if compose_enabled and compose_config is not None:
+        add_service_to_compose(service_name, repo_path, runtime, args.port, compose_config)
 
     missing_skill_refs: list[str] = []
     try:

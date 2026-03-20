@@ -166,6 +166,7 @@ def render_runtime_service(
         "network_name": network_name,
         "service_name": service_name,
         "repo_path": repo_path,
+        "port": str(port or ""),
     }
     compose = format_compose_value(compose_config, substitutions)
     if not isinstance(compose, dict):
