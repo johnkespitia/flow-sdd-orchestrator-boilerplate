@@ -430,40 +430,34 @@ def parse_text_command(text: str, *, source: str, reply_to: dict[str, Any] | Non
 
 
 def intent_from_github(event: str, payload: dict[str, Any]) -> IntentRequest | None:
-    if event == "issue_comment":
-        comment = payload.get("comment", {})
-        body = str(comment.get("body", "")).strip()
-        if not body.startswith("/flow "):
-            return None
-        issue = payload.get("issue", {})
-        reply_to = {
-            "kind": "github",
-            "provider": "github-comment",
-            "comments_url": issue.get("comments_url"),
-            "issue_number": issue.get("number"),
-            "repository": payload.get("repository", {}).get("full_name"),
-        }
-        return parse_text_command(body[len("/flow ") :], source="github", reply_to=reply_to)
-
-    if event == "issues" and str(payload.get("action")) == "opened":
-        issue = payload.get("issue", {})
+    def intake_from_issue(
+        issue: dict[str, Any],
+        *,
+        repository_full_name: str,
+        title_suffix: str = "",
+        description_override: str = "",
+    ) -> IntentRequest | None:
         labels = [str(item.get("name", "")).strip() for item in issue.get("labels", []) if isinstance(item, dict)]
         if "flow-spec" not in labels:
             return None
         repos = [label.split(":", 1)[1] for label in labels if label.startswith("flow-repo:")]
+        if not repos:
+            repos = ["root"]
         runtimes = [label.split(":", 1)[1] for label in labels if label.startswith("flow-runtime:")]
         services = [label.split(":", 1)[1] for label in labels if label.startswith("flow-service:")]
         capabilities = [label.split(":", 1)[1] for label in labels if label.startswith("flow-capability:")]
         depends_on = [label.split(":", 1)[1] for label in labels if label.startswith("flow-depends-on:")]
-        title = str(issue.get("title", "")).strip() or str(issue.get("number", "feature"))
+        base_title = str(issue.get("title", "")).strip() or str(issue.get("number", "feature"))
+        title = f"{base_title}{title_suffix}".strip()
         slug = slugify(f"{issue.get('number', 'gh')}-{title}")
         reply_to = {
             "kind": "github",
             "provider": "github-comment",
             "comments_url": issue.get("comments_url"),
             "issue_number": issue.get("number"),
-            "repository": payload.get("repository", {}).get("full_name"),
+            "repository": repository_full_name,
         }
+        description = _normalize_description(description_override) or _normalize_description(issue.get("body", ""))
         return IntentRequest(
             source="github",
             intent="workflow.intake",
@@ -475,9 +469,69 @@ def intent_from_github(event: str, payload: dict[str, Any]) -> IntentRequest | N
                 "required_services": services,
                 "required_capabilities": capabilities,
                 "depends_on": depends_on,
+                "description": description,
             },
             reply_to=reply_to,
         )
+
+    if event == "issue_comment":
+        comment = payload.get("comment", {})
+        body = str(comment.get("body", "")).strip()
+        issue = payload.get("issue", {})
+        repository_full_name = str(payload.get("repository", {}).get("full_name", "")).strip()
+        reply_to = {
+            "kind": "github",
+            "provider": "github-comment",
+            "comments_url": issue.get("comments_url"),
+            "issue_number": issue.get("number"),
+            "repository": repository_full_name,
+        }
+
+        if body.startswith("/flow "):
+            return parse_text_command(body[len("/flow ") :], source="github", reply_to=reply_to)
+
+        normalized = body.strip()
+        lowered = normalized.lower()
+        matches_spec_keyword = (
+            lowered in {"/spec", "#spec", "flow-spec"}
+            or lowered.startswith("/spec ")
+            or lowered.startswith("#spec ")
+            or lowered.startswith("flow-spec ")
+        )
+        if matches_spec_keyword:
+            comment_context = normalized
+            for prefix in ["/spec", "#spec", "flow-spec"]:
+                if lowered.startswith(prefix):
+                    comment_context = normalized[len(prefix):].strip()
+                    break
+            comment_id = str(comment.get("id", "")).strip()
+            comment_number = issue.get("comments")
+            suffix = ""
+            if isinstance(comment_number, int) and comment_number > 0:
+                suffix = f" - comment #{comment_number}"
+            elif comment_id:
+                suffix = f" - comment #{comment_id}"
+            return intake_from_issue(
+                issue,
+                repository_full_name=repository_full_name,
+                title_suffix=suffix,
+                description_override=comment_context,
+            )
+        return None
+
+    if event == "issues":
+        action = str(payload.get("action", "")).strip()
+        issue = payload.get("issue", {})
+        repository_full_name = str(payload.get("repository", {}).get("full_name", "")).strip()
+        if not isinstance(issue, dict):
+            return None
+        if action == "opened":
+            return intake_from_issue(issue, repository_full_name=repository_full_name)
+        if action == "labeled":
+            label_name = str(payload.get("label", {}).get("name", "")).strip()
+            if label_name != "flow-spec":
+                return None
+            return intake_from_issue(issue, repository_full_name=repository_full_name)
 
     return None
 

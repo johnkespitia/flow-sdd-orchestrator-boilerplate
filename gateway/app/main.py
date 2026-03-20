@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .config import Settings, load_settings
-from .intents import IntentError, build_flow_command, intent_from_github, intent_from_jira, parse_text_command
+from .intents import IntentError, build_flow_command, intent_from_github, intent_from_jira, parse_text_command, slugify
 from .models import IntentRequest, RepoCatalogView, TaskAccepted, TaskView
 from .repos import repo_catalog_payload
 from .security import verify_bearer_token, verify_github_signature, verify_slack_signature
@@ -26,6 +26,16 @@ def _accepted_payload(task: dict[str, Any]) -> TaskAccepted:
 
 def _view_payload(task: dict[str, Any]) -> TaskView:
     return TaskView(**task)
+
+
+def _intake_spec_exists(settings: Settings, intent_request: IntentRequest) -> tuple[bool, str]:
+    if intent_request.intent != "workflow.intake":
+        return False, ""
+    slug = slugify(str(intent_request.payload.get("slug", "")))
+    if not slug:
+        return False, ""
+    spec_path = settings.workspace_root / "specs" / "features" / f"{slug}.spec.md"
+    return spec_path.is_file(), slug
 
 
 @asynccontextmanager
@@ -159,8 +169,17 @@ async def github_webhook(request: Request) -> JSONResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if intent_request is None:
         return JSONResponse({"accepted": False, "reason": "event ignored"}, status_code=200)
+    exists, slug = _intake_spec_exists(settings, intent_request)
+    if exists:
+        return JSONResponse(
+            {"accepted": False, "reason": "intake already exists", "slug": slug},
+            status_code=200,
+        )
 
-    task = enqueue_intent(request, intent_request)
+    try:
+        task = enqueue_intent(request, intent_request)
+    except IntentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(_accepted_payload(task).model_dump(), status_code=202)
 
 
@@ -179,5 +198,8 @@ async def jira_webhook(request: Request) -> JSONResponse:
     if intent_request is None:
         return JSONResponse({"accepted": False, "reason": "event ignored"}, status_code=200)
 
-    task = enqueue_intent(request, intent_request)
+    try:
+        task = enqueue_intent(request, intent_request)
+    except IntentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(_accepted_payload(task).model_dump(), status_code=202)

@@ -49,6 +49,16 @@ def secret_value_looks_placeholder(value: str) -> bool:
     lower = normalized.lower()
     if not normalized:
         return True
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+", normalized):
+        # Looks like a Python/JS attribute chain (e.g. settings.github_webhook_secret).
+        return True
+    if re.search(r"[()\[\]{}]", normalized):
+        # Looks like code invocation/indexing, not a literal secret.
+        return True
+    if any(token in normalized for token in ("${", "env:", "settings.", "request.", "payload.", "self.", "args.", "kwargs.")):
+        return True
+    if lower in {"none", "null", "true", "false"}:
+        return True
     if normalized.startswith("${") or normalized.startswith("op://") or normalized.startswith("sops://"):
         return True
     placeholders = ("example", "sample", "changeme", "replace", "dummy", "placeholder", "fake", "test")
