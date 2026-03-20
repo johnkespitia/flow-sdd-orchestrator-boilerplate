@@ -77,7 +77,7 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 {
   "name": "Release Manifest Envelope",
   "type": "json-schema",
-  "repo": "workspace-root",
+  "repo": "sdd-workspace-boilerplate",
   "match": [
     "flow"
   ],
