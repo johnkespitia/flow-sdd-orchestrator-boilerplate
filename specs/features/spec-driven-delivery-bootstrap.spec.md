@@ -9,11 +9,13 @@ targets:
   - ../../Makefile
   - ../../README.md
   - ../../workspace.config.json
+  - ../../workspace.providers.json
   - ../../runtimes/**
   - ../../.github/**
   - ../../docs/spec-driven-sdlc-map.md
   - ../../docs/spec-driven-orchestration.md
   - ../../docs/sdd-implementation-guide.md
+  - ../../docs/process-and-integrations-runbook.md
   - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
   - ../../specs/features/spec-driven-delivery-bootstrap.spec.md
   - ../../scripts/release/**
@@ -44,6 +46,8 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - workflows mínimos por repo para proyectos agregados con `flow add-project`
 - hooks por defecto de release e infra
 - documentación del SDLC resultante
+- runbook operativo de integraciones externas (Jira/GitHub/Slack)
+- configuración versionada de feedback providers (`workspace.providers.json`)
 
 ### Excluye
 
