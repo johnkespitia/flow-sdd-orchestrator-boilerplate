@@ -29,6 +29,7 @@
         "workspace.secrets.json",
         "workspace.skills.json",
         "workspace.stack.json",
+        "tessl.json",
         "Makefile"
       ],
       "default_targets": [
