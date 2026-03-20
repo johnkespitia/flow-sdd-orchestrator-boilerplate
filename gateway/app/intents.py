@@ -20,6 +20,83 @@ def slugify(value: str) -> str:
     return lowered.strip("-")
 
 
+def _normalize_description(value: object) -> str:
+    if value is None:
+        return ""
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.strip() for line in text.split("\n")]
+    normalized = "\n".join(line for line in lines if line)
+    return normalized.strip()
+
+
+def _collect_jira_adf_text(value: object, chunks: list[str]) -> None:
+    if isinstance(value, str):
+        if value:
+            chunks.append(value)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _collect_jira_adf_text(item, chunks)
+        return
+    if not isinstance(value, dict):
+        return
+
+    node_type = str(value.get("type", "")).strip()
+    if node_type == "hardBreak":
+        chunks.append("\n")
+        return
+    if node_type == "listItem":
+        chunks.append("- ")
+
+    text = value.get("text")
+    if isinstance(text, str) and text:
+        chunks.append(text)
+
+    content = value.get("content")
+    if isinstance(content, list):
+        for child in content:
+            _collect_jira_adf_text(child, chunks)
+
+    if node_type in {"paragraph", "heading", "listItem", "blockquote", "codeBlock"}:
+        chunks.append("\n")
+
+
+def _jira_description_text(value: object) -> str:
+    if isinstance(value, str):
+        return _normalize_description(value)
+    if isinstance(value, dict):
+        chunks: list[str] = []
+        _collect_jira_adf_text(value, chunks)
+        return _normalize_description("".join(chunks))
+    return ""
+
+
+def _normalize_acceptance_criteria(value: object) -> list[str]:
+    if value is None:
+        return []
+    items: list[str] = []
+    if isinstance(value, list):
+        candidates = value
+    else:
+        candidates = [value]
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        text = str(candidate).replace("\r\n", "\n").replace("\r", "\n")
+        for line in text.split("\n"):
+            normalized = line.strip().lstrip("-* ").strip()
+            if normalized:
+                items.append(normalized)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
+
+
 def build_flow_command(intent: str, payload: dict[str, Any], *, workspace_root: Path) -> list[str]:
     if intent == "status.get":
         return ["status", "--json"]
@@ -52,6 +129,11 @@ def build_flow_command(intent: str, payload: dict[str, Any], *, workspace_root: 
             candidate = str(dependency).strip()
             if candidate:
                 command.extend(["--depends-on", candidate])
+        description = _normalize_description(payload.get("description", ""))
+        if description:
+            command.extend(["--description", description])
+        for criterion in _normalize_acceptance_criteria(payload.get("acceptance_criteria")):
+            command.extend(["--acceptance-criteria", criterion])
         command.append("--json")
         return command
 
@@ -174,6 +256,8 @@ def parse_text_command(text: str, *, source: str, reply_to: dict[str, Any] | Non
         services: list[str] = []
         capabilities: list[str] = []
         depends_on: list[str] = []
+        description = None
+        acceptance_criteria: list[str] = []
         index = 0
         while index < len(tokens):
             token = tokens[index]
@@ -201,6 +285,14 @@ def parse_text_command(text: str, *, source: str, reply_to: dict[str, Any] | Non
                 depends_on.append(tokens[index + 1])
                 index += 2
                 continue
+            if token == "--description" and index + 1 < len(tokens):
+                description = tokens[index + 1]
+                index += 2
+                continue
+            if token == "--acceptance-criteria" and index + 1 < len(tokens):
+                acceptance_criteria.append(tokens[index + 1])
+                index += 2
+                continue
             raise IntentError(f"Flag no soportada en workflow intake: {token}")
         return IntentRequest(
             source=source,
@@ -213,6 +305,8 @@ def parse_text_command(text: str, *, source: str, reply_to: dict[str, Any] | Non
                 "required_services": services,
                 "required_capabilities": capabilities,
                 "depends_on": depends_on,
+                "description": _normalize_description(description),
+                "acceptance_criteria": _normalize_acceptance_criteria(acceptance_criteria),
             },
             reply_to=reply_to,
         )
@@ -256,6 +350,8 @@ def parse_text_command(text: str, *, source: str, reply_to: dict[str, Any] | Non
         services: list[str] = []
         capabilities: list[str] = []
         depends_on: list[str] = []
+        description = None
+        acceptance_criteria: list[str] = []
         index = 0
         while index < len(tokens):
             token = tokens[index]
@@ -283,6 +379,14 @@ def parse_text_command(text: str, *, source: str, reply_to: dict[str, Any] | Non
                 depends_on.append(tokens[index + 1])
                 index += 2
                 continue
+            if token == "--description" and index + 1 < len(tokens):
+                description = tokens[index + 1]
+                index += 2
+                continue
+            if token == "--acceptance-criteria" and index + 1 < len(tokens):
+                acceptance_criteria.append(tokens[index + 1])
+                index += 2
+                continue
             raise IntentError(f"Flag no soportada en spec create: {token}")
         return IntentRequest(
             source=source,
@@ -295,6 +399,8 @@ def parse_text_command(text: str, *, source: str, reply_to: dict[str, Any] | Non
                 "required_services": services,
                 "required_capabilities": capabilities,
                 "depends_on": depends_on,
+                "description": _normalize_description(description),
+                "acceptance_criteria": _normalize_acceptance_criteria(acceptance_criteria),
             },
             reply_to=reply_to,
         )
@@ -405,19 +511,28 @@ def intent_from_jira(payload: dict[str, Any]) -> IntentRequest | None:
     capabilities = [label.split(":", 1)[1] for label in labels if label.startswith("flow-capability:")]
     depends_on = [label.split(":", 1)[1] for label in labels if label.startswith("flow-depends-on:")]
     issue_key = str(issue.get("key", "")).strip()
+    description = _jira_description_text(fields.get("description"))
+    acceptance_criteria = _normalize_acceptance_criteria(
+        fields.get("acceptance_criteria", fields.get("acceptanceCriteria"))
+    )
     slug = slugify(f"{issue_key}-{title}") if issue_key else slugify(title)
+    payload_out: dict[str, Any] = {
+        "slug": slug,
+        "title": title,
+        "repos": repos,
+        "required_runtimes": runtimes,
+        "required_services": services,
+        "required_capabilities": capabilities,
+        "depends_on": depends_on,
+    }
+    if description:
+        payload_out["description"] = description
+    if acceptance_criteria:
+        payload_out["acceptance_criteria"] = acceptance_criteria
     return IntentRequest(
         source="jira",
         intent="workflow.intake",
-        payload={
-            "slug": slug,
-            "title": title,
-            "repos": repos,
-            "required_runtimes": runtimes,
-            "required_services": services,
-            "required_capabilities": capabilities,
-            "depends_on": depends_on,
-        },
+        payload=payload_out,
         reply_to={
             "kind": "jira",
             "provider": "jira-comment",

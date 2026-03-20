@@ -108,6 +108,8 @@ def build_parser(
     workflow_intake.add_argument("--service", action="append", choices=available_service_runtime_names(root), help="Required service runtime. Repeatable.")
     workflow_intake.add_argument("--capability", action="append", choices=available_capability_names(root), help="Required workspace capability. Repeatable.")
     workflow_intake.add_argument("--depends-on", action="append", help="Required upstream spec slug. Repeatable.")
+    workflow_intake.add_argument("--description", help="Optional intake context used to prefill the spec body.")
+    workflow_intake.add_argument("--acceptance-criteria", action="append", help="Acceptance criteria line. Repeatable.")
     workflow_intake.add_argument("--json", action="store_true", help="Print the intake bundle as JSON.")
     workflow_intake.set_defaults(func=commands["workflow_intake"])
 
@@ -421,6 +423,8 @@ def build_parser(
         action="append",
         help="Declare prerequisite specs by slug or path. Repeatable.",
     )
+    spec_create.add_argument("--description", help="Optional context used to prefill the generated spec.")
+    spec_create.add_argument("--acceptance-criteria", action="append", help="Acceptance criteria line. Repeatable.")
     spec_create.set_defaults(func=commands["spec_create"])
 
     spec_review = spec_subparsers.add_parser("review", help="Create a spec review report.")

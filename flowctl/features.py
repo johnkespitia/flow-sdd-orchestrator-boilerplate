@@ -17,6 +17,40 @@ def render_yaml_list(key: str, values: list[str]) -> list[str]:
     return [f"{key}:"] + [f"  - {item}" for item in items]
 
 
+def normalize_description(value: object) -> str:
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+    lines = [line.strip() for line in text.split("\n")]
+    return "\n".join(line for line in lines if line).strip()
+
+
+def normalize_acceptance_criteria(values: object) -> list[str]:
+    if values is None:
+        return []
+    if isinstance(values, list):
+        candidates = values
+    else:
+        candidates = [values]
+    items: list[str] = []
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        text = str(candidate).replace("\r\n", "\n").replace("\r", "\n")
+        for line in text.split("\n"):
+            normalized = line.strip().lstrip("-* ").strip()
+            if normalized:
+                items.append(normalized)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
+
+
 def load_plan_and_slice(
     slug: str,
     slice_name: str,
@@ -69,6 +103,59 @@ def command_spec_create(
         str(item).strip() for item in getattr(args, "capability", []) or [] if str(item).strip()
     ]
     depends_on = [slugify(str(item)) for item in getattr(args, "depends_on", []) or [] if str(item).strip()]
+    acceptance_criteria = normalize_acceptance_criteria(getattr(args, "acceptance_criteria", []))
+    acceptance_lines = [f"- {item}" for item in acceptance_criteria] or ["- TODO", "- TODO"]
+    intake_description = normalize_description(getattr(args, "description", ""))
+    description_lines = [line for line in intake_description.split("\n") if line]
+    summary_description = (
+        description_lines[0]
+        if description_lines
+        else "TODO describir el resultado observable"
+    )
+    objective_text = (
+        description_lines[0]
+        if description_lines
+        else "Describir el comportamiento observable que esta feature debe introducir."
+    )
+    context_section = (
+        [
+            "Contexto inicial capturado desde intake:",
+            "",
+            *[f"- {line}" for line in description_lines],
+            "",
+        ]
+        if description_lines
+        else [
+            "- por que existe ahora",
+            "- que foundations gobiernan esta feature",
+            "- que repos estan afectados",
+            "- que runtimes, servicios o capabilities deben existir para materializarla",
+            "",
+        ]
+    )
+    problem_section = (
+        [
+            "- derivado del requerimiento inbound descrito en Contexto",
+            "- validar supuestos y riesgos durante refinement",
+            "",
+        ]
+        if description_lines
+        else [
+            "- que duele hoy",
+            "- que riesgo o ineficiencia se quiere eliminar",
+            "",
+        ]
+    )
+    inbound_description_block = (
+        [
+            "## Descripcion inbound",
+            "",
+            *[f"- {line}" for line in description_lines],
+            "",
+        ]
+        if description_lines
+        else []
+    )
     spec_path = feature_specs / f"{slug}.spec.md"
     if spec_path.exists():
         raise SystemExit(f"La spec ya existe: {rel(spec_path)}")
@@ -80,7 +167,7 @@ def command_spec_create(
             "---",
             "schema_version: 2",
             f"name: {json.dumps(title, ensure_ascii=True)}",
-            f"description: {json.dumps('TODO describir el resultado observable', ensure_ascii=True)}",
+            f"description: {json.dumps(summary_description, ensure_ascii=True)}",
             "status: draft",
             "owner: platform",
             *render_yaml_list("depends_on", depends_on),
@@ -98,19 +185,16 @@ def command_spec_create(
             "",
             "## Objetivo",
             "",
-            "Describir el comportamiento observable que esta feature debe introducir.",
+            objective_text,
             "",
             "## Contexto",
             "",
-            "- por que existe ahora",
-            "- que foundations gobiernan esta feature",
-            "- que repos estan afectados",
-            "- que runtimes, servicios o capabilities deben existir para materializarla",
+            *context_section,
             "",
             "## Problema a resolver",
             "",
-            "- que duele hoy",
-            "- que riesgo o ineficiencia se quiere eliminar",
+            *problem_section,
+            *inbound_description_block,
             "",
             "## Alcance",
             "",
@@ -160,8 +244,7 @@ def command_spec_create(
             "",
             "## Criterios de aceptacion",
             "",
-            "- TODO",
-            "- TODO",
+            *acceptance_lines,
             "",
             "## Test plan",
             "",

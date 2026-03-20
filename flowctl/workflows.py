@@ -180,6 +180,8 @@ def command_workflow_intake(
     spec_args.service = list(getattr(args, "service", []) or [])
     spec_args.capability = list(getattr(args, "capability", []) or [])
     spec_args.depends_on = list(getattr(args, "depends_on", []) or [])
+    spec_args.description = str(getattr(args, "description", "") or "").strip()
+    spec_args.acceptance_criteria = list(getattr(args, "acceptance_criteria", []) or [])
 
     spec_stdout = io.StringIO()
     with contextlib.redirect_stdout(spec_stdout):
