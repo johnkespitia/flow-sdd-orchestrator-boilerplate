@@ -20,6 +20,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install Python deps
+        run: python3 -m pip install --upgrade pip PyYAML
+
       - name: Flow doctor
         run: python3 ./flow doctor
 
@@ -69,6 +72,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Install Python deps
+        run: python3 -m pip install --upgrade pip PyYAML
 
       - name: Build stack
         run: python3 ./flow stack build
