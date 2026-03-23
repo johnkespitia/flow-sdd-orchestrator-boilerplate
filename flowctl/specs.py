@@ -513,6 +513,7 @@ def frontmatter_list(frontmatter: dict[str, object], key: str) -> list[str]:
 def spec_dependency_findings(
     analysis: dict[str, object],
     *,
+    config: SpecConfig,
     available_project_runtime_names: Callable[[], list[str]],
     available_service_runtime_names: Callable[[], list[str]],
     available_capability_names: Callable[[], list[str]],
@@ -674,6 +675,7 @@ def spec_dependency_findings(
 
     current_spec_path = analysis.get("spec_path")
     current_spec = current_spec_path.resolve() if isinstance(current_spec_path, Path) else None
+    resolved_dependencies: list[Path] = []
     for dependency in analysis.get("depends_on", []):
         try:
             dependency_path = resolve_spec(dependency)
@@ -693,6 +695,44 @@ def spec_dependency_findings(
             findings.append(
                 f"`depends_on` requiere specs aprobadas: `{dependency}` esta en `{dependency_status}`."
             )
+        resolved_dependencies.append(dependency_path.resolve())
+
+    if current_spec is not None:
+        try:
+            relative_current = current_spec.relative_to(config.specs_root.resolve())
+        except ValueError:
+            relative_current = None
+
+        if relative_current is not None and relative_current.parts and relative_current.parts[0] == "features":
+            foundation_specs = sorted((config.specs_root / "000-foundation").rglob("*.spec.md"))
+            domain_specs = sorted((config.specs_root / "domains").rglob("*.spec.md"))
+
+            def dependency_bucket(path: Path) -> str:
+                try:
+                    rel = path.relative_to(config.specs_root.resolve())
+                except ValueError:
+                    return ""
+                if not rel.parts:
+                    return ""
+                return rel.parts[0]
+
+            dependency_buckets = {dependency_bucket(path) for path in resolved_dependencies}
+
+            raw_text = str(analysis.get("text", "")).lower()
+            explicit_no_domain_exception = bool(
+                re.search(r"no aplica\s+ningun?\s+domain\s+porque", raw_text)
+                or re.search(r"no aplica\s+domain\s+porque", raw_text)
+            )
+
+            if foundation_specs and "000-foundation" not in dependency_buckets:
+                findings.append(
+                    "Feature specs deben referenciar al menos una spec de `specs/000-foundation/**` en `depends_on`."
+                )
+            if domain_specs and "domains" not in dependency_buckets and not explicit_no_domain_exception:
+                findings.append(
+                    "Feature specs deben referenciar al menos una spec de `specs/domains/**` en `depends_on`, "
+                    "o justificar explicitamente la excepcion en la seccion `Domains Aplicables`."
+                )
 
     return findings
 

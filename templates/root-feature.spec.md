@@ -45,8 +45,19 @@ Describir el comportamiento observable que esta feature debe introducir en el si
 
 - por que existe ahora
 - que foundations gobiernan esta feature
+- que domains gobiernan esta feature
 - si afecta backend, frontend o ambos
 - que runtimes, servicios o capabilities deben existir para materializarla
+
+## Foundations Aplicables
+
+- spec foundation requerida: `specs/000-foundation/...`
+- justificacion si no aplica alguna foundation relevante
+
+## Domains Aplicables
+
+- spec domain requerida: `specs/domains/...`
+- si no aplica domain, declarar explicitamente: `no aplica domain porque <razon>`
 
 ## Problema a resolver
 

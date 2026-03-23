@@ -625,6 +625,7 @@ def format_findings(findings: list[str]) -> list[str]:
 def spec_dependency_findings(analysis: dict[str, object]) -> list[str]:
     return flow_specs.spec_dependency_findings(
         analysis,
+        config=SPEC_CONFIG,
         available_project_runtime_names=lambda: available_project_runtime_names(ROOT),
         available_service_runtime_names=lambda: available_service_runtime_names(ROOT),
         available_capability_names=lambda: flow_stack_design.available_capability_names(ROOT),

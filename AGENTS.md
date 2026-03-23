@@ -43,3 +43,4 @@ Usa el skill `workspace/skills-discover` cuando necesites buscar skills en tessl
 - When a request is ambiguous between backend and frontend, ask one short clarifying question.
 - When a root spec includes `targets` that point into a submodule, read the root spec first and then descend into the corresponding submodule `AGENTS.md` before editing code.
 - Treat `.flow/**` as operational state only. It helps with orchestration, but it never overrides `specs/**`.
+- Any new feature spec in `specs/features/**` must explicitly consider foundations (`specs/000-foundation/**`) and domains (`specs/domains/**`) through `depends_on` or a justified exclusion in the body.
