@@ -20,6 +20,7 @@ targets:
   - ../../specs/features/spec-driven-delivery-bootstrap.spec.md
   - ../../scripts/release/**
   - ../../scripts/infra/**
+  - ../../scripts/preflight_env.sh
 infra_targets:
   - ../../.devcontainer/**
   - ../../scripts/infra/**
@@ -48,6 +49,7 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - documentación del SDLC resultante
 - runbook operativo de integraciones externas (Jira/GitHub/Slack)
 - configuración versionada de feedback providers (`workspace.providers.json`)
+- preflight de entorno agnóstico de runtime para validar readiness antes del primer spec
 
 ### Excluye
 
@@ -70,6 +72,7 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - los runtime packs pueden declarar `bindings` por runtime de servicio para resolver `environment` y `depends_on` sin modificar el core
 - las foundation specs generadas por capabilities nacen en `draft`, no en `approved`
 - `python3 ./flow release cut --spec <slug>` falla si el plan no existe o si alguna slice planeada no paso verificacion
+- `scripts/preflight_env.sh --build` valida salud base del workspace y falla si hay servicios sin readiness operativo
 
 ## Contratos derivados
 
