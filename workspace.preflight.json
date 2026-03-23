@@ -1,0 +1,21 @@
+{
+  "contracts": {
+    "required_for_multi_repo": true
+  },
+  "repos": {
+    "example-api-repo-id": {
+      "required_env_keys": [
+        "API_BASE_URL"
+      ],
+      "readiness_status_cmd": "echo ok",
+      "migration_apply_cmd": ""
+    },
+    "example-web-repo-id": {
+      "required_env_keys": [
+        "PUBLIC_API_BASE_URL"
+      ],
+      "readiness_status_cmd": "echo ok",
+      "migration_apply_cmd": ""
+    }
+  }
+}

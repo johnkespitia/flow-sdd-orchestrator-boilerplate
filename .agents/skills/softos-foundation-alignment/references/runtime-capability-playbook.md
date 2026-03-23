@@ -59,6 +59,12 @@ Expected in `stack ps`: `0.0.0.0:<host_port>-><container_port>/tcp`.
 
 Container state alone is insufficient. Validate app-level readiness after `stack up`.
 
+Preferred approach:
+
+- Define checks in `workspace.preflight.json`.
+- Execute `scripts/preflight_env.sh --build` (and optionally `--run-migrations`).
+- Keep readiness policy repo-specific and technology-agnostic.
+
 ### Generic pattern
 
 1. Process/listener check inside container.

@@ -1,0 +1,21 @@
+{
+  "contracts": {
+    "required_for_multi_repo": true
+  },
+  "repos": {
+    "backend": {
+      "required_env_keys": [
+        "APP_ENV"
+      ],
+      "readiness_status_cmd": "echo ok",
+      "migration_apply_cmd": ""
+    },
+    "frontend": {
+      "required_env_keys": [
+        "API_BASE_URL"
+      ],
+      "readiness_status_cmd": "echo ok",
+      "migration_apply_cmd": ""
+    }
+  }
+}

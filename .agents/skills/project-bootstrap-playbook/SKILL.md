@@ -40,6 +40,9 @@ python3 scripts/bootstrap_workspace.py ~/Projects/<NuevoWorkspace> \
 cd ~/Projects/<NuevoWorkspace>
 python3 ./flow init
 python3 ./flow stack ps
+scripts/preflight_env.sh --build
+# Optional: apply migration/apply commands configured per repo in workspace.preflight.json
+scripts/preflight_env.sh --build --run-migrations
 
 # 3) Register existing repo
 python3 ./flow add-project <repo_id> \
@@ -59,35 +62,19 @@ python3 ./flow ci spec <slug>
 
 ## Runtime Readiness Checks (required)
 
-After `flow init` or `flow stack up`, validate app readiness explicitly:
+Preferred one-command gate:
 
 ```bash
-python3 ./flow stack ps
+scripts/preflight_env.sh --build
+# Optional: apply migration/apply commands configured per repo in workspace.preflight.json
+scripts/preflight_env.sh --build --run-migrations
 ```
+`preflight_env.sh` is policy-driven and technology-agnostic. Use `workspace.preflight.json` to define:
 
-Then run app-level checks by runtime/service:
-
-- PHP:
-```bash
-python3 ./flow stack exec <compose_service> -- php -v
-python3 ./flow stack exec <compose_service> -- sh -lc "test -f /app/public/index.php"
-```
-- Node:
-```bash
-python3 ./flow stack exec <compose_service> -- node -v
-python3 ./flow stack exec <compose_service> -- sh -lc "ss -lntp | grep -E ':(3000|5173|8000)'"
-```
-- Python:
-```bash
-python3 ./flow stack exec <compose_service> -- python3 --version
-python3 ./flow stack exec <compose_service> -- sh -lc "ss -lntp | grep -E ':(8000|8001)'"
-```
-
-If service exposes a host port, also verify HTTP:
-
-```bash
-curl -fsS http://127.0.0.1:<host_port>/healthz || curl -fsS http://127.0.0.1:<host_port>/
-```
+- required env keys per repo/service
+- readiness status commands
+- migration/apply commands
+- contract requirements
 
 ## Rules
 

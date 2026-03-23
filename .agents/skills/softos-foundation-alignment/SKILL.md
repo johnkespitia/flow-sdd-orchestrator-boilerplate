@@ -42,12 +42,17 @@ Use this directory contract to place specs correctly:
 Run:
 
 ```bash
+scripts/preflight_env.sh --build
+# Optional: apply migration/apply commands configured per repo in workspace.preflight.json
+scripts/preflight_env.sh --build --run-migrations
 python3 ./flow doctor
 python3 ./flow skills doctor
 python3 ./flow ci spec --all
 ```
 
 If `flow ci spec --all` fails, do not block discovery; continue with audit and return findings.
+
+`preflight_env.sh` is policy-driven and technology-agnostic. Define repo-specific readiness/migration/env checks in `workspace.preflight.json`.
 
 ### 2) Inventory and classify project assets
 
