@@ -3,6 +3,8 @@ name: Spec-Driven Delivery Bootstrap
 description: Extender el control plane del workspace para gobernar CI, releases y cambios de infraestructura desde specs del root
 status: approved
 owner: platform
+depends_on:
+  - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
 targets:
   - ../../flow
   - ../../flowctl/**
