@@ -158,6 +158,8 @@ def command_ci_repo(
     if (
         not running_inside_workspace()
         and any(repo_compose_service(repo_name).strip() for repo_name in repo_names)
+        and os.environ.get("FLOW_SKIP_WORKSPACE_DELEGATION") != "1"
+        and os.environ.get("GITHUB_ACTIONS", "").lower() != "true"
         and os.environ.get("FLOW_DELEGATED_TO_WORKSPACE") != "1"
     ):
         delegated_command = [
