@@ -9,6 +9,18 @@ if [[ ! -f .gitmodules ]]; then
   exit 0
 fi
 
+configure_github_auth() {
+  local token="${GH_PAT:-${GITHUB_TOKEN:-}}"
+  if [[ -z "$token" ]]; then
+    echo "No GH_PAT/GITHUB_TOKEN provided. Continuing with existing git auth config."
+    return 0
+  fi
+  local auth_header
+  auth_header="$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\n')"
+  git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $auth_header"
+  echo "Configured GitHub auth header for submodule operations."
+}
+
 origin_url="$(git config --get remote.origin.url || true)"
 if [[ -z "$origin_url" ]]; then
   echo "No remote.origin.url found. Skipping normalization."
@@ -81,6 +93,8 @@ done < <(git config -f .gitmodules --name-only --get-regexp '^submodule\..*\.url
 if [[ "$changed" -eq 1 ]]; then
   git submodule sync --recursive
 fi
+
+configure_github_auth
 
 # Always initialize/update after potential rewrite.
 git submodule update --init --recursive
