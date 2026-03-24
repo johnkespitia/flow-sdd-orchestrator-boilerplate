@@ -328,16 +328,20 @@ token: ${{ secrets.GH_PAT || github.token }}
 
 Si existe `GH_PAT`, se usa ese token; si no, el workflow cae al `github.token`.
 
-Adicionalmente, el job `spec-governance` instala toolchains base (`go`, `node`, `pnpm`,
-`php`/`composer`) y ejecuta `flow ci repo --all` con:
+Adicionalmente, `root-ci` separa `Repo CI` en una matrix por repo/runtime:
+
+- `discover-repo-ci-matrix` detecta repos de implementación y runtime desde `workspace.config.json`.
+- `repo-ci` ejecuta `python3 ./flow ci repo <repo>` en paralelo por repo.
+- Cada fila instala toolchains condicionales (solo los necesarios según runtime/CI commands), por
+  ejemplo `go`, `node`/`pnpm` o `php`/`composer`.
+- La ejecución fuerza modo nativo en runner con:
 
 ```bash
 FLOW_SKIP_COMPOSE_WRAP=1
 ```
 
-Eso fuerza ejecución nativa en el runner de GitHub Actions para los comandos CI de repos
-(`pnpm`, `composer`, `go`, etc.) y evita depender de `docker compose exec` cuando el servicio
-`workspace` no está levantado.
+Eso evita depender de `docker compose exec` cuando el servicio `workspace` no está levantado en
+GitHub Actions.
 
 ### Qué hace `scripts/ci/normalize_gitmodules.sh`
 

@@ -117,6 +117,9 @@ Este documento resume el flujo operativo completo del workspace, el estado actua
   ejecutar `git submodule sync/update`.
 - El checkout de `root-ci` usa `token: ${{ secrets.GH_PAT || github.token }}` para permitir acceso a
   submódulos privados en otros repos cuando `github.token` no alcanza.
+- `Repo CI` corre en job separado con strategy matrix por repo/runtime (`discover-repo-ci-matrix` + `repo-ci`),
+  instala toolchains de forma condicional por runtime y ejecuta `flow ci repo <repo>` en modo nativo con
+  `FLOW_SKIP_COMPOSE_WRAP=1` para no depender de contenedores en GitHub Actions.
 
 ### Secret scan
 
