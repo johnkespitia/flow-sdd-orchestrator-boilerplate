@@ -344,9 +344,43 @@ jobs:
         run: python3 -m pip install --upgrade pip PyYAML
 
       - name: Repo CI
+        id: repo_ci
+        continue-on-error: true
+        shell: bash
         env:
           FLOW_SKIP_COMPOSE_WRAP: "1"
-        run: python3 ./flow ci repo ${{ matrix.repo }}
+        run: |
+          set -euo pipefail
+          rc=0
+          python3 ./flow ci repo "${{ matrix.repo }}" || rc=$?
+          echo "exit_code=${rc}" >> "$GITHUB_OUTPUT"
+
+      - name: Repo CI report summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_md=".flow/reports/ci/repo-${{ matrix.repo }}.md"
+          report_json=".flow/reports/ci/repo-${{ matrix.repo }}.json"
+          echo "Repo CI exit_code: ${{ steps.repo_ci.outputs.exit_code }}"
+          if [ -f "$report_md" ]; then
+            echo "---- ${report_md} ----"
+            cat "$report_md"
+          fi
+          if [ -f "$report_json" ]; then
+            echo "---- ${report_json} ----"
+            cat "$report_json"
+          fi
+
+      - name: Enforce Repo CI result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.repo_ci.outputs.exit_code }}" != "0" ]; then
+            echo "Repo CI failed for '${{ matrix.repo }}'. See report summary above."
+            exit 1
+          fi
 
       - name: Upload CI reports
         uses: actions/upload-artifact@v4
