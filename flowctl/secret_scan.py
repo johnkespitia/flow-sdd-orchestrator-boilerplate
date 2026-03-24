@@ -53,6 +53,9 @@ def secret_value_looks_placeholder(value: str) -> bool:
     lower = normalized.lower()
     if not normalized:
         return True
+    if normalized.startswith("<") or normalized.startswith("&lt;"):
+        # Looks like HTML/JSX markup, not a literal secret value.
+        return True
     if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+", normalized):
         # Looks like a Python/JS attribute chain (e.g. settings.github_webhook_secret).
         return True
