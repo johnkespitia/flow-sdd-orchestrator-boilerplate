@@ -107,6 +107,12 @@ jobs:
             git cat-file -e "${sha}^{commit}" 2>/dev/null
           }
 
+          has_merge_base() {
+            local base_sha="$1"
+            local head_sha="$2"
+            git merge-base "$base_sha" "$head_sha" >/dev/null 2>&1
+          }
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             CANDIDATE_BASE="${{ github.event.pull_request.base.sha }}"
             if ensure_commit "$CANDIDATE_BASE" && ensure_commit "$HEAD_SHA"; then
