@@ -25,6 +25,27 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer:v2
+
       - name: Install Python deps
         run: python3 -m pip install --upgrade pip PyYAML
 
@@ -89,6 +110,8 @@ jobs:
           fi
 
       - name: Repo CI
+        env:
+          FLOW_SKIP_COMPOSE_WRAP: "1"
         run: python3 ./flow ci repo --all
 
       - name: Upload CI reports

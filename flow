@@ -333,6 +333,9 @@ def runtime_path(path: Path) -> Path:
 
 
 def wrap_repo_command_for_service(repo: str, repo_path: Path, command: list[str]) -> list[str]:
+    if os.environ.get("FLOW_SKIP_COMPOSE_WRAP") == "1" or os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+        return command
+
     service_name = repo_compose_service(repo)
     if not service_name:
         return command

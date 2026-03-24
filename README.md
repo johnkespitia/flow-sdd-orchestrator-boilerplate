@@ -328,6 +328,17 @@ token: ${{ secrets.GH_PAT || github.token }}
 
 Si existe `GH_PAT`, se usa ese token; si no, el workflow cae al `github.token`.
 
+Adicionalmente, el job `spec-governance` instala toolchains base (`go`, `node`, `pnpm`,
+`php`/`composer`) y ejecuta `flow ci repo --all` con:
+
+```bash
+FLOW_SKIP_COMPOSE_WRAP=1
+```
+
+Eso fuerza ejecución nativa en el runner de GitHub Actions para los comandos CI de repos
+(`pnpm`, `composer`, `go`, etc.) y evita depender de `docker compose exec` cuando el servicio
+`workspace` no está levantado.
+
 ### Qué hace `scripts/ci/normalize_gitmodules.sh`
 
 - Si no existe `.gitmodules`, hace no-op.
