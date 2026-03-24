@@ -13,8 +13,12 @@ jobs:
       - name: Checkout workspace
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          token: ${{ secrets.GH_PAT || github.token }}
+          submodules: false
           fetch-depth: 0
+
+      - name: Normalize and hydrate submodules
+        run: ./scripts/ci/normalize_gitmodules.sh
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -102,8 +106,12 @@ jobs:
       - name: Checkout workspace
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          token: ${{ secrets.GH_PAT || github.token }}
+          submodules: false
           fetch-depth: 0
+
+      - name: Normalize and hydrate submodules
+        run: ./scripts/ci/normalize_gitmodules.sh
 
       - name: Setup Python
         uses: actions/setup-python@v5

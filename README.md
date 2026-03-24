@@ -311,6 +311,39 @@ make hooks-install
 `flow contract verify` usa los contratos generados en `contracts/generated/**` para detectar drift
 estructural entre contrato e implementacion antes de llegar a integración.
 
+## CI y submódulos privados (GitHub Actions)
+
+Cuando el workspace usa submódulos privados en GitHub, el `GITHUB_TOKEN` por defecto del workflow
+puede no tener acceso a repos privados adicionales (aunque estén bajo el mismo usuario/organización).
+
+Por eso `root-ci` usa este enfoque:
+
+1. `actions/checkout@v4` con `submodules: false`.
+2. Paso `Normalize and hydrate submodules` con `./scripts/ci/normalize_gitmodules.sh`.
+3. Autenticación del checkout con:
+
+```yaml
+token: ${{ secrets.GH_PAT || github.token }}
+```
+
+Si existe `GH_PAT`, se usa ese token; si no, el workflow cae al `github.token`.
+
+### Qué hace `scripts/ci/normalize_gitmodules.sh`
+
+- Si no existe `.gitmodules`, hace no-op.
+- Detecta el owner del repo raíz desde `remote.origin.url`.
+- Convierte URLs de submódulos GitHub del mismo owner a relativas (`../repo.git`), por ejemplo:
+  - `git@github.com:johnkespitia/cerradura.git` -> `../cerradura.git`
+  - `https://github.com/johnkespitia/cerrajero.git` -> `../cerrajero.git`
+- Ejecuta `git submodule sync --recursive` si hubo cambios.
+- Ejecuta siempre `git submodule update --init --recursive`.
+
+### Configuración requerida en GitHub
+
+1. Crear un PAT con permisos de lectura de contenido sobre los repos necesarios.
+2. Guardarlo como secret del repo con nombre `GH_PAT`.
+3. Confirmar que el workflow corre con ese secret disponible.
+
 En el gateway, los intents que requieren repo aceptan codigos resueltos desde
 `workspace.config.json`. Para el repo raiz del workspace puedes usar siempre `root`, aunque el
 `root_repo` real haya sido renombrado por el bootstrap.

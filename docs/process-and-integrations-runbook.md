@@ -112,6 +112,11 @@ Este documento resume el flujo operativo completo del workspace, el estado actua
 - `root-ci` instala `PyYAML` antes de `flow doctor`.
 - En `push`, spec governance usa `--changed` (base/head) para no caer por specs draft históricas no tocadas en el commit.
 - Se agregó `tessl.json` a `workspace.config.json` como `target_root` permitido.
+- `root-ci` ya no usa `checkout` con `submodules: recursive`; ahora usa `submodules: false` y luego
+  `scripts/ci/normalize_gitmodules.sh` para normalizar URLs de `.gitmodules` a relativas cuando aplica y
+  ejecutar `git submodule sync/update`.
+- El checkout de `root-ci` usa `token: ${{ secrets.GH_PAT || github.token }}` para permitir acceso a
+  submódulos privados en otros repos cuando `github.token` no alcanza.
 
 ### Secret scan
 
@@ -138,4 +143,3 @@ Este documento resume el flujo operativo completo del workspace, el estado actua
 - Secret manager central.
 - RBAC/autenticación fuerte para `/v1/intents`.
 - Workers dedicados para ejecución de intents en paralelo controlado.
-
