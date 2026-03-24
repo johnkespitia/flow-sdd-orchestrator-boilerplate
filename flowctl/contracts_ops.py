@@ -7,19 +7,32 @@ from typing import Callable, Optional
 NON_SPEC_DRIFT_ROOT_PREFIXES = (
     ".github/workflows/",
     "docs/",
+    "flowctl/",
+    "scripts/",
     "scripts/ci/",
 )
 NON_SPEC_DRIFT_SUFFIXES = (".md",)
+NON_SPEC_DRIFT_ROOT_FILES = {
+    "flow",
+    "makefile",
+    "tessl.json",
+}
 
 
 def is_non_spec_drift_change(repo: str, root_repo: str, path: str) -> bool:
     normalized = str(path).strip().replace("\\", "/")
     if not normalized:
         return False
+    lowered = normalized.lower()
     if normalized.endswith(NON_SPEC_DRIFT_SUFFIXES):
         return True
-    if repo == root_repo and normalized.startswith(NON_SPEC_DRIFT_ROOT_PREFIXES):
-        return True
+    if repo == root_repo:
+        if normalized.startswith(NON_SPEC_DRIFT_ROOT_PREFIXES):
+            return True
+        if lowered in NON_SPEC_DRIFT_ROOT_FILES:
+            return True
+        if lowered.startswith("workspace.") and lowered.endswith(".json"):
+            return True
     return False
 
 
