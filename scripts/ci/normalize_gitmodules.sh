@@ -18,7 +18,11 @@ configure_github_auth() {
   local auth_header
   auth_header="$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\n')"
   git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $auth_header"
-  echo "Configured GitHub auth header for submodule operations."
+  # Fallback for environments where extraheader is not propagated to submodule clone.
+  git config --local url."https://x-access-token:${token}@github.com/".insteadOf "https://github.com/"
+  git config --local url."https://x-access-token:${token}@github.com/".insteadOf "git@github.com:"
+  git config --local url."https://x-access-token:${token}@github.com/".insteadOf "ssh://git@github.com/"
+  echo "Configured GitHub auth for submodule operations (extraheader + url.insteadOf)."
 }
 
 verify_submodules_hydrated() {
