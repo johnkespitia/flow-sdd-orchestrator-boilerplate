@@ -238,6 +238,8 @@ dejando `workspace.skills.json` reservado para capacidades del agente:
 ```bash
 python3 ./flow add-project api --runtime php --port 8000
 python3 ./flow add-project web --runtime pnpm --port 5173
+python3 ./flow add-project legacy-api --path projects/legacy-api --runtime php \
+  --submodule-url git@github.com:acme/legacy-api.git --submodule-branch main
 ```
 
 Los runtime packs tambien pueden declarar `bindings` por runtime de servicio. Ese contrato define
@@ -252,6 +254,42 @@ python3 ./flow providers list
 python3 ./flow release promote --version 2026.03.14-1 --env preview --provider local-hooks
 python3 ./flow infra plan spec-driven-delivery-bootstrap --env preview --provider local-hooks
 ```
+
+Deploy transparente por repo:
+
+- `flow release promote` ahora puede resolver provider automaticamente desde `workspace.config.json`
+  usando `repos.<repo>.deploy`.
+- Si un release toca varios repos con providers distintos, usa `--deploy-repo <repo>` o `--provider`.
+
+Contrato recomendado en `workspace.config.json` por repo:
+
+```json
+{
+  "repos": {
+    "legacy-api": {
+      "deploy": {
+        "provider": "ftp-bridge",
+        "providers_by_env": {
+          "preview": "github-actions",
+          "production": "ftp-bridge"
+        },
+        "env": {
+          "FLOW_DEPLOY_GITHUB_REPO": "acme/legacy-api",
+          "FLOW_DEPLOY_GITHUB_WORKFLOW": "deploy.yml"
+        },
+        "env_by_env": {
+          "production": {
+            "FLOW_DEPLOY_GITHUB_REF": "main"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+`ftp-bridge` delega el deploy legacy a un workflow de GitHub del repo de implementacion (`gh workflow run`),
+manteniendo el gate y la auditoria dentro de SoftOS.
 
 Si exportas `SOFTOS_SLACK_WEBHOOK_URL`, los hooks locales publican un resumen final del delivery:
 fallo en `release promote`, `infra plan` o `infra apply`, y `change ready` cuando `infra apply`

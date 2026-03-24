@@ -16,6 +16,13 @@
         "env": {
           "FLOW_GITHUB_RELEASE_WORKFLOW": "release-promote.yml"
         }
+      },
+      "ftp-bridge": {
+        "enabled": false,
+        "entrypoint": "scripts/providers/release/ftp_bridge.sh",
+        "requires": [
+          "gh"
+        ]
       }
     }
   },

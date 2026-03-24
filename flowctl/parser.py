@@ -331,6 +331,10 @@ def build_parser(
     release_promote.add_argument("--version", required=True, help="Release version.")
     release_promote.add_argument("--env", dest="environment", required=True, choices=["preview", "staging", "production"])
     release_promote.add_argument("--provider", help="Optional release provider id. Defaults to workspace.providers.json.")
+    release_promote.add_argument(
+        "--deploy-repo",
+        help="Optional repo id used to resolve deploy provider from `workspace.config.json`.",
+    )
     release_promote.add_argument("--approver", help="Required for staging and production promotions.")
     release_promote.add_argument("--json", action="store_true", help="Print the promotion result as JSON.")
     release_promote.set_defaults(func=commands["release_promote"])

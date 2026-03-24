@@ -21,6 +21,7 @@ targets:
   - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
   - ../../specs/features/spec-driven-delivery-bootstrap.spec.md
   - ../../scripts/release/**
+  - ../../scripts/providers/release/**
   - ../../scripts/infra/**
   - ../../scripts/preflight_env.sh
 infra_targets:
@@ -64,6 +65,9 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - `python3 ./flow ci spec --all` valida el contrato de specs
 - `python3 ./flow release cut --version <v> --spec spec-driven-delivery-bootstrap` genera un manifest versionado
 - `python3 ./flow release promote --version <v> --env preview` registra una promoción usando el hook por defecto
+- `python3 ./flow release promote --version <v> --env <env>` puede resolver automaticamente el provider de deploy desde `workspace.config.json` (`repos.<repo>.deploy`) sin `--provider`
+- cuando un release incluye repos con providers de deploy distintos, `python3 ./flow release promote --version <v> --env <env> --deploy-repo <repo>` permite resolver la ambiguedad de forma explicita
+- existe un provider de bridge para legado FTP (`ftp-bridge`) en `workspace.providers.json` para delegar deploy externo sin bypass del control plane
 - `python3 ./flow infra plan spec-driven-delivery-bootstrap --env preview` genera un plan registrable solo para specs aprobadas
 - `python3 ./flow infra apply spec-driven-delivery-bootstrap --env preview` ejecuta el hook por defecto y deja evidencia
 - `python3 ./flow add-project <repo> --runtime <runtime>` persiste la configuracion CI derivada del runtime y permite overrides por step en el alta
@@ -98,6 +102,29 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
       "root_sha",
       "repos"
     ]
+  }
+}
+```
+
+```json contract
+{
+  "name": "Release Promote Deploy Routing",
+  "type": "json-schema",
+  "repo": "sdd-workspace-boilerplate",
+  "match": [
+    "flowctl/release.py",
+    "flowctl/parser.py",
+    "workspace.providers.json",
+    "scripts/providers/release/ftp_bridge.sh"
+  ],
+  "contains": [
+    "_resolve_release_provider_from_workspace",
+    "--deploy-repo",
+    "ftp-bridge",
+    "FLOW_DEPLOY_GITHUB_REPO"
+  ],
+  "schema": {
+    "type": "object"
   }
 }
 ```

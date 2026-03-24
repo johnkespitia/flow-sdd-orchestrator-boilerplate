@@ -5,6 +5,91 @@ from pathlib import Path
 from typing import Callable
 
 
+def _repo_deploy_provider(repo_payload: dict[str, object], environment: str) -> str:
+    deploy = repo_payload.get("deploy")
+    if not isinstance(deploy, dict):
+        return ""
+    by_env = deploy.get("providers_by_env")
+    if isinstance(by_env, dict):
+        scoped = str(by_env.get(environment, "")).strip()
+        if scoped:
+            return scoped
+    return str(deploy.get("provider", "")).strip()
+
+
+def _repo_deploy_env(repo_payload: dict[str, object], environment: str) -> dict[str, str]:
+    deploy = repo_payload.get("deploy")
+    if not isinstance(deploy, dict):
+        return {}
+    scoped: dict[str, str] = {}
+    by_env = deploy.get("env_by_env")
+    if isinstance(by_env, dict):
+        raw_env = by_env.get(environment, {})
+        if isinstance(raw_env, dict):
+            for key, value in raw_env.items():
+                scoped[str(key)] = str(value)
+    raw_common = deploy.get("env")
+    if isinstance(raw_common, dict):
+        for key, value in raw_common.items():
+            scoped[str(key)] = str(value)
+    return scoped
+
+
+def _resolve_release_provider_from_workspace(
+    *,
+    args,
+    manifest: dict[str, object],
+    workspace_config: dict[str, object],
+    root_repo: str,
+) -> tuple[str, dict[str, str], list[str]]:
+    if getattr(args, "provider", None):
+        return str(args.provider).strip(), {}, []
+
+    repos_section = workspace_config.get("repos", {})
+    if not isinstance(repos_section, dict):
+        return "", {}, []
+
+    manifest_repos = manifest.get("repos", {})
+    if not isinstance(manifest_repos, dict):
+        return "", {}, []
+
+    candidate_repos = [str(repo).strip() for repo in manifest_repos if str(repo).strip()]
+    deploy_repo = str(getattr(args, "deploy_repo", "") or "").strip()
+    if deploy_repo:
+        if deploy_repo not in candidate_repos:
+            raise SystemExit(
+                f"`--deploy-repo {deploy_repo}` no pertenece al release `{args.version}`."
+            )
+        candidate_repos = [deploy_repo]
+
+    non_root_candidates = [repo for repo in candidate_repos if repo != root_repo]
+    if non_root_candidates:
+        candidate_repos = non_root_candidates
+
+    selected: list[tuple[str, str]] = []
+    merged_env: dict[str, str] = {}
+    for repo in candidate_repos:
+        repo_payload = repos_section.get(repo)
+        if not isinstance(repo_payload, dict):
+            continue
+        provider = _repo_deploy_provider(repo_payload, args.environment)
+        if not provider:
+            continue
+        selected.append((repo, provider))
+        merged_env.update(_repo_deploy_env(repo_payload, args.environment))
+
+    unique_providers = sorted({provider for _, provider in selected})
+    if len(unique_providers) > 1:
+        details = ", ".join(f"{repo}:{provider}" for repo, provider in selected)
+        raise SystemExit(
+            "Hay multiples providers de deploy en el release. "
+            f"Usa `--provider` o `--deploy-repo`. Detectados: {details}."
+        )
+    if len(unique_providers) == 1:
+        return unique_providers[0], merged_env, [repo for repo, _ in selected]
+    return "", merged_env, []
+
+
 def _release_slice_findings(
     slug: str,
     state: dict[str, object],
@@ -248,6 +333,8 @@ def command_release_promote(
     args,
     *,
     load_release_manifest,
+    workspace_config: dict[str, object],
+    root_repo: str,
     load_providers_config,
     select_provider,
     provider_entrypoint_path,
@@ -266,7 +353,14 @@ def command_release_promote(
         raise SystemExit("`--approver` es obligatorio para staging y production.")
 
     providers_payload = load_providers_config()
-    provider_name, provider_config_payload = select_provider(providers_payload, "release", explicit=args.provider)
+    inferred_provider, deploy_env, provider_repos = _resolve_release_provider_from_workspace(
+        args=args,
+        manifest=manifest,
+        workspace_config=workspace_config,
+        root_repo=root_repo,
+    )
+    explicit_provider = str(getattr(args, "provider", "") or "").strip() or inferred_provider or None
+    provider_name, provider_config_payload = select_provider(providers_payload, "release", explicit=explicit_provider)
     promotion_payload = {
         "version": args.version,
         "environment": args.environment,
@@ -276,6 +370,11 @@ def command_release_promote(
         "provider": provider_name,
         "entrypoint": rel(provider_entrypoint_path(provider_config_payload)),
     }
+    if inferred_provider:
+        promotion_payload["provider_resolution"] = {
+            "mode": "workspace-deploy",
+            "repos": provider_repos,
+        }
 
     execution = run_provider(
         "release",
@@ -287,6 +386,7 @@ def command_release_promote(
             "FLOW_RELEASE_ENV": args.environment,
             "FLOW_RELEASE_MANIFEST": str(release_manifest_path(args.version).resolve()),
             "FLOW_RELEASE_APPROVER": args.approver or "",
+            **deploy_env,
         },
     )
     promotion_payload["output_tail"] = execution["output_tail"]
