@@ -370,6 +370,8 @@ def build_parser(
     add_project.add_argument("--port", type=int, help="Optional port to expose for the new compose service.")
     add_project.add_argument("--no-compose", action="store_true", help="Skip compose service scaffolding even if the runtime provides a template.")
     add_project.add_argument("--use-existing-dir", action="store_true", help="Allow registering an existing non-empty directory instead of requiring a fresh placeholder.")
+    add_project.add_argument("--submodule-url", help="Git URL to create the project path as a submodule and register it automatically.")
+    add_project.add_argument("--submodule-branch", help="Optional branch passed to `git submodule add -b` (requires --submodule-url).")
     add_project.add_argument("--target-root", action="append", help="Override target roots. Repeat to define multiple roots.")
     add_project.add_argument("--default-target", action="append", help="Override default target patterns. Repeat to define multiple patterns.")
     add_project.add_argument("--test-runner", choices=["none", "php", "pnpm", "pytest", "go"], help="Override the test runner used by `flow slice verify`.")
