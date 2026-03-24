@@ -311,6 +311,15 @@ make hooks-install
 `flow contract verify` usa los contratos generados en `contracts/generated/**` para detectar drift
 estructural entre contrato e implementacion antes de llegar a integración.
 
+Guardrail adicional (hooks + CI):
+
+- `scripts/guardrails/check_boilerplate_protected_paths.sh` bloquea cambios en archivos core del
+  boilerplate (lista en `scripts/guardrails/boilerplate_protected_paths.txt`) para evitar ediciones
+  accidentales por agentes en workspaces derivados.
+- Override intencional:
+  - `ALLOW_BOILERPLATE_CORE_CHANGES=1` para bypass puntual.
+  - `ENFORCE_BOILERPLATE_GUARDRAILS=1` para forzar también en el repo fuente del boilerplate.
+
 ## CI y submódulos privados (GitHub Actions)
 
 Cuando el workspace usa submódulos privados en GitHub, el `GITHUB_TOKEN` por defecto del workflow

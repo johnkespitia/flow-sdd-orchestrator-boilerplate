@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+scripts/guardrails/check_boilerplate_protected_paths.sh --staged
 python3 ./flow submodule doctor --json >/dev/null
 python3 ./flow secrets scan --staged --json >/dev/null

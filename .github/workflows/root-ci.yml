@@ -42,6 +42,45 @@ jobs:
       - name: Secret scan
         run: python3 ./flow secrets scan --all --json
 
+      - name: Boilerplate guardrail
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEAD_SHA="${{ github.sha }}"
+          BASE_SHA=""
+
+          ensure_commit() {
+            local sha="$1"
+            if [ -z "$sha" ] || [ "$sha" = "0000000000000000000000000000000000000000" ]; then
+              return 1
+            fi
+            if git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+              return 0
+            fi
+            git fetch --no-tags origin "${sha}" || true
+            git cat-file -e "${sha}^{commit}" 2>/dev/null
+          }
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CANDIDATE_BASE="${{ github.event.pull_request.base.sha }}"
+            if ensure_commit "$CANDIDATE_BASE" && ensure_commit "$HEAD_SHA"; then
+              BASE_SHA="$CANDIDATE_BASE"
+            fi
+          else
+            CANDIDATE_BASE="${{ github.event.before }}"
+            if ensure_commit "$CANDIDATE_BASE" && ensure_commit "$HEAD_SHA"; then
+              BASE_SHA="$CANDIDATE_BASE"
+            elif PARENT_SHA="$(git rev-parse "${HEAD_SHA}^" 2>/dev/null)"; then
+              BASE_SHA="$PARENT_SHA"
+            fi
+          fi
+
+          if [ -n "$BASE_SHA" ]; then
+            scripts/guardrails/check_boilerplate_protected_paths.sh --base "$BASE_SHA" --head "$HEAD_SHA"
+          else
+            echo "Skipping boilerplate guardrail: no resolvable base commit."
+          fi
+
       - name: Spec-driven CI
         shell: bash
         run: |

@@ -1,0 +1,18 @@
+# Core control-plane files of the boilerplate.
+AGENTS.md
+flow
+flowctl/**
+
+# Operational automation and CI entrypoints.
+.github/workflows/root-ci.yml
+scripts/ci/**
+scripts/git-hooks/**
+
+# Runtime/template scaffolding that defines the baseline workspace behavior.
+runtimes/**
+templates/**
+
+# Canonical boilerplate docs and operating guidance.
+README.md
+docs/**
+Makefile
