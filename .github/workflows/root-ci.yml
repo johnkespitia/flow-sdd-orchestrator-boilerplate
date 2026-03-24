@@ -133,8 +133,19 @@ jobs:
 
           if [ "$MODE" = "changed" ]; then
             if ! has_merge_base "$BASE_SHA" "$HEAD_SHA"; then
-              echo "No merge-base between ${BASE_SHA} and ${HEAD_SHA}. Falling back to all specs."
-              MODE="all"
+              echo "No merge-base between ${BASE_SHA} and ${HEAD_SHA}. Trying HEAD parent fallback."
+              if PARENT_SHA="$(git rev-parse "${HEAD_SHA}^" 2>/dev/null)"; then
+                if ensure_commit "$PARENT_SHA" && has_merge_base "$PARENT_SHA" "$HEAD_SHA"; then
+                  BASE_SHA="$PARENT_SHA"
+                  echo "Using HEAD parent as base: ${BASE_SHA}"
+                else
+                  echo "HEAD parent is not usable as base. Falling back to all specs."
+                  MODE="all"
+                fi
+              else
+                echo "No HEAD parent available. Falling back to all specs."
+                MODE="all"
+              fi
             fi
           fi
 
