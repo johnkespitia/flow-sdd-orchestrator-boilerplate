@@ -274,6 +274,7 @@ jobs:
               include.append(
                   {
                       "repo": repo_name,
+                      "path": str(repo_cfg.get("path", repo_name)).strip() or repo_name,
                       "runtime": runtime_name or "unknown",
                       "needs_node": needs_node,
                       "needs_php": needs_php,
@@ -342,6 +343,41 @@ jobs:
 
       - name: Install Python deps
         run: python3 -m pip install --upgrade pip PyYAML
+
+      - name: Node lockfile precheck
+        if: matrix.needs_node == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_path="${{ matrix.path }}"
+          has_lock=0
+          for candidate in \
+            "${repo_path}/pnpm-lock.yaml" \
+            "${repo_path}/code/pnpm-lock.yaml" \
+            "${repo_path}/src/pnpm-lock.yaml"; do
+            if [ -f "$candidate" ]; then
+              has_lock=1
+              echo "Found pnpm lockfile: $candidate"
+              break
+            fi
+          done
+          if [ "$has_lock" -eq 0 ]; then
+            echo "::warning::No pnpm-lock.yaml found for '${{ matrix.repo }}'. CI dependency resolution is non-deterministic and may break tests unexpectedly."
+          fi
+
+      - name: Prepare PHP .env
+        if: matrix.needs_php == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_path="${{ matrix.path }}"
+          for candidate in "${repo_path}" "${repo_path}/src" "${repo_path}/code"; do
+            if [ -f "${candidate}/.env.example" ] && [ ! -f "${candidate}/.env" ]; then
+              cp "${candidate}/.env.example" "${candidate}/.env"
+              echo "Created ${candidate}/.env from .env.example"
+              break
+            fi
+          done
 
       - name: Repo CI
         id: repo_ci
