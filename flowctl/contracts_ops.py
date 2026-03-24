@@ -4,6 +4,25 @@ from pathlib import Path
 from typing import Callable, Optional
 
 
+NON_SPEC_DRIFT_ROOT_PREFIXES = (
+    ".github/workflows/",
+    "docs/",
+    "scripts/ci/",
+)
+NON_SPEC_DRIFT_SUFFIXES = (".md",)
+
+
+def is_non_spec_drift_change(repo: str, root_repo: str, path: str) -> bool:
+    normalized = str(path).strip().replace("\\", "/")
+    if not normalized:
+        return False
+    if normalized.endswith(NON_SPEC_DRIFT_SUFFIXES):
+        return True
+    if repo == root_repo and normalized.startswith(NON_SPEC_DRIFT_ROOT_PREFIXES):
+        return True
+    return False
+
+
 def render_contract_artifacts(
     slug: str,
     declarations: list[dict[str, object]],
@@ -67,18 +86,30 @@ def command_drift_check(
     changed_specs: set[Path] = set(spec_paths)
     changed_root_files: list[str] = []
     changed_repo_files: dict[str, list[str]] = {}
+    relevant_changed_root_files: list[str] = []
+    relevant_changed_repo_files: dict[str, list[str]] = {}
     if args.changed:
         changed_root_files, _ = git_diff_name_only(root, base=args.base, head=args.head)
         for repo in implementation_repos():
             changed_repo_files[repo], _ = git_diff_name_only(repo_root(repo), base=args.base, head=args.head)
 
+        relevant_changed_root_files = [
+            path
+            for path in repo_paths_changed_under_roots(root_repo, changed_root_files)
+            if not is_non_spec_drift_change(root_repo, root_repo, path)
+        ]
+        for repo, paths in changed_repo_files.items():
+            relevant_changed_repo_files[repo] = [
+                path
+                for path in repo_paths_changed_under_roots(repo, paths)
+                if not is_non_spec_drift_change(repo, root_repo, path)
+            ]
+
         if not changed_specs:
             sensitive_changes: list[str] = []
-            for repo, paths in changed_repo_files.items():
-                sensitive_changes.extend(f"{repo}:{path}" for path in repo_paths_changed_under_roots(repo, paths))
-            sensitive_changes.extend(
-                f"{root_repo}:{path}" for path in repo_paths_changed_under_roots(root_repo, changed_root_files)
-            )
+            for repo, paths in relevant_changed_repo_files.items():
+                sensitive_changes.extend(f"{repo}:{path}" for path in paths)
+            sensitive_changes.extend(f"{root_repo}:{path}" for path in relevant_changed_root_files)
             if sensitive_changes:
                 findings.append(
                     "Se detectaron cambios en superficies estables sin cambios de spec: " + ", ".join(sorted(sensitive_changes))
@@ -128,16 +159,19 @@ def command_drift_check(
 
         if args.changed:
             covered_changes: list[str] = []
-            for repo, paths in changed_repo_files.items():
+            for repo, paths in relevant_changed_repo_files.items():
                 covered_patterns = [item["relative"] for item in analysis["target_index"].get(repo, [])]
-                for path in repo_paths_changed_under_roots(repo, paths):
+                for path in paths:
                     if covered_patterns and matches_any_pattern(path, covered_patterns):
                         covered_changes.append(f"{repo}:{path}")
             root_patterns = [item["relative"] for item in analysis["target_index"].get(root_repo, [])]
-            for path in repo_paths_changed_under_roots(root_repo, changed_root_files):
+            for path in relevant_changed_root_files:
                 if root_patterns and matches_any_pattern(path, root_patterns):
                     covered_changes.append(f"{root_repo}:{path}")
-            if not covered_changes and (changed_repo_files or changed_root_files):
+            has_relevant_changes = bool(relevant_changed_root_files) or any(
+                bool(paths) for paths in relevant_changed_repo_files.values()
+            )
+            if not covered_changes and has_relevant_changes:
                 spec_findings.append("La spec cambiada no cubre cambios detectados en superficies estables.")
 
         items.append(

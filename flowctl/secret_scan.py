@@ -44,6 +44,10 @@ SECRET_SCAN_CONTENT_PATTERNS = [
 ]
 
 
+def is_advisory_secret_finding(finding: str) -> bool:
+    return str(finding).strip().lower().startswith("advisory:")
+
+
 def secret_value_looks_placeholder(value: str) -> bool:
     normalized = value.strip().strip("'\"")
     lower = normalized.lower()
@@ -65,12 +69,30 @@ def secret_value_looks_placeholder(value: str) -> bool:
     return any(token in lower for token in placeholders)
 
 
+def _line_for_offset(text: str, offset: int) -> str:
+    start = text.rfind("\n", 0, offset)
+    if start == -1:
+        start = 0
+    else:
+        start += 1
+    end = text.find("\n", offset)
+    if end == -1:
+        end = len(text)
+    return text[start:end]
+
+
+def _looks_ui_placeholder_context(text: str, offset: int) -> bool:
+    line = _line_for_offset(text, offset).lower()
+    marker_tokens = ("placeholder", "helpertext", "helper_text", "description", "label", "hint", "example")
+    return any(token in line for token in marker_tokens)
+
+
 def candidate_secret_file_findings(relative_path: str) -> list[str]:
     path = Path(relative_path)
     name = path.name.lower()
     findings: list[str] = []
     if SECRET_SCAN_FILENAME_RE.search(relative_path.replace("\\", "/")) and name not in SECRET_SCAN_ALLOWED_ENV_NAMES:
-        findings.append("archivo `.env` real detectado")
+        findings.append("advisory: archivo `.env*` trackeado; valida que no contenga secretos reales")
     if path.suffix.lower() in {".pem", ".p12", ".pfx", ".key"}:
         findings.append(f"archivo sensible `{path.suffix.lower()}` detectado")
     return findings
@@ -81,6 +103,8 @@ def content_secret_findings(text: str) -> list[str]:
     for label, pattern in SECRET_SCAN_CONTENT_PATTERNS:
         for match in pattern.finditer(text):
             if label == "generic-secret":
+                if _looks_ui_placeholder_context(text, match.start()):
+                    continue
                 secret_value = match.group(2) if match.lastindex and match.lastindex >= 2 else match.group(0)
                 if secret_value_looks_placeholder(secret_value):
                     continue

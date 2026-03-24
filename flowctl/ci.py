@@ -8,6 +8,8 @@ import textwrap
 from pathlib import Path
 from typing import Callable, Optional
 
+from flowctl.secret_scan import is_advisory_secret_finding
+
 
 def command_ci_spec(
     args,
@@ -300,7 +302,12 @@ def command_ci_repo(
         report_payload["markdown_report"] = rel(md_path)
         report_payload["json_report"] = rel(json_path)
         payloads.append(report_payload)
-        failed = failed or bool(secret_findings) or any(int(item["returncode"]) != 0 for item in executions)
+        has_blocking_secret_findings = any(
+            not is_advisory_secret_finding(str(finding))
+            for item in secret_findings
+            for finding in item.get("findings", [])
+        )
+        failed = failed or has_blocking_secret_findings or any(int(item["returncode"]) != 0 for item in executions)
 
     if bool(getattr(args, "json", False)):
         print(json_dumps({"reports": payloads}))

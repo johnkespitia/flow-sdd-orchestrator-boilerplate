@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
+from flowctl.secret_scan import is_advisory_secret_finding
+
 
 def command_providers_doctor(
     args,
@@ -880,13 +882,20 @@ def command_secrets_scan(
         "items": all_findings,
         "findings": errors + [f"{item['repo']}:{item['path']}: {', '.join(item['findings'])}" for item in all_findings],
     }
+    blocking_findings = list(errors)
+    for item in all_findings:
+        blocking_only = [finding for finding in item["findings"] if not is_advisory_secret_finding(str(finding))]
+        if blocking_only:
+            blocking_findings.append(f"{item['repo']}:{item['path']}: {', '.join(blocking_only)}")
+    payload["blocking_findings"] = blocking_findings
+
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
     report_path = secret_scan_report_root / f"scan-{stamp}.json"
     write_json(report_path, payload)
 
     if bool(getattr(args, "json", False)):
         print(json_dumps(payload))
-        return 1 if payload["findings"] else 0
+        return 1 if payload["blocking_findings"] else 0
 
     print(rel(report_path))
     if not payload["findings"]:
@@ -896,4 +905,4 @@ def command_secrets_scan(
         print(f"- {item['repo']}:{item['path']}: {', '.join(item['findings'])}")
     for error in errors:
         print(f"- {error}")
-    return 1
+    return 1 if payload["blocking_findings"] else 0
