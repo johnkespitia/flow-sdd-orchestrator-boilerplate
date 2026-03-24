@@ -11,17 +11,25 @@ fi
 
 configure_github_auth() {
   local token="${GH_PAT:-${GITHUB_TOKEN:-}}"
+  local auth_base
   if [[ -z "$token" ]]; then
     echo "No GH_PAT/GITHUB_TOKEN provided. Continuing with existing git auth config."
     return 0
   fi
+  auth_base="https://x-access-token:${token}@github.com/"
   local auth_header
   auth_header="$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\n')"
-  git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $auth_header"
-  # Fallback for environments where extraheader is not propagated to submodule clone.
-  git config --local url."https://x-access-token:${token}@github.com/".insteadOf "https://github.com/"
-  git config --local url."https://x-access-token:${token}@github.com/".insteadOf "git@github.com:"
-  git config --local url."https://x-access-token:${token}@github.com/".insteadOf "ssh://git@github.com/"
+  # Configure both local and global scopes because some CI submodule clone paths ignore local-only rules.
+  for scope in --local --global; do
+    git config "$scope" http.https://github.com/.extraheader "AUTHORIZATION: basic $auth_header"
+    # Fallback for environments where extraheader is not propagated to submodule clone.
+    git config "$scope" --unset-all "url.${auth_base}.insteadOf" >/dev/null 2>&1 || true
+    git config "$scope" --add "url.${auth_base}.insteadOf" "https://github.com/"
+    git config "$scope" --add "url.${auth_base}.insteadOf" "https://github.com"
+    git config "$scope" --add "url.${auth_base}.insteadOf" "git@github.com:"
+    git config "$scope" --add "url.${auth_base}.insteadOf" "ssh://git@github.com/"
+  done
+  export GIT_TERMINAL_PROMPT=0
   echo "Configured GitHub auth for submodule operations (extraheader + url.insteadOf)."
 }
 
