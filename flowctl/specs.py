@@ -470,6 +470,7 @@ def ensure_spec_ready_for_approval(
     blockers.extend(
         spec_dependency_findings(
             analysis,
+            config=config,
             available_project_runtime_names=available_project_runtime_names,
             available_service_runtime_names=available_service_runtime_names,
             available_capability_names=available_capability_names,
