@@ -5,6 +5,7 @@ import os
 import shlex
 import shutil
 import textwrap
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -404,15 +405,45 @@ def command_ci_integration(
                 smoke_commands[service_name] = ["sh", "-lc", "node --version >/dev/null && pnpm --version >/dev/null"]
             elif runner == "go":
                 smoke_commands[service_name] = ["go", "version"]
+
+        smoke_attempts = 4
+        smoke_retry_delay_seconds = 2.0
         for service_name, smoke_command in smoke_commands.items():
             if service_name not in service_names:
                 continue
-            execution = capture_compose(compose_exec_args(service_name, interactive=False) + smoke_command)
-            if int(execution["returncode"]) == 0:
-                checks.append(("PASS", f"Smoke {service_name}", f"El servicio `{service_name}` respondio al smoke check."))
+
+            attempt = 0
+            last_execution: dict[str, object] = {}
+            while attempt < smoke_attempts:
+                attempt += 1
+                last_execution = capture_compose(compose_exec_args(service_name, interactive=False) + smoke_command)
+                if int(last_execution["returncode"]) == 0:
+                    break
+                if attempt < smoke_attempts:
+                    time.sleep(smoke_retry_delay_seconds)
+
+            if int(last_execution.get("returncode", 1)) == 0:
+                if attempt == 1:
+                    checks.append(("PASS", f"Smoke {service_name}", f"El servicio `{service_name}` respondio al smoke check."))
+                else:
+                    checks.append(
+                        (
+                            "PASS",
+                            f"Smoke {service_name}",
+                            f"El servicio `{service_name}` respondio al smoke check tras {attempt} intentos.",
+                        )
+                    )
             else:
-                findings.append(f"El smoke check de `{service_name}` fallo.")
-                checks.append(("FAIL", f"Smoke {service_name}", "El comando del smoke check devolvio error."))
+                findings.append(
+                    f"El smoke check de `{service_name}` fallo tras {smoke_attempts} intentos."
+                )
+                checks.append(
+                    (
+                        "FAIL",
+                        f"Smoke {service_name}",
+                        f"El comando del smoke check devolvio error tras {smoke_attempts} intentos.",
+                    )
+                )
     else:
         findings.append("El stack no esta activo; usa `--auto-up` o levanta Compose antes de integrar.")
         checks.append(("FAIL", "Stack active", "No hay proyecto Compose activo para la smoke suite."))
