@@ -323,7 +323,7 @@ def build_parser(
     ci_integration.add_argument("--json", action="store_true", help="Print the integration report as JSON.")
     ci_integration.set_defaults(func=commands["ci_integration"])
 
-    release = subparsers.add_parser("release", help="Manage release manifests and promotions.")
+    release = subparsers.add_parser("release", help="Manage release manifests, promotions and post-release verification.")
     release_subparsers = release.add_subparsers(dest="release_command", required=True)
     release_cut = release_subparsers.add_parser("cut", help="Create a release manifest.")
     release_cut.add_argument("--version", help="Explicit release version. Defaults to a UTC timestamp.")
@@ -352,8 +352,25 @@ def build_parser(
         help="Optional repo id used to resolve deploy provider from `workspace.config.json`.",
     )
     release_promote.add_argument("--approver", help="Required for staging and production promotions.")
+    release_promote.add_argument("--skip-verify", action="store_true", help="Skip post-release verification after promote.")
+    release_promote.add_argument(
+        "--require-pipelines",
+        action="store_true",
+        help="Fail if pipeline checks are unavailable or missing during post-release verification.",
+    )
     release_promote.add_argument("--json", action="store_true", help="Print the promotion result as JSON.")
     release_promote.set_defaults(func=commands["release_promote"])
+
+    release_verify = release_subparsers.add_parser("verify", help="Verify release repos and pipeline checks for an environment.")
+    release_verify.add_argument("--version", required=True, help="Release version.")
+    release_verify.add_argument("--env", dest="environment", required=True, choices=["preview", "staging", "production"])
+    release_verify.add_argument(
+        "--require-pipelines",
+        action="store_true",
+        help="Fail if pipeline checks are unavailable or missing.",
+    )
+    release_verify.add_argument("--json", action="store_true", help="Print the verification result as JSON.")
+    release_verify.set_defaults(func=commands["release_verify"])
 
     infra = subparsers.add_parser("infra", help="Plan and apply infrastructure governed by specs.")
     infra_subparsers = infra.add_subparsers(dest="infra_command", required=True)

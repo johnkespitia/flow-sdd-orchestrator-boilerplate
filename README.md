@@ -255,6 +255,7 @@ Los providers de CD e infraestructura se gobiernan igual:
 python3 ./flow providers doctor
 python3 ./flow providers list
 python3 ./flow release promote --version 2026.03.14-1 --env preview --provider local-hooks
+python3 ./flow release verify --version 2026.03.14-1 --env preview --json
 python3 ./flow infra plan spec-driven-delivery-bootstrap --env preview --provider local-hooks
 ```
 
@@ -262,6 +263,11 @@ Deploy transparente por repo:
 
 - `flow release promote` ahora puede resolver provider automaticamente desde `workspace.config.json`
   usando `repos.<repo>.deploy`.
+- `flow release promote` ejecuta verificacion post-release por defecto (repos + pipelines cuando aplica).
+- Usa `--require-pipelines` para exigir confirmacion de checks de pipeline en cada repo del release.
+- Usa `--skip-verify` para omitir la verificacion automatica (en `production` no marca `released`).
+- `flow release verify` permite reintentar/verificar manualmente y deja evidencia en
+  `releases/promotions/<version>-<env>-verification.json`.
 - Si un release toca varios repos con providers distintos, usa `--deploy-repo <repo>` o `--provider`.
 
 Contrato recomendado en `workspace.config.json` por repo:
@@ -416,6 +422,7 @@ python3 ./flow spec approve identity-bootstrap --approver alice
 python3 ./flow workflow execute-feature identity-bootstrap --start-slices --json
 python3 ./flow workflow next-step identity-bootstrap --json
 python3 ./flow ci spec --all
+python3 ./flow release verify --version 2026.03.14-1 --env preview --json
 python3 ./flow release status --version 2026.03.14-1
 python3 ./flow infra status spec-driven-delivery-bootstrap
 python3 ./flow status
@@ -468,6 +475,7 @@ python3 ./flow tessl -- --help
 python3 ./flow bmad -- --help
 python3 ./flow ci spec --all
 python3 ./flow release cut --version 2026.03.14-1 --spec spec-driven-delivery-bootstrap
+python3 ./flow release verify --version 2026.03.14-1 --env preview --json
 python3 ./flow infra plan spec-driven-delivery-bootstrap --env preview
 make help
 ```

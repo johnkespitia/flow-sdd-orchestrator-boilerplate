@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 
 def _repo_deploy_provider(repo_payload: dict[str, object], environment: str) -> str:
@@ -135,6 +138,231 @@ def _release_slice_findings(
         if not (root / report).exists():
             findings.append(f"La slice `{slice_name}` referencia un reporte inexistente: `{report}`.")
     return findings
+
+
+def _run_command(command: list[str], cwd: Path) -> tuple[int, str, str]:
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+
+def _github_repo_slug_from_remote(remote_url: str) -> str:
+    url = remote_url.strip()
+    if not url:
+        return ""
+    if url.startswith("git@github.com:"):
+        slug = url.removeprefix("git@github.com:")
+        return slug.removesuffix(".git").strip("/")
+    if url.startswith("ssh://git@github.com/"):
+        slug = url.removeprefix("ssh://git@github.com/")
+        return slug.removesuffix(".git").strip("/")
+    if url.startswith("https://github.com/") or url.startswith("http://github.com/"):
+        parsed = urlparse(url)
+        slug = parsed.path.strip("/")
+        return slug.removesuffix(".git")
+    return ""
+
+
+def _verify_release_from_manifest(
+    *,
+    version: str,
+    environment: str,
+    manifest: dict[str, object],
+    root: Path,
+    utc_now: Callable[[], str],
+    require_pipelines: bool,
+) -> dict[str, object]:
+    repos = manifest.get("repos", {})
+    payload: dict[str, object] = {
+        "version": version,
+        "environment": environment,
+        "verified_at": utc_now(),
+        "require_pipelines": require_pipelines,
+        "status": "passed",
+        "repos": [],
+        "findings": [],
+    }
+    if not isinstance(repos, dict):
+        payload["status"] = "failed"
+        payload["findings"] = ["El manifest no contiene `repos` valido para verificar."]
+        return payload
+
+    gh_available = shutil.which("gh") is not None
+    repo_findings: list[str] = []
+
+    for repo_name in sorted(repos):
+        repo_payload = repos.get(repo_name, {})
+        repo_item: dict[str, object] = {
+            "repo": str(repo_name),
+            "status": "passed",
+            "pipeline_status": "unavailable",
+            "pipeline_required": require_pipelines,
+        }
+        if not isinstance(repo_payload, dict):
+            repo_item["status"] = "failed"
+            repo_item["finding"] = "Entrada de repo invalida en manifest."
+            repo_findings.append(f"`{repo_name}`: entrada de repo invalida en manifest.")
+            payload["repos"].append(repo_item)
+            continue
+
+        repo_path_text = str(repo_payload.get("path", "")).strip()
+        repo_sha = str(repo_payload.get("sha", "")).strip()
+        repo_item["path"] = repo_path_text
+        repo_item["sha"] = repo_sha
+
+        if not repo_path_text or not repo_sha:
+            repo_item["status"] = "failed"
+            repo_item["finding"] = "Falta `path` o `sha` en el manifest."
+            repo_findings.append(f"`{repo_name}`: falta `path` o `sha` en el manifest.")
+            payload["repos"].append(repo_item)
+            continue
+
+        repo_path = Path(repo_path_text)
+        if not repo_path.is_absolute():
+            repo_path = (root / repo_path).resolve()
+        repo_item["path"] = str(repo_path)
+
+        if not repo_path.is_dir():
+            repo_item["status"] = "failed"
+            repo_item["finding"] = "El path del repo no existe localmente."
+            repo_findings.append(f"`{repo_name}`: el path `{repo_path}` no existe localmente.")
+            payload["repos"].append(repo_item)
+            continue
+
+        remote_rc, remote_stdout, remote_stderr = _run_command(
+            ["git", "-C", str(repo_path), "config", "--get", "remote.origin.url"],
+            cwd=root,
+        )
+        remote_url = remote_stdout.strip() if remote_rc == 0 else ""
+        if not remote_url:
+            repo_item["status"] = "failed"
+            repo_item["finding"] = "No pude resolver remote.origin.url."
+            details = remote_stderr or "remote.origin.url vacio"
+            repo_findings.append(f"`{repo_name}`: no pude resolver remote.origin.url ({details}).")
+            payload["repos"].append(repo_item)
+            continue
+        repo_item["remote"] = remote_url
+
+        remote_sha_rc, remote_sha_stdout, remote_sha_stderr = _run_command(
+            ["git", "-C", str(repo_path), "ls-remote", "--exit-code", "origin", repo_sha],
+            cwd=root,
+        )
+        repo_item["remote_sha_present"] = remote_sha_rc == 0 and bool(remote_sha_stdout)
+        if not repo_item["remote_sha_present"]:
+            repo_item["status"] = "failed"
+            repo_item["finding"] = "El commit del manifest no existe en origin."
+            details = remote_sha_stderr or "ls-remote sin coincidencias"
+            repo_findings.append(
+                f"`{repo_name}`: `{repo_sha}` no existe en origin ({details})."
+            )
+            payload["repos"].append(repo_item)
+            continue
+
+        github_slug = _github_repo_slug_from_remote(remote_url)
+        repo_item["github_repo"] = github_slug or None
+
+        if not github_slug:
+            repo_item["pipeline_status"] = "unavailable"
+            if require_pipelines:
+                repo_item["status"] = "failed"
+                repo_item["finding"] = "No pude inferir repo GitHub para verificar pipelines."
+                repo_findings.append(
+                    f"`{repo_name}`: remote `{remote_url}` no es GitHub; no puedo verificar pipelines."
+                )
+            payload["repos"].append(repo_item)
+            continue
+
+        if not gh_available:
+            repo_item["pipeline_status"] = "unavailable"
+            if require_pipelines:
+                repo_item["status"] = "failed"
+                repo_item["finding"] = "No encontre `gh` en PATH para verificar pipelines."
+                repo_findings.append(
+                    f"`{repo_name}`: falta `gh` para verificar pipelines de `{github_slug}`."
+                )
+            payload["repos"].append(repo_item)
+            continue
+
+        checks_rc, checks_stdout, checks_stderr = _run_command(
+            ["gh", "api", f"repos/{github_slug}/commits/{repo_sha}/check-runs?per_page=100"],
+            cwd=root,
+        )
+        if checks_rc != 0:
+            repo_item["pipeline_status"] = "failed"
+            repo_item["status"] = "failed"
+            details = checks_stderr or checks_stdout or "gh api fallo"
+            repo_item["finding"] = "No pude consultar check-runs del commit."
+            repo_findings.append(
+                f"`{repo_name}`: no pude consultar check-runs de `{github_slug}@{repo_sha}` ({details})."
+            )
+            payload["repos"].append(repo_item)
+            continue
+
+        try:
+            checks_payload = json.loads(checks_stdout or "{}")
+        except json.JSONDecodeError:
+            repo_item["pipeline_status"] = "failed"
+            repo_item["status"] = "failed"
+            repo_item["finding"] = "La respuesta de check-runs no es JSON valido."
+            repo_findings.append(
+                f"`{repo_name}`: respuesta invalida al consultar check-runs de `{github_slug}`."
+            )
+            payload["repos"].append(repo_item)
+            continue
+
+        check_runs = checks_payload.get("check_runs", [])
+        if not isinstance(check_runs, list):
+            check_runs = []
+        total_runs = len(check_runs)
+        repo_item["check_runs_total"] = total_runs
+        if total_runs == 0:
+            repo_item["pipeline_status"] = "missing"
+            if require_pipelines:
+                repo_item["status"] = "failed"
+                repo_item["finding"] = "No hay check-runs para el commit."
+                repo_findings.append(
+                    f"`{repo_name}`: no hay check-runs en `{github_slug}` para `{repo_sha}`."
+                )
+            payload["repos"].append(repo_item)
+            continue
+
+        non_completed = 0
+        non_passing = 0
+        for check in check_runs:
+            if not isinstance(check, dict):
+                continue
+            status = str(check.get("status", "")).strip()
+            conclusion = str(check.get("conclusion", "")).strip()
+            if status != "completed":
+                non_completed += 1
+            elif conclusion not in {"success", "neutral", "skipped"}:
+                non_passing += 1
+        repo_item["check_runs_non_completed"] = non_completed
+        repo_item["check_runs_non_passing"] = non_passing
+
+        if non_completed > 0 or non_passing > 0:
+            repo_item["pipeline_status"] = "failed"
+            repo_item["status"] = "failed"
+            repo_item["finding"] = (
+                f"Check-runs no satisfactorios (non_completed={non_completed}, non_passing={non_passing})."
+            )
+            repo_findings.append(
+                f"`{repo_name}`: check-runs no satisfactorios "
+                f"(non_completed={non_completed}, non_passing={non_passing})."
+            )
+        else:
+            repo_item["pipeline_status"] = "passed"
+
+        payload["repos"].append(repo_item)
+
+    payload["findings"] = repo_findings
+    payload["status"] = "failed" if repo_findings else "passed"
+    return payload
 
 
 def command_release_cut(
@@ -310,6 +538,7 @@ def command_release_status(
         "root_sha": manifest.get("root_sha"),
         "features": manifest.get("features", []),
         "promotions": manifest.get("promotions", []),
+        "verifications": manifest.get("verifications", []),
     }
     if bool(getattr(args, "json", False)):
         print(json_dumps(payload))
@@ -326,7 +555,58 @@ def command_release_status(
             )
     else:
         print("- promotions: none")
+    verifications = manifest.get("verifications", [])
+    if isinstance(verifications, list) and verifications:
+        for verification in verifications:
+            if not isinstance(verification, dict):
+                continue
+            print(
+                f"- verification {verification.get('environment')}: "
+                f"{verification.get('status')} at {verification.get('verified_at')}"
+            )
+    else:
+        print("- verifications: none")
     return 0
+
+
+def command_release_verify(
+    args,
+    *,
+    load_release_manifest,
+    release_manifest_path: Callable[[str], Path],
+    release_verification_path: Callable[[str, str], Path],
+    root: Path,
+    rel: Callable[[Path], str],
+    utc_now: Callable[[], str],
+    write_json,
+    json_dumps: Callable[[object], str],
+) -> int:
+    manifest = load_release_manifest(args.version)
+    verification_payload = _verify_release_from_manifest(
+        version=args.version,
+        environment=args.environment,
+        manifest=manifest,
+        root=root,
+        utc_now=utc_now,
+        require_pipelines=bool(getattr(args, "require_pipelines", False)),
+    )
+    verif_path = release_verification_path(args.version, args.environment)
+    write_json(verif_path, verification_payload)
+
+    verifications = manifest.setdefault("verifications", [])
+    if isinstance(verifications, list):
+        verifications.append(verification_payload)
+    write_json(release_manifest_path(args.version), manifest)
+
+    if bool(getattr(args, "json", False)):
+        payload = dict(verification_payload)
+        payload["path"] = rel(verif_path)
+        print(json_dumps(payload))
+    else:
+        print(rel(verif_path))
+        print(f"status={verification_payload.get('status')}")
+
+    return 1 if str(verification_payload.get("status", "")) != "passed" else 0
 
 
 def command_release_promote(
@@ -341,6 +621,8 @@ def command_release_promote(
     run_provider,
     release_manifest_path: Callable[[str], Path],
     release_promotion_path: Callable[[str, str], Path],
+    release_verification_path: Callable[[str, str], Path],
+    root: Path,
     rel: Callable[[Path], str],
     utc_now: Callable[[], str],
     write_json,
@@ -402,10 +684,39 @@ def command_release_promote(
     promotions = manifest.setdefault("promotions", [])
     if isinstance(promotions, list):
         promotions.append(promotion_payload)
+    verification_payload: dict[str, object] | None = None
+    verification_path_text = ""
+    should_verify = not bool(getattr(args, "skip_verify", False))
+    if should_verify:
+        verification_payload = _verify_release_from_manifest(
+            version=args.version,
+            environment=args.environment,
+            manifest=manifest,
+            root=root,
+            utc_now=utc_now,
+            require_pipelines=bool(getattr(args, "require_pipelines", False)),
+        )
+        verification_path = release_verification_path(args.version, args.environment)
+        write_json(verification_path, verification_payload)
+        verification_path_text = rel(verification_path)
+        verifications = manifest.setdefault("verifications", [])
+        if isinstance(verifications, list):
+            verifications.append(verification_payload)
+        promotion_payload["verification"] = {
+            "status": verification_payload.get("status"),
+            "path": verification_path_text,
+        }
+    else:
+        promotion_payload["verification"] = {"status": "skipped"}
+
     write_json(release_manifest_path(args.version), manifest)
     write_json(release_promotion_path(args.version, args.environment), promotion_payload)
 
-    if args.environment == "production":
+    verification_passed = (
+        verification_payload is not None
+        and str(verification_payload.get("status", "")).strip() == "passed"
+    )
+    if args.environment == "production" and verification_passed:
         for feature in manifest.get("features", []):
             slug = str(feature.get("slug", ""))
             if not slug:
@@ -416,6 +727,18 @@ def command_release_promote(
             state["status"] = "released"
             state["released_in"] = args.version
             write_state(slug, state)
+
+    if should_verify and not verification_passed:
+        raise SystemExit(
+            "La promocion se ejecuto, pero la verificacion post-release fallo. "
+            f"Revisa `{verification_path_text}`."
+        )
+    if args.environment == "production" and not should_verify:
+        print(
+            "La promocion a production se ejecuto sin verificacion (`--skip-verify`), "
+            "por lo que la feature no se marco como `released`."
+        )
+
     promotion_path = rel(release_promotion_path(args.version, args.environment))
     if bool(getattr(args, "json", False)):
         promotion_payload["path"] = promotion_path

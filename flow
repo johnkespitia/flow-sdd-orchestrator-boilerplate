@@ -118,6 +118,7 @@ from flowctl.release import (
     command_release_manifest as flow_command_release_manifest,
     command_release_promote as flow_command_release_promote,
     command_release_status as flow_command_release_status,
+    command_release_verify as flow_command_release_verify,
 )
 from flowctl.runtimes import (
     RUNTIMES_CONFIG_FILENAME,
@@ -1039,6 +1040,10 @@ def release_manifest_path(version: str) -> Path:
 
 def release_promotion_path(version: str, environment: str) -> Path:
     return RELEASE_PROMOTION_ROOT / f"{version}-{environment}.json"
+
+
+def release_verification_path(version: str, environment: str) -> Path:
+    return RELEASE_PROMOTION_ROOT / f"{version}-{environment}-verification.json"
 
 
 def load_release_manifest(version: str) -> dict[str, object]:
@@ -2207,11 +2212,27 @@ def command_release_promote(args: argparse.Namespace) -> int:
         run_provider=run_provider,
         release_manifest_path=release_manifest_path,
         release_promotion_path=release_promotion_path,
+        release_verification_path=release_verification_path,
+        root=ROOT,
         rel=rel,
         utc_now=utc_now,
         write_json=write_json,
         read_state=read_state,
         write_state=write_state,
+        json_dumps=json_dumps,
+    )
+
+
+def command_release_verify(args: argparse.Namespace) -> int:
+    return flow_command_release_verify(
+        args,
+        load_release_manifest=load_release_manifest,
+        release_manifest_path=release_manifest_path,
+        release_verification_path=release_verification_path,
+        root=ROOT,
+        rel=rel,
+        utc_now=utc_now,
+        write_json=write_json,
         json_dumps=json_dumps,
     )
 
@@ -2309,6 +2330,7 @@ def build_parser() -> argparse.ArgumentParser:
         "release_manifest": command_release_manifest,
         "release_status": command_release_status,
         "release_promote": command_release_promote,
+        "release_verify": command_release_verify,
         "infra_plan": command_infra_plan,
         "infra_apply": command_infra_apply,
         "infra_status": command_infra_status,
