@@ -412,6 +412,19 @@ python3 ./flow status
 `flow spec create` ya puede dejar una spec v2 con `schema_version`, `depends_on`, `required_runtimes`, `required_services` y `required_capabilities`. `spec review` y `ci spec` validan esos campos contra los catálogos instalados del workspace.
 `flow workflow intake`, `workflow next-step` y `workflow execute-feature` elevan BMAD y Tessl a entrypoint operativo: intake, recomendación de workflow y handoffs para ejecutores/slices.
 
+Puedes forzar el orquestador BMAD de dos formas:
+
+- Configuración persistente en `workspace.config.json`:
+  - `project.workflow.default_orchestrator: "bmad"`
+  - `project.workflow.force_orchestrator: true`
+- Override por comando:
+  - `python3 ./flow workflow next-step <spec> --orchestrator bmad --force-orchestrator`
+
+Tambien puedes usar variables de entorno:
+
+- `FLOW_WORKFLOW_ORCHESTRATOR=bmad`
+- `FLOW_WORKFLOW_FORCE_ORCHESTRATOR=1`
+
 ## Stack local
 
 El devcontainer incluido trae:

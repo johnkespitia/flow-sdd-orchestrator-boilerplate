@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import shlex
 import textwrap
 from pathlib import Path
@@ -29,8 +30,48 @@ def flow_shell_command(parts: list[str]) -> str:
     return "python3 ./flow " + " ".join(shlex.quote(part) for part in parts)
 
 
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def workflow_orchestrator_settings(args, *, workspace_config: dict[str, object]) -> tuple[str, str, bool]:
+    project = workspace_config.get("project", {}) if isinstance(workspace_config, dict) else {}
+    workflow = project.get("workflow", {}) if isinstance(project, dict) else {}
+
+    cli_orchestrator = str(getattr(args, "orchestrator", "") or "").strip().lower()
+    env_orchestrator = str(os.environ.get("FLOW_WORKFLOW_ORCHESTRATOR", "")).strip().lower()
+    cfg_orchestrator = str(workflow.get("default_orchestrator", "")).strip().lower() if isinstance(workflow, dict) else ""
+    orchestrator = cli_orchestrator or env_orchestrator or cfg_orchestrator or "bmad"
+    source = (
+        "cli"
+        if cli_orchestrator
+        else "env"
+        if env_orchestrator
+        else "workspace.config.json"
+        if cfg_orchestrator
+        else "builtin-default"
+    )
+
+    force = bool(getattr(args, "force_orchestrator", False))
+    if not force:
+        force = _truthy(os.environ.get("FLOW_WORKFLOW_FORCE_ORCHESTRATOR", ""))
+    if not force and isinstance(workflow, dict):
+        force = bool(workflow.get("force_orchestrator", False))
+
+    if orchestrator != "bmad":
+        raise SystemExit(
+            f"Orchestrator no soportado `{orchestrator}`. Por ahora solo se admite `bmad` "
+            "(usa --orchestrator bmad o configura project.workflow.default_orchestrator=bmad)."
+        )
+    if force and orchestrator != "bmad":
+        raise SystemExit("`--force-orchestrator` requiere `bmad`.")
+    return orchestrator, source, force
+
+
 def _doctor_payload(
     *,
+    args,
+    workspace_config: dict[str, object],
     root: Path,
     rel: Callable[[Path], str],
     capture_workspace_tool: Callable[[list[str]], dict[str, object]],
@@ -40,9 +81,15 @@ def _doctor_payload(
 ) -> dict[str, object]:
     assets = workflow_assets(root)
     findings: list[str] = []
+    orchestrator, orchestrator_source, orchestrator_forced = workflow_orchestrator_settings(
+        args,
+        workspace_config=workspace_config,
+    )
 
     payload = {
-        "default_orchestrator": "bmad",
+        "default_orchestrator": orchestrator,
+        "orchestrator_source": orchestrator_source,
+        "orchestrator_forced": orchestrator_forced,
         "default_spec_engine": "tessl",
         "assets": {name: {"path": rel(path), "exists": path.exists()} for name, path in assets.items()},
         "skills_manifest_ok": False,
@@ -105,6 +152,7 @@ def command_workflow_doctor(
     args,
     *,
     require_dirs: Callable[[], None],
+    workspace_config: dict[str, object],
     root: Path,
     rel: Callable[[Path], str],
     capture_workspace_tool: Callable[[list[str]], dict[str, object]],
@@ -115,6 +163,8 @@ def command_workflow_doctor(
 ) -> int:
     require_dirs()
     payload = _doctor_payload(
+        args=args,
+        workspace_config=workspace_config,
         root=root,
         rel=rel,
         capture_workspace_tool=capture_workspace_tool,
@@ -147,6 +197,7 @@ def command_workflow_intake(
     args,
     *,
     require_dirs: Callable[[], None],
+    workspace_config: dict[str, object],
     root: Path,
     root_repo: str,
     feature_specs: Path,
@@ -192,6 +243,8 @@ def command_workflow_intake(
     spec_path = feature_specs / f"{slug}.spec.md"
     assets = workflow_assets(root)
     doctor = _doctor_payload(
+        args=args,
+        workspace_config=workspace_config,
         root=root,
         rel=rel,
         capture_workspace_tool=capture_workspace_tool,
@@ -200,6 +253,10 @@ def command_workflow_intake(
         skills_entries=skills_entries,
     )
 
+    orchestrator, orchestrator_source, orchestrator_forced = workflow_orchestrator_settings(
+        args,
+        workspace_config=workspace_config,
+    )
     payload = {
         "feature": slug,
         "stage": "intake",
@@ -207,7 +264,9 @@ def command_workflow_intake(
         "spec": rel(spec_path),
         "state": rel(state_path(slug)),
         "spec_create_output": [line for line in spec_stdout.getvalue().splitlines() if line.strip()],
-        "default_orchestrator": "bmad",
+        "default_orchestrator": orchestrator,
+        "orchestrator_source": orchestrator_source,
+        "orchestrator_forced": orchestrator_forced,
         "default_spec_engine": "tessl",
         "bmad_workflow": {
             "name": "quick-spec",
@@ -262,7 +321,7 @@ def command_workflow_intake(
 
             - Spec: `{rel(spec_path)}`
             - State: `{rel(state_path(slug))}`
-            - Default orchestrator: `bmad`
+            - Default orchestrator: `{orchestrator}`
             - Default spec engine: `tessl`
 
             ## Tessl context
@@ -301,6 +360,7 @@ def command_workflow_next_step(
     args,
     *,
     require_dirs: Callable[[], None],
+    workspace_config: dict[str, object],
     resolve_spec: Callable[[str], Path],
     spec_slug: Callable[[Path], str],
     analyze_spec: Callable[[Path], dict[str, object]],
@@ -314,6 +374,10 @@ def command_workflow_next_step(
 ) -> int:
     require_dirs()
     workflow_report_root.mkdir(parents=True, exist_ok=True)
+    orchestrator, orchestrator_source, orchestrator_forced = workflow_orchestrator_settings(
+        args,
+        workspace_config=workspace_config,
+    )
 
     spec_path = resolve_spec(args.spec)
     slug = spec_slug(spec_path)
@@ -418,7 +482,9 @@ def command_workflow_next_step(
         "state_status": str(state.get("status", "idea")).strip() or "idea",
         "plan_exists": plan_path.exists(),
         "plan_path": rel(plan_path) if plan_path.exists() else None,
-        "default_orchestrator": "bmad",
+        "default_orchestrator": orchestrator,
+        "orchestrator_source": orchestrator_source,
+        "orchestrator_forced": orchestrator_forced,
         "default_spec_engine": "tessl",
         "bmad_recommendation": bmad_recommendation,
         "tessl_context": {
@@ -488,6 +554,7 @@ def command_workflow_execute_feature(
     args,
     *,
     require_dirs: Callable[[], None],
+    workspace_config: dict[str, object],
     resolve_spec: Callable[[str], Path],
     spec_slug: Callable[[Path], str],
     plan_root: Path,
@@ -501,6 +568,10 @@ def command_workflow_execute_feature(
 ) -> int:
     require_dirs()
     workflow_report_root.mkdir(parents=True, exist_ok=True)
+    orchestrator, orchestrator_source, orchestrator_forced = workflow_orchestrator_settings(
+        args,
+        workspace_config=workspace_config,
+    )
 
     spec_path = resolve_spec(args.spec)
     slug = spec_slug(spec_path)
@@ -549,7 +620,9 @@ def command_workflow_execute_feature(
         "plan_path": rel(plan_path),
         "started_slices": bool(getattr(args, "start_slices", False)),
         "handoffs": handoffs,
-        "default_orchestrator": "bmad",
+        "default_orchestrator": orchestrator,
+        "orchestrator_source": orchestrator_source,
+        "orchestrator_forced": orchestrator_forced,
         "default_spec_engine": "tessl",
         "quick_dev_workflow": rel(assets["bmad_quick_dev"]),
         "story_cycle": {

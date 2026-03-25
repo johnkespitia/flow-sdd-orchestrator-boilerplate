@@ -1,7 +1,11 @@
 {
   "project": {
     "display_name": "Flow SDD Orchestrator Boilerplate",
-    "root_repo": "sdd-workspace-boilerplate"
+    "root_repo": "sdd-workspace-boilerplate",
+    "workflow": {
+      "default_orchestrator": "bmad",
+      "force_orchestrator": true
+    }
   },
   "repos": {
     "sdd-workspace-boilerplate": {

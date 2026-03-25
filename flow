@@ -1361,6 +1361,7 @@ def command_workflow_doctor(args: argparse.Namespace) -> int:
     return flow_workflows.command_workflow_doctor(
         args,
         require_dirs=require_dirs,
+        workspace_config=WORKSPACE_CONFIG,
         root=ROOT,
         rel=rel,
         capture_workspace_tool=capture_workspace_tool,
@@ -1375,6 +1376,7 @@ def command_workflow_intake(args: argparse.Namespace) -> int:
     return flow_workflows.command_workflow_intake(
         args,
         require_dirs=require_dirs,
+        workspace_config=WORKSPACE_CONFIG,
         root=ROOT,
         root_repo=ROOT_REPO,
         feature_specs=FEATURE_SPECS,
@@ -1396,6 +1398,7 @@ def command_workflow_next_step(args: argparse.Namespace) -> int:
     return flow_workflows.command_workflow_next_step(
         args,
         require_dirs=require_dirs,
+        workspace_config=WORKSPACE_CONFIG,
         resolve_spec=resolve_spec,
         spec_slug=spec_slug,
         analyze_spec=analyze_spec,
@@ -1413,6 +1416,7 @@ def command_workflow_execute_feature(args: argparse.Namespace) -> int:
     return flow_workflows.command_workflow_execute_feature(
         args,
         require_dirs=require_dirs,
+        workspace_config=WORKSPACE_CONFIG,
         resolve_spec=resolve_spec,
         spec_slug=spec_slug,
         plan_root=PLAN_ROOT,
