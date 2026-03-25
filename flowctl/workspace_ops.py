@@ -10,6 +10,30 @@ from typing import Callable, Optional
 CI_STEP_KEYS = ("install", "lint", "test", "build")
 
 
+def _append_unique(items: list[str], value: str) -> None:
+    if value and value not in items:
+        items.append(value)
+
+
+def ensure_test_roots(target_roots: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for root in target_roots:
+        candidate = str(root).strip().strip("/")
+        if candidate and candidate not in normalized:
+            normalized.append(candidate)
+
+    # Baseline for all repos in SoftOS: explicit tests root.
+    _append_unique(normalized, "tests")
+
+    # Common colocated test layouts by source root.
+    if any(root == "src" or root.startswith("src/") for root in normalized):
+        _append_unique(normalized, "src/tests")
+    if any(root == "code" or root.startswith("code/") for root in normalized):
+        _append_unique(normalized, "code/tests")
+
+    return normalized
+
+
 def normalize_repo_path(value: str) -> str:
     raw = value.strip()
     candidate = Path(raw)
@@ -188,6 +212,7 @@ def command_add_project(
         for root_item in pack.get("target_roots", []):
             if root_item not in target_roots:
                 target_roots.append(root_item)
+    target_roots = ensure_test_roots(target_roots)
 
     default_targets = list(args.default_target or defaults["default_targets"])
     test_runner = args.test_runner or str(defaults["test_runner"])

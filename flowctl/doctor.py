@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Callable, Optional
 
 
@@ -86,6 +87,35 @@ def command_doctor(
         "bmad_project": root.joinpath("_bmad").is_dir(),
         "tessl_runtime_local": bool(shutil_which("tessl")) if running_inside_workspace() else None,
     }
+
+    missing_test_roots: list[str] = []
+    try:
+        workspace_payload = json.loads(workspace_config_file.read_text(encoding="utf-8"))
+        repos_payload = workspace_payload.get("repos", {})
+        if isinstance(repos_payload, dict):
+            for repo_name, repo_cfg in repos_payload.items():
+                if not isinstance(repo_cfg, dict):
+                    continue
+                if str(repo_cfg.get("kind", "")).strip().lower() == "root":
+                    continue
+                target_roots_raw = repo_cfg.get("target_roots", [])
+                target_roots = [
+                    str(item).strip().strip("/")
+                    for item in (target_roots_raw if isinstance(target_roots_raw, list) else [])
+                    if str(item).strip().strip("/")
+                ]
+                has_test_root = any(
+                    root == "tests" or root.endswith("/tests")
+                    for root in target_roots
+                )
+                if not has_test_root:
+                    missing_test_roots.append(str(repo_name))
+    except Exception:
+        # doctor keeps running; this is only an advisory governance signal.
+        pass
+
+    if missing_test_roots:
+        payload["missing_test_roots"] = missing_test_roots
     if bool(getattr(args, "json", False)):
         print(json_dumps(payload))
         missing = [name for name, ok in checks.items() if not ok]
@@ -101,6 +131,9 @@ def command_doctor(
 
         print(f"\nFaltan rutas requeridas: {', '.join(missing)}", file=sys.stderr)
         return 1
+
+    if missing_test_roots:
+        print(f"\nWarning: repos sin root de tests en workspace.config.json: {', '.join(missing_test_roots)}")
 
     print(f"\nWorkspace root: {root}")
     print(f"Worktree root sugerido: {worktree_root}")
