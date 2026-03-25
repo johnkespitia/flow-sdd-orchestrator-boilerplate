@@ -30,6 +30,9 @@ jobs:
       - name: Install Python deps
         run: python3 -m pip install --upgrade pip PyYAML
 
+      - name: Flow signature drift guard
+        run: python3 ./scripts/ci/check_flow_signature_drift.py
+
       - name: Flow doctor
         run: python3 ./flow doctor
 
