@@ -1201,7 +1201,32 @@ def command_stack_up(args: argparse.Namespace) -> int:
     )
 
 
+def ensure_versioned_git_hooks() -> None:
+    hooks_path = ROOT / "scripts" / "git-hooks"
+    if not hooks_path.is_dir():
+        return
+
+    rc, _, _ = git_output(["git", "-C", str(ROOT), "rev-parse", "--is-inside-work-tree"])
+    if rc != 0:
+        return
+
+    desired = "scripts/git-hooks"
+    current_rc, current_stdout, _ = git_output(["git", "-C", str(ROOT), "config", "--local", "--get", "core.hooksPath"])
+    if current_rc == 0 and current_stdout.strip() == desired:
+        return
+
+    set_rc, _, set_stderr = git_output(["git", "-C", str(ROOT), "config", "--local", "core.hooksPath", desired])
+    if set_rc != 0:
+        warning = set_stderr.strip() or "git config failed"
+        print(f"Warning: no pude configurar core.hooksPath={desired}: {warning}")
+        return
+
+    print(f"Configured git hooks path: {desired}")
+
+
 def command_init(args: argparse.Namespace) -> int:
+    ensure_versioned_git_hooks()
+
     if not args.skip_doctor:
         doctor_rc = command_doctor(argparse.Namespace(json=False))
         if doctor_rc != 0:

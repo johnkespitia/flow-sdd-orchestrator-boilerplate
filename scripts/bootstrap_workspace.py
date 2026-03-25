@@ -212,6 +212,9 @@ def rewrite_project_texts(
 
 def git_init(destination: Path) -> None:
     subprocess.run(["git", "init"], cwd=destination, check=True)
+    hooks_dir = destination / "scripts" / "git-hooks"
+    if hooks_dir.is_dir():
+        subprocess.run(["git", "config", "core.hooksPath", "scripts/git-hooks"], cwd=destination, check=True)
     subprocess.run(["git", "add", "."], cwd=destination, check=True)
     subprocess.run(["git", "commit", "-m", "chore: initialize workspace from boilerplate"], cwd=destination, check=True)
 

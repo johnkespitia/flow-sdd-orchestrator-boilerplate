@@ -120,6 +120,9 @@ sin editar el repo:
 SOFTOS_GATEWAY_HOST_PORT=18010 python3 ./flow init --build
 ```
 
+`flow init` tambien configura `core.hooksPath=scripts/git-hooks` en el repo local para activar los
+hooks versionados (incluido `pre-push` para validar gitlinks de submodulos antes de subir cambios).
+
 Desde tu shell host, una vez el servicio `workspace` este arriba, `flow tessl`, `flow bmad`,
 `flow skills doctor`, `flow skills sync` y `flow ci repo` delegan automaticamente al devcontainer.
 Para ejecutar algo arbitrario dentro del workspace desde host, usa `python3 ./flow stack exec workspace -- ...`.
@@ -355,12 +358,21 @@ GitHub Actions.
 ### Qué hace `scripts/ci/normalize_gitmodules.sh`
 
 - Si no existe `.gitmodules`, hace no-op.
+- Valida que cada gitlink del root apunte a un commit fetchable en el remoto del submódulo.
 - Detecta el owner del repo raíz desde `remote.origin.url`.
 - Convierte URLs de submódulos GitHub del mismo owner a relativas (`../repo.git`), por ejemplo:
   - `git@github.com:johnkespitia/cerradura.git` -> `../cerradura.git`
   - `https://github.com/johnkespitia/cerrajero.git` -> `../cerrajero.git`
 - Ejecuta `git submodule sync --recursive` si hubo cambios.
 - Ejecuta siempre `git submodule update --init --recursive`.
+
+Además, el hook versionado `scripts/git-hooks/pre-push` ejecuta:
+
+```bash
+./scripts/ci/normalize_gitmodules.sh --check-only
+```
+
+para bloquear pushes con punteros de submódulos que todavía no existen en remoto.
 
 ### Configuración requerida en GitHub
 
