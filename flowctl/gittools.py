@@ -118,9 +118,15 @@ def git_changed_files(repo_path: Path) -> tuple[list[str], Optional[str]]:
 def repo_paths_changed_under_roots(repo: str, changed_files: list[str], *, contract_roots: dict[str, set[str]]) -> list[str]:
     roots = contract_roots.get(repo, set())
     selected: list[str] = []
+    normalized_roots = [str(root).strip("/").replace("\\", "/") for root in roots if str(root).strip("/")]
     for changed_file in changed_files:
-        parts = Path(changed_file).parts
-        if parts and parts[0] in roots:
+        normalized_file = str(changed_file).strip("/").replace("\\", "/")
+        if not normalized_file:
+            continue
+        if any(
+            normalized_file == root or normalized_file.startswith(f"{root}/")
+            for root in normalized_roots
+        ):
             selected.append(changed_file)
     return selected
 

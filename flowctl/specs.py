@@ -225,6 +225,19 @@ def repo_prefix_examples(config: SpecConfig) -> str:
     return ", ".join(prefixes)
 
 
+def path_matches_any_root(relative: str, roots: set[str]) -> bool:
+    normalized = relative.strip("/").replace("\\", "/")
+    if not normalized:
+        return False
+    for root in roots:
+        candidate = str(root).strip("/").replace("\\", "/")
+        if not candidate:
+            continue
+        if normalized == candidate or normalized.startswith(f"{candidate}/"):
+            return True
+    return False
+
+
 def classify_routed_path(raw_path: str, *, config: SpecConfig) -> tuple[str, str]:
     value = raw_path.strip()
     if not value:
@@ -248,11 +261,10 @@ def classify_routed_path(raw_path: str, *, config: SpecConfig) -> tuple[str, str
     if not relative:
         raise ValueError(f"Ruta invalida '{raw_path}': falta la ruta relativa despues del repo.")
 
-    top_level = Path(relative).parts[0]
-    if top_level not in config.target_roots[repo]:
+    if not path_matches_any_root(relative, config.target_roots[repo]):
         allowed = ", ".join(sorted(config.target_roots[repo]))
         raise ValueError(
-            f"Ruta invalida '{raw_path}': '{top_level}' no es un root permitido para {repo}. "
+            f"Ruta invalida '{raw_path}': '{relative}' no coincide con un root permitido para {repo}. "
             f"Roots permitidos: {allowed}."
         )
 
@@ -305,7 +317,7 @@ def repo_entries_require_tests(config: SpecConfig, repo: str, entries: list[dict
         relative = str(entry.get("relative", "")).strip("/")
         if not relative:
             continue
-        if Path(relative).parts[0] in required_roots:
+        if path_matches_any_root(relative, required_roots):
             return True
 
     return False
