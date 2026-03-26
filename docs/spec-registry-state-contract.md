@@ -64,3 +64,27 @@ Eventos registrados por el contrato:
 - `release`
 - `transition`
 - `lock_expired`
+
+## Spec 1 Closure
+
+Spec 1 (`softos-central-spec-registry-and-claiming`) se considera funcionalmente completo en este workspace para el alcance definido:
+
+- registro central de specs con estados y auditoria
+- endpoints de claim/heartbeat/release/transition/get/list
+- lock exclusivo con TTL + heartbeat + expiracion automatica
+- rechazo de double-claim concurrente (single winner)
+- pruebas de concurrencia para claim/release/heartbeat
+
+Evidencia de validacion ejecutada:
+
+- `python3 -m unittest gateway.tests.test_spec_registry_concurrency` -> OK (3 tests, passed)
+- `python3 ./flow ci repo --all --json` -> OK (exit 0)
+- `python3 ./flow ci spec --all` -> FAIL (exit 1) por deuda legacy de specs preexistentes en el workspace, no por regresion de Spec 1
+
+Comandos reproducibles:
+
+```bash
+python3 -m unittest gateway.tests.test_spec_registry_concurrency
+python3 ./flow ci repo --all --json
+python3 ./flow ci spec --all
+```
