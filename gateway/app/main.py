@@ -8,10 +8,20 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .config import Settings, load_settings
 from .intents import IntentError, build_flow_command, intent_from_github, intent_from_jira, parse_text_command, slugify
-from .models import IntentRequest, RepoCatalogView, TaskAccepted, TaskView
+from .models import (
+    IntentRequest,
+    RepoCatalogView,
+    SpecClaimRequest,
+    SpecHeartbeatRequest,
+    SpecReleaseRequest,
+    SpecTransitionRequest,
+    SpecView,
+    TaskAccepted,
+    TaskView,
+)
 from .repos import repo_catalog_payload
 from .security import verify_bearer_token, verify_github_signature, verify_slack_signature
-from .store import TaskStore
+from .store import SpecRegistryError, TaskStore
 from .worker import TaskWorker
 
 
@@ -26,6 +36,10 @@ def _accepted_payload(task: dict[str, Any]) -> TaskAccepted:
 
 def _view_payload(task: dict[str, Any]) -> TaskView:
     return TaskView(**task)
+
+
+def _spec_payload(spec: dict[str, Any]) -> SpecView:
+    return SpecView(**spec)
 
 
 def _intake_spec_exists(settings: Settings, intent_request: IntentRequest) -> tuple[bool, str]:
@@ -203,3 +217,94 @@ async def jira_webhook(request: Request) -> JSONResponse:
     except IntentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(_accepted_payload(task).model_dump(), status_code=202)
+
+
+def _sanitize_spec_id(spec_id: str) -> str:
+    normalized = spec_id.strip().lower()
+    if not normalized:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_SPEC_ID", "message": "Invalid spec id."})
+    return normalized
+
+
+@app.post("/v1/specs/{spec_id}/claim", response_model=SpecView)
+async def claim_spec(spec_id: str, payload: SpecClaimRequest, request: Request) -> SpecView:
+    store: TaskStore = request.app.state.store
+    try:
+        record = store.claim_spec(
+            spec_id=_sanitize_spec_id(spec_id),
+            actor=payload.actor,
+            source=payload.source,
+            reason=payload.reason,
+            ttl_seconds=payload.ttl_seconds,
+        )
+    except SpecRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+    return _spec_payload(record)
+
+
+@app.post("/v1/specs/{spec_id}/heartbeat", response_model=SpecView)
+async def heartbeat_spec(spec_id: str, payload: SpecHeartbeatRequest, request: Request) -> SpecView:
+    store: TaskStore = request.app.state.store
+    try:
+        record = store.heartbeat_spec(
+            spec_id=_sanitize_spec_id(spec_id),
+            actor=payload.actor,
+            lock_token=payload.lock_token,
+            source=payload.source,
+            reason=payload.reason,
+            ttl_seconds=payload.ttl_seconds,
+        )
+    except SpecRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+    return _spec_payload(record)
+
+
+@app.post("/v1/specs/{spec_id}/release", response_model=SpecView)
+async def release_spec(spec_id: str, payload: SpecReleaseRequest, request: Request) -> SpecView:
+    store: TaskStore = request.app.state.store
+    try:
+        record = store.release_spec(
+            spec_id=_sanitize_spec_id(spec_id),
+            actor=payload.actor,
+            lock_token=payload.lock_token,
+            source=payload.source,
+            reason=payload.reason,
+        )
+    except SpecRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+    return _spec_payload(record)
+
+
+@app.post("/v1/specs/{spec_id}/transition", response_model=SpecView)
+async def transition_spec(spec_id: str, payload: SpecTransitionRequest, request: Request) -> SpecView:
+    store: TaskStore = request.app.state.store
+    try:
+        record = store.transition_spec(
+            spec_id=_sanitize_spec_id(spec_id),
+            actor=payload.actor,
+            to_state=payload.to_state,
+            source=payload.source,
+            reason=payload.reason,
+            lock_token=payload.lock_token,
+        )
+    except SpecRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+    return _spec_payload(record)
+
+
+@app.get("/v1/specs/{spec_id}", response_model=SpecView)
+async def get_spec(spec_id: str, request: Request) -> SpecView:
+    store: TaskStore = request.app.state.store
+    try:
+        record = store.get_spec(_sanitize_spec_id(spec_id))
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail={"code": "SPEC_NOT_FOUND", "message": "Spec not found in registry."}
+        ) from exc
+    return _spec_payload(record)
+
+
+@app.get("/v1/specs")
+async def list_specs(request: Request, state: str | None = None, assignee: str | None = None) -> dict[str, Any]:
+    store: TaskStore = request.app.state.store
+    return {"items": store.list_specs(state=state, assignee=assignee)}

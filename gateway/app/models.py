@@ -85,3 +85,54 @@ class TaskView(BaseModel):
     started_at: str | None = None
     finished_at: str | None = None
     updated_at: str
+
+
+class SpecClaimRequest(BaseModel):
+    actor: str
+    source: str = Field(default="api")
+    reason: str = Field(default="")
+    ttl_seconds: int = Field(default=120)
+
+
+class SpecHeartbeatRequest(BaseModel):
+    actor: str
+    lock_token: str
+    source: str = Field(default="api")
+    reason: str = Field(default="")
+    ttl_seconds: int = Field(default=120)
+
+
+class SpecReleaseRequest(BaseModel):
+    actor: str
+    lock_token: str
+    source: str = Field(default="api")
+    reason: str = Field(default="")
+
+
+class SpecTransitionRequest(BaseModel):
+    actor: str
+    to_state: str
+    source: str = Field(default="api")
+    reason: str = Field(default="")
+    lock_token: str | None = None
+
+
+class SpecAuditEntry(BaseModel):
+    event: str
+    from_state: str | None = None
+    to_state: str | None = None
+    actor: str
+    reason: str
+    source: str
+    timestamp: str
+
+
+class SpecView(BaseModel):
+    spec_id: str
+    state: str
+    assignee: str | None = None
+    lock_token: str | None = None
+    lock_expires_at: str | None = None
+    created_at: str
+    updated_at: str
+    audit: list[SpecAuditEntry] = Field(default_factory=list)

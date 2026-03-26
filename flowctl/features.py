@@ -4,6 +4,7 @@ import fnmatch
 import json
 import os
 import shlex
+import sqlite3
 import subprocess
 import textwrap
 from pathlib import Path
@@ -932,9 +933,45 @@ def command_status(
     state_root: Path,
     read_state: Callable[[str], dict[str, object]],
     json_dumps: Callable[[object], str],
+    workspace_root: Path,
 ) -> int:
+    def read_registry_state(spec_slug: str) -> dict[str, object] | None:
+        db_path = workspace_root / "gateway" / "data" / "tasks.db"
+        if not db_path.is_file():
+            return None
+        try:
+            with sqlite3.connect(db_path) as connection:
+                connection.row_factory = sqlite3.Row
+                row = connection.execute(
+                    """
+                    SELECT spec_id, state, assignee, lock_token, lock_expires_at, created_at, updated_at
+                    FROM spec_registry
+                    WHERE spec_id = ?
+                    """,
+                    (spec_slug,),
+                ).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None:
+            return None
+        return {
+            "slug": row["spec_id"],
+            "feature": row["spec_id"],
+            "status": row["state"],
+            "assignee": row["assignee"],
+            "lock_token": row["lock_token"],
+            "lock_expires_at": row["lock_expires_at"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "source_of_truth": "spec_registry",
+        }
+
     if args.spec:
         slug = slugify(args.spec)
+        registry_state = read_registry_state(slug)
+        if registry_state is not None:
+            print(json_dumps(registry_state))
+            return 0
         state = read_state(slug)
         if not state:
             raise SystemExit(f"No existe estado para '{slug}'.")

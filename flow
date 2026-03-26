@@ -2081,6 +2081,7 @@ def command_status(args: argparse.Namespace) -> int:
         state_root=STATE_ROOT,
         read_state=read_state,
         json_dumps=json_dumps,
+        workspace_root=ROOT,
     )
 
 

@@ -17,6 +17,14 @@
 - [ ] Integrar secretos en un secret manager (no depender de shell/env local por usuario).
 - [ ] Definir estrategia de reintentos/backoff para feedback providers externos (Jira/GitHub/Slack).
 
+## CI Smoke Hardening (Pendiente de rollout)
+
+- [ ] Definir y documentar contrato oficial de `smoke:ci-clean` (qué valida y qué bloquea).
+- [ ] Hacer obligatorio `flow ci integration --profile smoke:ci-clean` en `root-ci` después de una ventana de adopción.
+- [ ] Implementar bootstrap automático opcional para preflight por runtime (ej. `composer install`, `pnpm install`) con flag explícito.
+- [ ] Endurecer preflight contracts por runtime en modo estricto por defecto una vez estabilizado el bootstrap.
+- [ ] Añadir timeout/backoff configurable por servicio (no solo global) para smoke/health checks.
+
 ## Prioridad Media
 
 - [ ] Soportar eventos `pull_request` nativos (opened/edited/labeled) además de `issue_comment`.
@@ -46,4 +54,3 @@
 - [ ] Definir política de limpieza/retención para reportes `.flow/reports/**`.
 - [ ] Formalizar playbook de rollback para cambios en workflows e integraciones.
 - [ ] Añadir checklist de onboarding para nuevos miembros del equipo (tokens, webhooks, smoke tests).
-

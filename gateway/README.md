@@ -9,6 +9,12 @@ a intents controlados sobre `python3 ./flow`.
 - `GET /v1/repos`
 - `POST /v1/intents`
 - `GET /v1/tasks/{task_id}`
+- `POST /v1/specs/{id}/claim`
+- `POST /v1/specs/{id}/heartbeat`
+- `POST /v1/specs/{id}/release`
+- `POST /v1/specs/{id}/transition`
+- `GET /v1/specs/{id}`
+- `GET /v1/specs?state=...&assignee=...`
 - `POST /webhooks/slack/commands`
 - `POST /webhooks/github`
 - `POST /webhooks/jira`
