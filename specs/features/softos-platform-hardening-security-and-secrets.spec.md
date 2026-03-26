@@ -5,19 +5,18 @@ description: Completar hardening enterprise del gateway y del plano operativo pa
 status: approved
 owner: platform
 depends_on:
+  - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
   - ../../specs/features/softos-central-spec-registry-and-claiming.spec.md
   - ../../specs/features/softos-gateway-intake-and-collaboration-loop.spec.md
 required_runtimes: []
 required_services: []
 required_capabilities: []
 targets:
-  - ../../gateway/**
   - ../../flow
   - ../../flowctl/**
   - ../../workspace.providers.json
   - ../../workspace.secrets.json
   - ../../docs/**
-  - ../../TODO.md
 ---
 
 # SoftOS Platform Hardening Security And Secrets
@@ -52,7 +51,7 @@ Cerrar pendientes de seguridad, resiliencia y operación enterprise para habilit
 
 ## Definición de terminado
 
-- cumplimiento de los ítems de TODO.md relacionados con seguridad/operación
+- cumplimiento de los ítems del backlog operativo relacionados con seguridad/operación
 - runbooks de incidentes, retención y rollback actualizados
 - tests E2E de webhooks con fixtures versionados
 

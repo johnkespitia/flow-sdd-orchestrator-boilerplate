@@ -20,12 +20,10 @@ required_runtimes: []
 required_services: []
 required_capabilities: []
 targets:
-  - ../../gateway/**
   - ../../flow
   - ../../flowctl/**
   - ../../docs/**
   - ../../specs/**
-  - ../../TODO.md
 ---
 
 # SoftOS Program Master Plan
@@ -193,7 +191,7 @@ python3 ./flow ci repo --all --json
 python3 ./flow ci integration --profile smoke:ci-clean --auto-up --json
 ```
 
-## Matriz TODO.md -> Specs
+## Matriz backlog operativo -> Specs
 
 - Política aprobación CLI/Gateway -> `softos-gateway-intake-and-collaboration-loop`
 - Comandos/intents aprobación en GitHub/Jira -> `softos-gateway-intake-and-collaboration-loop`

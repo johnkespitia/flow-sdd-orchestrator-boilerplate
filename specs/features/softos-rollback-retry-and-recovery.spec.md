@@ -5,6 +5,7 @@ description: Introducir ejecución transaccional con retry por tipo de falla, ro
 status: approved
 owner: platform
 depends_on:
+  - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
   - ../../specs/features/softos-autonomous-sdlc-execution-engine.spec.md
   - ../../specs/features/softos-multiagent-concurrency-and-locking.spec.md
 required_runtimes: []
@@ -13,7 +14,6 @@ required_capabilities: []
 targets:
   - ../../flow
   - ../../flowctl/**
-  - ../../gateway/**
   - ../../docs/**
 ---
 

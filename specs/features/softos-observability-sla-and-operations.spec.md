@@ -5,16 +5,15 @@ description: Proveer observabilidad operativa completa del orquestador multiagen
 status: approved
 owner: platform
 depends_on:
+  - ../../specs/000-foundation/spec-as-source-operating-model.spec.md
   - ../../specs/features/softos-autonomous-sdlc-execution-engine.spec.md
 required_runtimes: []
 required_services: []
 required_capabilities: []
 targets:
-  - ../../gateway/**
   - ../../flow
   - ../../flowctl/**
   - ../../docs/**
-  - ../../.flow/reports/**
 ---
 
 # SoftOS Observability SLA And Operations
