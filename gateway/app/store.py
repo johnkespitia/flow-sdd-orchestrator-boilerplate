@@ -71,6 +71,43 @@ class TaskStore:
             )
             connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS task_timeline (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT NOT NULL,
+                    actor TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS task_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT,
+                    event TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS intake_failures (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS spec_registry (
                     spec_id TEXT PRIMARY KEY,
                     state TEXT NOT NULL,
@@ -165,6 +202,51 @@ class TaskStore:
                     record["updated_at"],
                 ),
             )
+            connection.execute(
+                """
+                INSERT INTO task_events (task_id, event, source, status, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (task_id, "created", source, "accepted", record["payload_json"], now),
+            )
+            connection.commit()
+        return self.get(task_id)
+
+    def append_comment(
+        self,
+        task_id: str,
+        *,
+        actor: str,
+        message: str,
+        source: str,
+        direction: str,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self._connect() as connection:
+            exists = connection.execute("SELECT task_id FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+            if exists is None:
+                raise KeyError(task_id)
+            connection.execute(
+                """
+                INSERT INTO task_timeline (task_id, actor, message, source, direction, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (task_id, actor, message, source, direction, now),
+            )
+            connection.execute(
+                """
+                INSERT INTO task_events (task_id, event, source, status, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task_id,
+                    "comment_added",
+                    source,
+                    "accepted",
+                    json.dumps({"actor": actor, "direction": direction}, ensure_ascii=True),
+                    now,
+                ),
+            )
             connection.commit()
         return self.get(task_id)
 
@@ -225,18 +307,94 @@ class TaskStore:
                 """,
                 (status, exit_code, stdout, stderr, parsed_json, timestamp, timestamp, task_id),
             )
+            connection.execute(
+                """
+                INSERT INTO task_events (task_id, event, source, status, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task_id,
+                    "execution_failed" if status.startswith("failed") else "execution_succeeded",
+                    "worker",
+                    status,
+                    json.dumps({"exit_code": exit_code}, ensure_ascii=True),
+                    timestamp,
+                ),
+            )
             connection.commit()
         return self.get(task_id)
+
+    def append_task_event(
+        self,
+        *,
+        task_id: str | None,
+        event: str,
+        source: str,
+        status: str,
+        payload: dict[str, Any],
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO task_events (task_id, event, source, status, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (task_id, event, source, status, json.dumps(payload, ensure_ascii=True), utc_now()),
+            )
+            connection.commit()
+
+    def record_intake_failure(self, *, source: str, reason: str, payload: dict[str, Any]) -> None:
+        now = utc_now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO intake_failures (source, reason, payload_json, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (source, reason, json.dumps(payload, ensure_ascii=True), now),
+            )
+            connection.execute(
+                """
+                INSERT INTO task_events (task_id, event, source, status, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (None, "failed-intake", source, "failed", json.dumps({"reason": reason}, ensure_ascii=True), now),
+            )
+            connection.commit()
 
     def get(self, task_id: str) -> dict[str, Any]:
         with self._connect() as connection:
             row = connection.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+            timeline_rows = connection.execute(
+                """
+                SELECT actor, message, source, direction, created_at
+                FROM task_timeline
+                WHERE task_id = ?
+                ORDER BY id ASC
+                """,
+                (task_id,),
+            ).fetchall()
+            event_rows = connection.execute(
+                """
+                SELECT event, source, status, payload_json, created_at
+                FROM task_events
+                WHERE task_id = ?
+                ORDER BY id ASC
+                """,
+                (task_id,),
+            ).fetchall()
         if row is None:
             raise KeyError(task_id)
-        return self._inflate(row)
+        return self._inflate(row, timeline_rows=timeline_rows, event_rows=event_rows)
 
-    def _inflate(self, row: sqlite3.Row) -> dict[str, Any]:
-        return {
+    def _inflate(
+        self,
+        row: sqlite3.Row,
+        *,
+        timeline_rows: list[sqlite3.Row] | None = None,
+        event_rows: list[sqlite3.Row] | None = None,
+    ) -> dict[str, Any]:
+        payload = {
             "task_id": row["task_id"],
             "source": row["source"],
             "intent": row["intent"],
@@ -253,6 +411,27 @@ class TaskStore:
             "finished_at": row["finished_at"],
             "updated_at": row["updated_at"],
         }
+        payload["timeline"] = [
+            {
+                "actor": item["actor"],
+                "message": item["message"],
+                "source": item["source"],
+                "direction": item["direction"],
+                "created_at": item["created_at"],
+            }
+            for item in (timeline_rows or [])
+        ]
+        payload["events"] = [
+            {
+                "event": item["event"],
+                "source": item["source"],
+                "status": item["status"],
+                "payload": json.loads(item["payload_json"] or "{}"),
+                "created_at": item["created_at"],
+            }
+            for item in (event_rows or [])
+        ]
+        return payload
 
     def claim_spec(
         self,

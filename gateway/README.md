@@ -9,6 +9,7 @@ a intents controlados sobre `python3 ./flow`.
 - `GET /v1/repos`
 - `POST /v1/intents`
 - `GET /v1/tasks/{task_id}`
+- `POST /v1/tasks/{task_id}/comments`
 - `POST /v1/specs/{id}/claim`
 - `POST /v1/specs/{id}/heartbeat`
 - `POST /v1/specs/{id}/release`
@@ -33,6 +34,8 @@ a intents controlados sobre `python3 ./flow`.
   spec aun no queda lista para aprobar.
 - `spec.approve` puede incluir `approver` en el payload; si no llega, `flow` registra la identidad
   disponible en `FLOW_APPROVER/USER`.
+- Los webhooks Slack/Jira/GitHub se normalizan a `workflow.intake`; cualquier otro intent inbound
+  se rechaza con error determinístico y registro `failed-intake`.
 
 ## Intents soportados
 

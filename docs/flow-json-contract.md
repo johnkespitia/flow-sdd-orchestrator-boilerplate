@@ -18,6 +18,40 @@ control plane aceptan `--json` para agentes, CI y tooling.
 - `infra plan|apply|status`
 - `spec generate-contracts`
 
+## Gateway Event Contract
+
+Eventos de ciclo de vida emitidos por el gateway (timeline + feedback):
+
+- `created`
+- `claimed`
+- `review_requested`
+- `approved`
+- `execution_started`
+- `execution_failed`
+- `execution_succeeded`
+- `closed`
+
+Reglas operativas:
+
+- webhooks de Slack/Jira/GitHub solo aceptan mapeo a `workflow.intake`
+- si no existe correlacion valida, se registra `failed-intake` con causa auditable
+- `closed` se emite cuando `flow` confirma estado final (`closed|done|released`)
+
+Payload JSON canonico de evento:
+
+```json
+{
+  "event": "execution_succeeded",
+  "status": "succeeded",
+  "source": "worker",
+  "payload": {
+    "task_id": "abcd1234",
+    "intent": "workflow.execute_feature"
+  },
+  "created_at": "2026-03-26T16:00:00+00:00"
+}
+```
+
 ## Convención
 
 - siempre imprimir un único objeto JSON en `stdout`

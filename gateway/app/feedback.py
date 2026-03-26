@@ -139,3 +139,58 @@ def send_feedback(settings: Settings, task: dict[str, Any]) -> dict[str, Any] | 
         "stdout": result.stdout.strip(),
         "stderr": result.stderr.strip(),
     }
+
+
+def send_feedback_event(
+    settings: Settings,
+    *,
+    event: str,
+    source: str,
+    status: str,
+    payload: dict[str, Any],
+    response_target: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    section = _load_feedback_section(settings)
+    target = response_target if isinstance(response_target, dict) else {}
+    resolved = _resolve_provider(settings, section, target)
+    if resolved is None:
+        return None
+    provider_name, provider_config = resolved
+    entrypoint = _provider_entrypoint(settings, provider_config)
+    if not entrypoint.is_file():
+        raise RuntimeError(f"Feedback provider sin entrypoint valido: {entrypoint}")
+
+    env = os.environ.copy()
+    for key, value in dict(provider_config.get("env", {})).items():
+        env[str(key)] = str(value)
+    env.update(
+        {
+            "FLOW_PROVIDER_CATEGORY": "feedback",
+            "FLOW_PROVIDER_ACTION": "notify",
+            "FLOW_PROVIDER_NAME": provider_name,
+            "FLOW_WORKSPACE_ROOT": str(settings.workspace_root),
+            "FLOW_WORKSPACE_PATH": str(settings.workspace_root),
+            "FLOW_FEEDBACK_EVENT": event,
+            "FLOW_FEEDBACK_STATUS": status,
+            "FLOW_FEEDBACK_SOURCE": source,
+            "FLOW_FEEDBACK_MESSAGE": json.dumps({"event": event, "status": status, "payload": payload}, ensure_ascii=True),
+            "FLOW_FEEDBACK_TARGET_KIND": str(target.get("kind", "")),
+            "FLOW_GITHUB_COMMENTS_URL": str(target.get("comments_url", "")),
+            "FLOW_SLACK_RESPONSE_URL": str(target.get("response_url", "")),
+            "FLOW_JIRA_ISSUE_KEY": str(target.get("issue_key", "")),
+        }
+    )
+    result = subprocess.run(
+        ["bash", str(entrypoint)],
+        cwd=settings.workspace_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return {
+        "provider": provider_name,
+        "return_code": result.returncode,
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+    }

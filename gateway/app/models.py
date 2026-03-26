@@ -85,6 +85,15 @@ class TaskView(BaseModel):
     started_at: str | None = None
     finished_at: str | None = None
     updated_at: str
+    timeline: list[dict[str, Any]] = Field(default_factory=list)
+    events: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class TaskCommentRequest(BaseModel):
+    actor: str
+    message: str
+    source: str = Field(default="api")
+    direction: str = Field(default="reporter_to_dev")
 
 
 class SpecClaimRequest(BaseModel):

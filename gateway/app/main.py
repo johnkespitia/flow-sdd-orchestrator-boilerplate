@@ -7,10 +7,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .config import Settings, load_settings
+from .feedback import send_feedback_event
 from .intents import IntentError, build_flow_command, intent_from_github, intent_from_jira, parse_text_command, slugify
 from .models import (
     IntentRequest,
     RepoCatalogView,
+    TaskCommentRequest,
     SpecClaimRequest,
     SpecHeartbeatRequest,
     SpecReleaseRequest,
@@ -87,6 +89,14 @@ def enqueue_intent(app_request: Request, intent_request: IntentRequest) -> dict[
     )
 
 
+def _require_workflow_intake(intent_request: IntentRequest, *, source: str, store: TaskStore, raw_payload: dict[str, Any]) -> None:
+    if intent_request.intent == "workflow.intake":
+        return
+    reason = f"Webhook intent not allowed: `{intent_request.intent}`. Only `workflow.intake` is accepted."
+    store.record_intake_failure(source=source, reason=reason, payload=raw_payload)
+    raise HTTPException(status_code=400, detail={"code": "WEBHOOK_INTENT_NOT_ALLOWED", "message": reason})
+
+
 @app.get("/healthz")
 async def healthz(request: Request) -> dict[str, Any]:
     settings: Settings = request.app.state.settings
@@ -129,6 +139,22 @@ async def get_task(task_id: str, request: Request) -> TaskView:
     return _view_payload(task)
 
 
+@app.post("/v1/tasks/{task_id}/comments", response_model=TaskView)
+async def add_task_comment(task_id: str, payload: TaskCommentRequest, request: Request) -> TaskView:
+    store: TaskStore = request.app.state.store
+    try:
+        task = store.append_comment(
+            task_id=task_id,
+            actor=payload.actor,
+            message=payload.message,
+            source=payload.source,
+            direction=payload.direction,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found.") from exc
+    return _view_payload(task)
+
+
 @app.post("/webhooks/slack/commands")
 async def slack_commands(request: Request) -> PlainTextResponse:
     settings: Settings = request.app.state.settings
@@ -157,6 +183,7 @@ async def slack_commands(request: Request) -> PlainTextResponse:
                 "channel_id": str(form.get("channel_id", "")).strip(),
             },
         )
+        _require_workflow_intake(intent_request, source="slack", store=request.app.state.store, raw_payload={"text": text})
         task = enqueue_intent(request, intent_request)
     except IntentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -182,9 +209,20 @@ async def github_webhook(request: Request) -> JSONResponse:
     except IntentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if intent_request is None:
+        request.app.state.store.record_intake_failure(
+            source="github",
+            reason="No workflow.intake mapping for event.",
+            payload={"event": event},
+        )
         return JSONResponse({"accepted": False, "reason": "event ignored"}, status_code=200)
+    _require_workflow_intake(intent_request, source="github", store=request.app.state.store, raw_payload=payload)
     exists, slug = _intake_spec_exists(settings, intent_request)
     if exists:
+        request.app.state.store.record_intake_failure(
+            source="github",
+            reason=f"Intake already exists for slug `{slug}`.",
+            payload={"event": event, "slug": slug},
+        )
         return JSONResponse(
             {"accepted": False, "reason": "intake already exists", "slug": slug},
             status_code=200,
@@ -210,7 +248,13 @@ async def jira_webhook(request: Request) -> JSONResponse:
     except IntentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if intent_request is None:
+        request.app.state.store.record_intake_failure(
+            source="jira",
+            reason="No workflow.intake mapping for event.",
+            payload=payload if isinstance(payload, dict) else {},
+        )
         return JSONResponse({"accepted": False, "reason": "event ignored"}, status_code=200)
+    _require_workflow_intake(intent_request, source="jira", store=request.app.state.store, raw_payload=payload)
 
     try:
         task = enqueue_intent(request, intent_request)
@@ -239,6 +283,23 @@ async def claim_spec(spec_id: str, payload: SpecClaimRequest, request: Request) 
         )
     except SpecRegistryError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+    store.append_task_event(
+        task_id=None,
+        event="claimed",
+        source=payload.source,
+        status="accepted",
+        payload={"spec_id": _sanitize_spec_id(spec_id), "actor": payload.actor},
+    )
+    try:
+        send_feedback_event(
+            request.app.state.settings,
+            event="claimed",
+            source=payload.source,
+            status="accepted",
+            payload={"spec_id": _sanitize_spec_id(spec_id), "actor": payload.actor},
+        )
+    except Exception:
+        pass
     return _spec_payload(record)
 
 
