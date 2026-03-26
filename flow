@@ -1460,6 +1460,53 @@ def command_workflow_execute_feature(args: argparse.Namespace) -> int:
     )
 
 
+def command_workflow_run(args: argparse.Namespace) -> int:
+    return flow_workflows.command_workflow_run(
+        args,
+        require_dirs=require_dirs,
+        workspace_config=WORKSPACE_CONFIG,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        read_state=read_state,
+        write_state=write_state,
+        command_plan=command_plan,
+        command_slice_start=command_slice_start,
+        command_ci_spec=command_ci_spec,
+        command_ci_repo=command_ci_repo,
+        command_ci_integration=command_ci_integration,
+        command_release_promote=command_release_promote,
+        command_release_verify=command_release_verify,
+        command_infra_apply=command_infra_apply,
+        command_workflow_execute_feature=command_workflow_execute_feature,
+        workflow_report_root=WORKFLOW_REPORT_ROOT,
+        rel=rel,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
+    )
+
+
+def command_workflow_pause(args: argparse.Namespace) -> int:
+    return flow_workflows.command_workflow_pause(
+        args,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        read_state=read_state,
+        write_state=write_state,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
+    )
+
+
+def command_workflow_resume(args: argparse.Namespace) -> int:
+    setattr(args, "resume_from_stage", getattr(args, "stage", None))
+    return command_workflow_run(args)
+
+
+def command_workflow_retry(args: argparse.Namespace) -> int:
+    setattr(args, "retry_stage", getattr(args, "stage", None))
+    return command_workflow_run(args)
+
+
 def serialize_skill_entry(entry: dict[str, object]) -> dict[str, object]:
     return flow_serialize_skill_entry(entry, rel)
 
@@ -2305,6 +2352,10 @@ def build_parser() -> argparse.ArgumentParser:
         "workflow_intake": command_workflow_intake,
         "workflow_next_step": command_workflow_next_step,
         "workflow_execute_feature": command_workflow_execute_feature,
+        "workflow_run": command_workflow_run,
+        "workflow_pause": command_workflow_pause,
+        "workflow_resume": command_workflow_resume,
+        "workflow_retry": command_workflow_retry,
         "skills_doctor": command_skills_doctor,
         "skills_list": command_skills_list,
         "skills_context": command_skills_context,

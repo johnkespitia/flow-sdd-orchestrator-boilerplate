@@ -141,6 +141,35 @@ def build_parser(
     workflow_execute.add_argument("--json", action="store_true", help="Print the execution bundle as JSON.")
     workflow_execute.set_defaults(func=commands["workflow_execute_feature"])
 
+    workflow_run = workflow_subparsers.add_parser("run", help="Execute the autonomous SDLC stage engine for a feature.")
+    workflow_run.add_argument("spec", help="Spec slug or path.")
+    workflow_run.add_argument("--pause-at-stage", help="Pause before executing the given stage.")
+    workflow_run.add_argument("--resume-from-stage", help="Resume execution from the given stage.")
+    workflow_run.add_argument("--retry-stage", help="Retry a specific failed stage and continue.")
+    add_workflow_orchestrator_args(workflow_run)
+    workflow_run.add_argument("--json", action="store_true", help="Print the engine result as JSON.")
+    workflow_run.set_defaults(func=commands["workflow_run"])
+
+    workflow_pause = workflow_subparsers.add_parser("pause", help="Pause workflow engine at a specific stage.")
+    workflow_pause.add_argument("spec", help="Spec slug or path.")
+    workflow_pause.add_argument("--stage", required=True, help="Stage name where the engine should pause.")
+    workflow_pause.add_argument("--json", action="store_true", help="Print the pause result as JSON.")
+    workflow_pause.set_defaults(func=commands["workflow_pause"])
+
+    workflow_resume = workflow_subparsers.add_parser("resume", help="Resume a paused workflow engine.")
+    workflow_resume.add_argument("spec", help="Spec slug or path.")
+    workflow_resume.add_argument("--stage", help="Optional stage name to resume from.")
+    add_workflow_orchestrator_args(workflow_resume)
+    workflow_resume.add_argument("--json", action="store_true", help="Print the resume result as JSON.")
+    workflow_resume.set_defaults(func=commands["workflow_resume"])
+
+    workflow_retry = workflow_subparsers.add_parser("retry", help="Retry a failed stage and continue engine execution.")
+    workflow_retry.add_argument("spec", help="Spec slug or path.")
+    workflow_retry.add_argument("--stage", required=True, help="Failed stage to retry.")
+    add_workflow_orchestrator_args(workflow_retry)
+    workflow_retry.add_argument("--json", action="store_true", help="Print the retry result as JSON.")
+    workflow_retry.set_defaults(func=commands["workflow_retry"])
+
     skills = subparsers.add_parser("skills", help="Manage assistant skills through a versioned workspace manifest.")
     skills_subparsers = skills.add_subparsers(dest="skills_command", required=True)
     for name, help_text in [

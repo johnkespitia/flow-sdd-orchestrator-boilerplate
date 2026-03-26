@@ -107,6 +107,10 @@ python3 ./flow workflow doctor --json
 python3 ./flow workflow intake identity-bootstrap --title "Identity Bootstrap" --repo root --runtime go-api --service postgres-service --json
 python3 ./flow workflow next-step identity-bootstrap --json
 python3 ./flow workflow execute-feature identity-bootstrap --start-slices --json
+python3 ./flow workflow run identity-bootstrap --json
+python3 ./flow workflow pause identity-bootstrap --stage ci_repo --json
+python3 ./flow workflow resume identity-bootstrap --stage ci_repo --json
+python3 ./flow workflow retry identity-bootstrap --stage ci_repo --json
 ```
 
 ## Flujo

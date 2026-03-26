@@ -6,6 +6,8 @@ import json
 import os
 import shlex
 import textwrap
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Callable
 
@@ -670,3 +672,312 @@ def command_workflow_execute_feature(
     print(rel(json_path))
     print(rel(md_path))
     return 0
+
+
+WORKFLOW_ENGINE_STAGES = [
+    "plan",
+    "slice_start",
+    "ci_spec",
+    "ci_repo",
+    "ci_integration",
+    "release_promote",
+    "release_verify",
+    "infra_apply",
+]
+
+
+def _workflow_callback(stage_event: str, payload: dict[str, object]) -> None:
+    callback_url = str(os.environ.get("SOFTOS_GATEWAY_WORKFLOW_CALLBACK_URL", "")).strip()
+    if not callback_url:
+        return
+    body = json.dumps({"event": stage_event, **payload}, ensure_ascii=True).encode("utf-8")
+    request = urllib.request.Request(
+        callback_url,
+        data=body,
+        method="POST",
+        headers={"content-type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(request, timeout=3).read()
+    except (urllib.error.URLError, TimeoutError):
+        return
+
+
+def _ensure_engine_state(state: dict[str, object], *, utc_now: Callable[[], str]) -> dict[str, object]:
+    engine = state.get("workflow_engine")
+    if not isinstance(engine, dict):
+        engine = {
+            "status": "idle",
+            "updated_at": utc_now(),
+            "paused_at_stage": None,
+            "stages": {},
+        }
+        state["workflow_engine"] = engine
+    if not isinstance(engine.get("stages"), dict):
+        engine["stages"] = {}
+    return engine
+
+
+def _stage_record(engine: dict[str, object], stage_name: str) -> dict[str, object]:
+    stages = engine["stages"]
+    assert isinstance(stages, dict)
+    record = stages.get(stage_name)
+    if not isinstance(record, dict):
+        record = {
+            "stage_name": stage_name,
+            "started_at": None,
+            "finished_at": None,
+            "status": "skipped",
+            "input_ref": None,
+            "output_ref": None,
+            "attempt": 0,
+            "failure_reason": None,
+        }
+        stages[stage_name] = record
+    return record
+
+
+def _run_stage_callable(stage_name: str, slug: str, callables: dict[str, Callable[[object], int]]) -> tuple[int, str]:
+    def _extract_output_ref(stdout_text: str, fallback_ref: str) -> str:
+        text = stdout_text.strip()
+        if not text:
+            return fallback_ref
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                for key in ("json_report", "markdown_report", "report"):
+                    value = str(parsed.get(key, "")).strip()
+                    if value:
+                        return value
+        except json.JSONDecodeError:
+            pass
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        for candidate in reversed(lines):
+            if candidate.endswith(".json") or candidate.endswith(".md"):
+                return candidate
+        return fallback_ref
+
+    def _capture(callable_fn: Callable[[object], int], args_obj: object, fallback_ref: str) -> tuple[int, str]:
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            rc = callable_fn(args_obj)
+        return rc, _extract_output_ref(captured.getvalue(), fallback_ref)
+
+    if stage_name == "plan":
+        rc, out = _capture(callables["plan"], type("PlanArgs", (), {"spec": slug})(), f"plan:{slug}")
+        return rc, out
+    if stage_name == "slice_start":
+        plan_rc, _ = _capture(callables["plan"], type("PlanArgs", (), {"spec": slug})(), f"plan:{slug}")
+        if plan_rc != 0:
+            return plan_rc, "slice-start:plan-failed"
+        exec_rc, exec_out = _capture(
+            callables["execute_feature"],
+            type("WorkflowExecuteArgs", (), {"spec": slug, "refresh_plan": False, "start_slices": True, "json": True})(),
+            "execute-feature:start-slices",
+        )
+        return exec_rc, exec_out
+    if stage_name == "ci_spec":
+        rc, out = _capture(
+            callables["ci_spec"],
+            type("CiSpecArgs", (), {"spec": slug, "all": False, "changed": False, "base": None, "head": None, "json": True})(),
+            "ci-spec",
+        )
+        return rc, out
+    if stage_name == "ci_repo":
+        rc, out = _capture(
+            callables["ci_repo"],
+            type(
+                "CiRepoArgs",
+                (),
+                {"repo": None, "all": True, "spec": slug, "base": None, "head": None, "skip_install": False, "json": True},
+            )(),
+            "ci-repo",
+        )
+        return rc, out
+    if stage_name == "ci_integration":
+        rc, out = _capture(
+            callables["ci_integration"],
+            type("CiIntegrationArgs", (), {"profile": "smoke", "auto_up": False, "build": False, "json": True})(),
+            "ci-integration",
+        )
+        return rc, out
+    if stage_name == "release_promote":
+        return 0, "release-promote:skipped-by-default"
+    if stage_name == "release_verify":
+        return 0, "release-verify:skipped-by-default"
+    if stage_name == "infra_apply":
+        return 0, "infra-apply:skipped-by-default"
+    return 1, f"unknown-stage:{stage_name}"
+
+
+def command_workflow_pause(
+    args,
+    *,
+    resolve_spec: Callable[[str], Path],
+    spec_slug: Callable[[Path], str],
+    read_state: Callable[[str], dict[str, object]],
+    write_state: Callable[[str, dict[str, object]], None],
+    utc_now: Callable[[], str],
+    json_dumps: Callable[[object], str],
+) -> int:
+    slug = spec_slug(resolve_spec(args.spec))
+    state = read_state(slug)
+    engine = _ensure_engine_state(state, utc_now=utc_now)
+    engine["status"] = "paused"
+    engine["paused_at_stage"] = str(args.stage).strip()
+    engine["updated_at"] = utc_now()
+    write_state(slug, state)
+    payload = {"feature": slug, "status": "paused", "paused_at_stage": engine["paused_at_stage"], "updated_at": engine["updated_at"]}
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+    else:
+        print(json.dumps(payload, ensure_ascii=True))
+    return 0
+
+
+def command_workflow_run(
+    args,
+    *,
+    require_dirs: Callable[[], None],
+    workspace_config: dict[str, object],
+    resolve_spec: Callable[[str], Path],
+    spec_slug: Callable[[Path], str],
+    read_state: Callable[[str], dict[str, object]],
+    write_state: Callable[[str, dict[str, object]], None],
+    command_plan: Callable[[object], int],
+    command_slice_start: Callable[[object], int],
+    command_ci_spec: Callable[[object], int],
+    command_ci_repo: Callable[[object], int],
+    command_ci_integration: Callable[[object], int],
+    command_release_promote: Callable[[object], int],
+    command_release_verify: Callable[[object], int],
+    command_infra_apply: Callable[[object], int],
+    command_workflow_execute_feature: Callable[[object], int],
+    workflow_report_root: Path,
+    rel: Callable[[Path], str],
+    utc_now: Callable[[], str],
+    json_dumps: Callable[[object], str],
+) -> int:
+    require_dirs()
+    workflow_report_root.mkdir(parents=True, exist_ok=True)
+    _ = workflow_orchestrator_settings(args, workspace_config=workspace_config)
+    slug = spec_slug(resolve_spec(args.spec))
+    state = read_state(slug)
+    engine = _ensure_engine_state(state, utc_now=utc_now)
+    stage_reports: list[dict[str, object]] = []
+    resume_from = str(getattr(args, "resume_from_stage", "") or "").strip()
+    retry_stage = str(getattr(args, "retry_stage", "") or "").strip()
+    explicit_pause = str(getattr(args, "pause_at_stage", "") or "").strip()
+    inherited_pause = str(engine.get("paused_at_stage") or "").strip()
+    pause_at = explicit_pause or inherited_pause
+    if resume_from or retry_stage:
+        # Resume/retry must not inherit an old pause marker.
+        pause_at = explicit_pause
+    if pause_at and pause_at not in WORKFLOW_ENGINE_STAGES:
+        raise SystemExit(f"Etapa invalida para pause: `{pause_at}`.")
+    if resume_from and resume_from not in WORKFLOW_ENGINE_STAGES:
+        raise SystemExit(f"Etapa invalida para resume: `{resume_from}`.")
+    if retry_stage and retry_stage not in WORKFLOW_ENGINE_STAGES:
+        raise SystemExit(f"Etapa invalida para retry: `{retry_stage}`.")
+
+    callables = {
+        "plan": command_plan,
+        "slice_start": command_slice_start,
+        "ci_spec": command_ci_spec,
+        "ci_repo": command_ci_repo,
+        "ci_integration": command_ci_integration,
+        "release_promote": command_release_promote,
+        "release_verify": command_release_verify,
+        "infra_apply": command_infra_apply,
+        "execute_feature": command_workflow_execute_feature,
+    }
+
+    engine["status"] = "running"
+    engine["paused_at_stage"] = pause_at or None
+    engine["updated_at"] = utc_now()
+    write_state(slug, state)
+
+    start_from_stage = resume_from or retry_stage
+    started_execution = False if start_from_stage else True
+    finalized_status = "completed"
+    for stage_name in WORKFLOW_ENGINE_STAGES:
+        if start_from_stage and not started_execution:
+            if stage_name != start_from_stage:
+                continue
+            started_execution = True
+        record = _stage_record(engine, stage_name)
+        if pause_at and stage_name == pause_at and not retry_stage:
+            record["status"] = "skipped"
+            record["failure_reason"] = "paused-before-stage"
+            engine["status"] = "paused"
+            engine["updated_at"] = utc_now()
+            write_state(slug, state)
+            finalized_status = "paused"
+            break
+        if record.get("status") == "passed" and retry_stage != stage_name:
+            stage_reports.append({"stage_name": stage_name, "status": "skipped", "reason": "idempotent-already-passed"})
+            continue
+
+        record["attempt"] = int(record.get("attempt", 0) or 0) + 1
+        record["stage_name"] = stage_name
+        record["started_at"] = utc_now()
+        record["finished_at"] = None
+        record["status"] = "started"
+        record["failure_reason"] = None
+        record["input_ref"] = f"state:{slug}"
+        _workflow_callback("stage_started", {"feature": slug, "stage_name": stage_name, "attempt": record["attempt"]})
+        write_state(slug, state)
+
+        rc, output_ref = _run_stage_callable(stage_name, slug, callables)
+        record["output_ref"] = output_ref
+        record["finished_at"] = utc_now()
+        if rc == 0:
+            if output_ref.endswith("skipped-by-default"):
+                record["status"] = "skipped"
+            else:
+                record["status"] = "passed"
+                _workflow_callback(
+                    "stage_passed",
+                    {"feature": slug, "stage_name": stage_name, "attempt": record["attempt"], "output_ref": output_ref},
+                )
+        else:
+            record["status"] = "failed"
+            record["failure_reason"] = f"stage `{stage_name}` failed with exit code {rc}."
+            engine["status"] = "failed"
+            _workflow_callback(
+                "stage_failed",
+                {
+                    "feature": slug,
+                    "stage_name": stage_name,
+                    "attempt": record["attempt"],
+                    "failure_reason": record["failure_reason"],
+                },
+            )
+            write_state(slug, state)
+            stage_reports.append(dict(record))
+            finalized_status = "failed"
+            break
+        write_state(slug, state)
+        stage_reports.append(dict(record))
+
+    if finalized_status == "completed":
+        engine["status"] = "completed"
+    engine["updated_at"] = utc_now()
+    write_state(slug, state)
+    _workflow_callback("finalized", {"feature": slug, "status": finalized_status, "stages": stage_reports})
+
+    payload = {
+        "feature": slug,
+        "status": finalized_status,
+        "engine_status": engine["status"],
+        "stages": stage_reports,
+        "updated_at": engine["updated_at"],
+    }
+    json_path = workflow_report_root / f"{slug}-workflow-run.json"
+    json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    payload["json_report"] = rel(json_path)
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+    else:
+        print(rel(json_path))
+    return 1 if finalized_status == "failed" else 0
