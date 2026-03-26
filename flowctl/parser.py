@@ -531,4 +531,37 @@ def build_parser(
     status.add_argument("--json", action="store_true", help="Print the tracked state as JSON.")
     status.set_defaults(func=commands["status"])
 
+    ops = subparsers.add_parser("ops", help="Operational observability commands (metrics, dashboards).")
+    ops_subparsers = ops.add_subparsers(dest="ops_command", required=True)
+    ops_metrics = ops_subparsers.add_parser("metrics", help="Print aggregated workflow metrics (throughput, failure_rate, latency, retries, DLQ).")
+    ops_metrics.add_argument("--json", action="store_true", help="Print metrics as JSON.")
+    ops_metrics.set_defaults(func=commands["ops_metrics"])
+    ops_dashboard = ops_subparsers.add_parser("dashboard", help="Print a runs dashboard with engine status and stages.")
+    ops_dashboard.add_argument("--json", action="store_true", help="Print dashboard as JSON.")
+    ops_dashboard.set_defaults(func=commands["ops_dashboard"])
+
+    ops_sla = ops_subparsers.add_parser("sla", help="Evaluate SLA thresholds by stage and persist alerts.")
+    ops_sla.add_argument("--json", action="store_true", help="Print SLA alerts as JSON.")
+    ops_sla.set_defaults(func=commands["ops_sla"])
+
+    decision = ops_subparsers.add_parser("decision-log", help="Record and inspect agent/human operational decisions.")
+    decision_subparsers = decision.add_subparsers(dest="decision_command", required=True)
+    decision_add = decision_subparsers.add_parser("add", help="Append a decision entry to the operations log.")
+    decision_add.add_argument("--actor-type", required=True, choices=["agent", "human"], help="Actor type.")
+    decision_add.add_argument("--actor", required=True, help="Actor id or name.")
+    decision_add.add_argument("--decision", required=True, help="Decision summary.")
+    decision_add.add_argument("--context", required=True, help="Context for the decision.")
+    decision_add.add_argument("--impact-or-risk", required=True, help="Impact or risk assessment.")
+    decision_add.add_argument("--json", action="store_true", help="Print the appended entry as JSON.")
+    decision_add.set_defaults(func=commands["ops_decision_add"])
+
+    decision_list = decision_subparsers.add_parser("list", help="List recent decision log entries.")
+    decision_list.add_argument("--limit", type=int, default=100, help="Max entries to return.")
+    decision_list.add_argument("--json", action="store_true", help="Print the decision log as JSON.")
+    decision_list.set_defaults(func=commands["ops_decision_list"])
+
+    # `serve-metrics` era un servidor HTTP ligero embebido en `flow`. La responsabilidad
+    # de exponer `/metrics` vive ahora en `gateway`, por lo que este subcomando se
+    # elimina de la CLI para evitar duplicar endpoints.
+
     return parser

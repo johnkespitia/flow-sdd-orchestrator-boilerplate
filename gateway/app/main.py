@@ -25,6 +25,7 @@ from .repos import repo_catalog_payload
 from .security import verify_bearer_token, verify_github_signature, verify_slack_signature
 from .store import SpecRegistryError, TaskStore
 from .worker import TaskWorker
+from flowctl.operations import collect_workflow_metrics
 
 
 def _accepted_payload(task: dict[str, Any]) -> TaskAccepted:
@@ -105,6 +106,13 @@ async def healthz(request: Request) -> dict[str, Any]:
         "workspace_root": str(settings.workspace_root),
         "database_path": str(settings.database_path),
     }
+
+
+@app.get("/metrics")
+async def metrics(request: Request) -> JSONResponse:
+    settings: Settings = request.app.state.settings
+    payload = collect_workflow_metrics(root=settings.workspace_root, utc_now=lambda: datetime.now(timezone.utc).isoformat())
+    return JSONResponse(payload)
 
 
 @app.post("/v1/intents", response_model=TaskAccepted, status_code=202)
