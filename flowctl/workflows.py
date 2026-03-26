@@ -12,6 +12,14 @@ from pathlib import Path
 from typing import Callable
 
 from .multiagent import SchedulerConfig, run_slice_scheduler
+from .quality_gates import (
+    build_traceability_matrix,
+    detect_api_dto_change,
+    max_risk_level,
+    required_checkpoints,
+    risk_thresholds_by_level,
+    slice_confidence_score,
+)
 
 
 def workflow_assets(root: Path) -> dict[str, Path]:
@@ -855,6 +863,9 @@ def command_workflow_run(
     command_release_verify: Callable[[object], int],
     command_infra_apply: Callable[[object], int],
     command_workflow_execute_feature: Callable[[object], int],
+    command_drift_check: Callable[[object], int],
+    command_contract_verify: Callable[[object], int],
+    command_spec_generate_contracts: Callable[[object], int],
     plan_root: Path,
     workflow_report_root: Path,
     rel: Callable[[Path], str],
@@ -868,6 +879,7 @@ def command_workflow_run(
     state = read_state(slug)
     engine = _ensure_engine_state(state, utc_now=utc_now)
     stage_reports: list[dict[str, object]] = []
+    checkpoint_reports: list[dict[str, object]] = []
     resume_from = str(getattr(args, "resume_from_stage", "") or "").strip()
     retry_stage = str(getattr(args, "retry_stage", "") or "").strip()
     explicit_pause = str(getattr(args, "pause_at_stage", "") or "").strip()
@@ -894,6 +906,26 @@ def command_workflow_run(
         "infra_apply": command_infra_apply,
         "execute_feature": command_workflow_execute_feature,
     }
+    plan_path = plan_root / f"{slug}.json"
+    plan_payload = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path.exists() else None
+    api_dto_change = detect_api_dto_change(plan_payload)
+    risk_level = max_risk_level(plan_payload)
+    thresholds = risk_thresholds_by_level()
+
+    def _capture_json_callable(callable_fn: Callable[[object], int], args_obj: object) -> tuple[int, dict[str, object]]:
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            rc = callable_fn(args_obj)
+        text = captured.getvalue().strip()
+        if not text:
+            return rc, {}
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return rc, parsed
+        except json.JSONDecodeError:
+            pass
+        return rc, {}
 
     engine["status"] = "running"
     engine["paused_at_stage"] = pause_at or None
@@ -1050,6 +1082,130 @@ def command_workflow_run(
             stage_reports.append(dict(record))
             finalized_status = "failed"
             break
+
+        stage_checkpoint_results: list[dict[str, object]] = []
+        required = required_checkpoints(stage_name, risk_level, api_dto_change)
+        stage_checkpoint_results.append(
+            {
+                "checkpoint": f"{stage_name}-stage-pass",
+                "required": f"{stage_name}-stage-pass" in required,
+                "status": "passed" if record["status"] in {"passed", "skipped"} else "failed",
+                "reason": f"stage-status:{record['status']}",
+            }
+        )
+        if stage_name == "ci_spec":
+            drift_rc, drift_payload = _capture_json_callable(
+                command_drift_check,
+                type("DriftArgs", (), {"spec": slug, "all": False, "changed": False, "base": None, "head": None, "json": True})(),
+            )
+            drift_ok = drift_rc == 0
+            stage_checkpoint_results.append(
+                {
+                    "checkpoint": "drift-check-pass",
+                    "required": "drift-check-pass" in required,
+                    "status": "passed" if drift_ok else "failed",
+                    "reason": "" if drift_ok else "drift-check-failed",
+                    "report": drift_payload.get("json_report"),
+                }
+            )
+            if api_dto_change:
+                gen_rc, gen_payload = _capture_json_callable(
+                    command_spec_generate_contracts,
+                    type("GenerateContractsArgs", (), {"spec": slug, "json": True})(),
+                )
+                artifacts = gen_payload.get("artifacts", [])
+                generate_ok = gen_rc == 0 and isinstance(artifacts, list) and bool(artifacts)
+                stage_checkpoint_results.append(
+                    {
+                        "checkpoint": "generate-contracts-pass",
+                        "required": True,
+                        "status": "passed" if generate_ok else "failed",
+                        "reason": "" if generate_ok else "missing-generated-contracts",
+                    }
+                )
+                contract_rc, contract_payload = _capture_json_callable(
+                    command_contract_verify,
+                    type("ContractVerifyArgs", (), {"spec": slug, "all": False, "changed": False, "base": None, "head": None, "json": True})(),
+                )
+                contract_ok = contract_rc == 0
+                stage_checkpoint_results.append(
+                    {
+                        "checkpoint": "contract-verify-pass",
+                        "required": True,
+                        "status": "passed" if contract_ok else "failed",
+                        "reason": "" if contract_ok else "contract-verify-failed",
+                        "report": contract_payload.get("json_report"),
+                    }
+                )
+        if stage_name == "ci_integration" and risk_level in {"high", "critical"}:
+            ext_rc, _ = _capture_json_callable(
+                command_ci_integration,
+                type("CiIntegrationExtendedArgs", (), {"profile": "smoke:ci-clean", "auto_up": True, "build": False, "json": True})(),
+            )
+            stage_checkpoint_results.append(
+                {
+                    "checkpoint": "ci-integration-extended-pass",
+                    "required": True,
+                    "status": "passed" if ext_rc == 0 else "failed",
+                    "reason": "" if ext_rc == 0 else "integration-extended-failed",
+                }
+            )
+        if stage_name == "release_promote":
+            stage_records_map = {
+                str(item.get("stage_name")): item for item in stage_reports if isinstance(item, dict) and item.get("stage_name")
+            }
+            stage_records_map[stage_name] = dict(record)
+            drift_ok = any(
+                item["checkpoint"] == "drift-check-pass" and item["status"] == "passed" for item in checkpoint_reports + stage_checkpoint_results
+            )
+            contract_ok = any(
+                item["checkpoint"] == "contract-verify-pass" and item["status"] == "passed" for item in checkpoint_reports + stage_checkpoint_results
+            ) or (not api_dto_change)
+            slice_scores = []
+            for slice_payload in (plan_payload or {}).get("slices", []) if isinstance(plan_payload, dict) else []:
+                if not isinstance(slice_payload, dict):
+                    continue
+                slice_scores.append(
+                    slice_confidence_score(
+                        slice_payload=slice_payload,
+                        stage_records=stage_records_map,
+                        contract_ok=contract_ok,
+                        drift_ok=drift_ok,
+                    )
+                )
+            threshold = thresholds.get(risk_level, 50)
+            confidence_ok = all(int(item["score"]) >= threshold for item in slice_scores) if slice_scores else True
+            stage_checkpoint_results.append(
+                {
+                    "checkpoint": "confidence-threshold-pass",
+                    "required": True,
+                    "status": "passed" if confidence_ok else "failed",
+                    "reason": "" if confidence_ok else f"confidence-below-threshold:{threshold}",
+                    "threshold": threshold,
+                }
+            )
+            if risk_level in {"high", "critical"}:
+                reviewer_ok = bool(str(os.environ.get("FLOW_QUALITY_ADDITIONAL_REVIEWER", "")).strip())
+                stage_checkpoint_results.append(
+                    {
+                        "checkpoint": "additional-reviewer-pass",
+                        "required": True,
+                        "status": "passed" if reviewer_ok else "failed",
+                        "reason": "" if reviewer_ok else "missing-additional-reviewer",
+                    }
+                )
+
+        checkpoint_reports.extend(stage_checkpoint_results)
+        failed_required = [item for item in stage_checkpoint_results if item.get("required") and item.get("status") != "passed"]
+        if failed_required:
+            first = failed_required[0]
+            record["status"] = "failed"
+            record["failure_reason"] = f"checkpoint-failed:{first['checkpoint']}:{first.get('reason', '')}".rstrip(":")
+            engine["status"] = "failed"
+            write_state(slug, state)
+            stage_reports.append(dict(record))
+            finalized_status = "failed"
+            break
         write_state(slug, state)
         stage_reports.append(dict(record))
 
@@ -1064,7 +1220,39 @@ def command_workflow_run(
         "status": finalized_status,
         "engine_status": engine["status"],
         "stages": stage_reports,
+        "quality_checkpoints": checkpoint_reports,
         "updated_at": engine["updated_at"],
+    }
+    stage_records_map = {
+        str(item.get("stage_name")): item for item in stage_reports if isinstance(item, dict) and item.get("stage_name")
+    }
+    drift_ok = any(item.get("checkpoint") == "drift-check-pass" and item.get("status") == "passed" for item in checkpoint_reports)
+    contract_ok = any(item.get("checkpoint") == "contract-verify-pass" and item.get("status") == "passed" for item in checkpoint_reports) or (
+        not api_dto_change
+    )
+    slice_scores: list[dict[str, object]] = []
+    for slice_payload in (plan_payload or {}).get("slices", []) if isinstance(plan_payload, dict) else []:
+        if not isinstance(slice_payload, dict):
+            continue
+        slice_scores.append(
+            slice_confidence_score(
+                slice_payload=slice_payload,
+                stage_records=stage_records_map,
+                contract_ok=contract_ok,
+                drift_ok=drift_ok,
+            )
+        )
+    payload["quality"] = {
+        "risk_level": risk_level,
+        "thresholds": thresholds,
+        "api_dto_change": api_dto_change,
+        "slice_scores": slice_scores,
+        "traceability_matrix": build_traceability_matrix(
+            feature_slug=slug,
+            plan_payload=plan_payload,
+            state=state,
+            stage_records=stage_records_map,
+        ),
     }
     json_path = workflow_report_root / f"{slug}-workflow-run.json"
     json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")

@@ -53,3 +53,15 @@ If `SOFTOS_GATEWAY_WORKFLOW_CALLBACK_URL` is configured, the engine emits:
   - `.flow/reports/workflows/<slug>-scheduler.json`
   - `.flow/reports/workflows/<slug>-scheduler.md`
 - Report includes queue size, capacity limits, wait reasons, semantic locks, DLQ and traceability (`spec -> slice -> worker -> resultado`).
+
+## Quality Gates
+
+- `workflow run` now includes additive fields:
+  - `quality_checkpoints`: resultado por checkpoint (required/status/reason)
+  - `quality`: riesgo agregado, umbrales, scores por slice y matriz `spec->slice->commit->test->release`
+- Checkpoints requeridos dependen de etapa + riesgo (`low|medium|high|critical`) y bloquean avance cuando fallan.
+- Enforcement API/DTO:
+  - si hay cambios `api/dto/contract/schema`, en `ci_spec` se exige:
+    - `spec generate-contracts`
+    - `contract verify`
+  - failure reason queda auditado como `checkpoint-failed:<checkpoint>:<reason>`.
