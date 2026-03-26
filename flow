@@ -1478,6 +1478,7 @@ def command_workflow_run(args: argparse.Namespace) -> int:
         command_release_verify=command_release_verify,
         command_infra_apply=command_infra_apply,
         command_workflow_execute_feature=command_workflow_execute_feature,
+        plan_root=PLAN_ROOT,
         workflow_report_root=WORKFLOW_REPORT_ROOT,
         rel=rel,
         utc_now=utc_now,

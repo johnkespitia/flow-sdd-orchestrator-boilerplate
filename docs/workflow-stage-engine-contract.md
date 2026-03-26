@@ -45,3 +45,11 @@ If `SOFTOS_GATEWAY_WORKFLOW_CALLBACK_URL` is configured, the engine emits:
 - `stage_passed`
 - `stage_failed`
 - `finalized`
+
+## Multiagent Scheduler
+
+- During `slice_start`, the engine can run concurrent workers with queue controls.
+- Scheduler report files:
+  - `.flow/reports/workflows/<slug>-scheduler.json`
+  - `.flow/reports/workflows/<slug>-scheduler.md`
+- Report includes queue size, capacity limits, wait reasons, semantic locks, DLQ and traceability (`spec -> slice -> worker -> resultado`).

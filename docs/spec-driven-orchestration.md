@@ -113,6 +113,14 @@ python3 ./flow workflow resume identity-bootstrap --stage ci_repo --json
 python3 ./flow workflow retry identity-bootstrap --stage ci_repo --json
 ```
 
+En `workflow run`, la etapa `slice_start` usa scheduler multiagente con:
+
+- prioridad por DAG (`depends_on`) + cola FIFO de nodos listos
+- capacidad por repo (`FLOW_SCHEDULER_PER_REPO_CAPACITY`)
+- capacidad por area caliente (`FLOW_SCHEDULER_PER_HOT_AREA_CAPACITY`)
+- workers globales (`FLOW_SCHEDULER_MAX_WORKERS`)
+- locks semanticos con TTL (`FLOW_SCHEDULER_LOCK_TTL_SECONDS`)
+
 ## Flujo
 
 1. crear spec

@@ -11,6 +11,8 @@ import urllib.request
 from pathlib import Path
 from typing import Callable
 
+from .multiagent import SchedulerConfig, run_slice_scheduler
+
 
 def workflow_assets(root: Path) -> dict[str, Path]:
     return {
@@ -853,6 +855,7 @@ def command_workflow_run(
     command_release_verify: Callable[[object], int],
     command_infra_apply: Callable[[object], int],
     command_workflow_execute_feature: Callable[[object], int],
+    plan_root: Path,
     workflow_report_root: Path,
     rel: Callable[[Path], str],
     utc_now: Callable[[], str],
@@ -928,7 +931,97 @@ def command_workflow_run(
         _workflow_callback("stage_started", {"feature": slug, "stage_name": stage_name, "attempt": record["attempt"]})
         write_state(slug, state)
 
-        rc, output_ref = _run_stage_callable(stage_name, slug, callables)
+        if stage_name == "slice_start":
+            plan_stdout = io.StringIO()
+            with contextlib.redirect_stdout(plan_stdout):
+                plan_rc = command_plan(type("PlanArgs", (), {"spec": slug})())
+            if plan_rc != 0:
+                rc, output_ref = plan_rc, "slice-start:plan-failed"
+            else:
+                plan_path = plan_root / f"{slug}.json"
+                if not plan_path.exists():
+                    rc, output_ref = _run_stage_callable(stage_name, slug, callables)
+                    record["output_ref"] = output_ref
+                    record["finished_at"] = utc_now()
+                    if rc == 0:
+                        if output_ref.endswith("skipped-by-default"):
+                            record["status"] = "skipped"
+                        else:
+                            record["status"] = "passed"
+                            _workflow_callback(
+                                "stage_passed",
+                                {"feature": slug, "stage_name": stage_name, "attempt": record["attempt"], "output_ref": output_ref},
+                            )
+                    else:
+                        record["status"] = "failed"
+                        record["failure_reason"] = f"stage `{stage_name}` failed with exit code {rc}."
+                        engine["status"] = "failed"
+                        _workflow_callback(
+                            "stage_failed",
+                            {
+                                "feature": slug,
+                                "stage_name": stage_name,
+                                "attempt": record["attempt"],
+                                "failure_reason": record["failure_reason"],
+                            },
+                        )
+                        write_state(slug, state)
+                        stage_reports.append(dict(record))
+                        finalized_status = "failed"
+                        break
+                    write_state(slug, state)
+                    stage_reports.append(dict(record))
+                    continue
+                plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
+
+                def _start_slice(slice_name: str) -> int:
+                    args_obj = type("SliceStartArgs", (), {"spec": slug, "slice": slice_name})()
+                    return command_slice_start(args_obj)
+
+                scheduler_report = run_slice_scheduler(
+                    feature_slug=slug,
+                    plan_payload=plan_payload,
+                    start_slice_callable=_start_slice,
+                    utc_now=utc_now,
+                    config=SchedulerConfig(
+                        max_workers=max(1, int(os.environ.get("FLOW_SCHEDULER_MAX_WORKERS", "4"))),
+                        per_repo_capacity=max(1, int(os.environ.get("FLOW_SCHEDULER_PER_REPO_CAPACITY", "1"))),
+                        per_hot_area_capacity=max(1, int(os.environ.get("FLOW_SCHEDULER_PER_HOT_AREA_CAPACITY", "1"))),
+                        lock_ttl_seconds=max(5, int(os.environ.get("FLOW_SCHEDULER_LOCK_TTL_SECONDS", "120"))),
+                        max_retries_execution=max(0, int(os.environ.get("FLOW_SCHEDULER_MAX_RETRIES_EXECUTION", "1"))),
+                    ),
+                )
+                scheduler_json = workflow_report_root / f"{slug}-scheduler.json"
+                scheduler_md = workflow_report_root / f"{slug}-scheduler.md"
+                scheduler_json.write_text(json.dumps(scheduler_report, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+                scheduler_md.write_text(
+                    textwrap.dedent(
+                        f"""\
+                        # Scheduler Report: {slug}
+
+                        - Status: `{scheduler_report['status']}`
+                        - Queue size: `{scheduler_report['queue_size']}`
+                        - Max workers: `{scheduler_report['capacity']['max_workers']}`
+
+                        ## Waits
+
+                        {chr(10).join(f"- {item['slice']}: {item['reason']}" for item in scheduler_report['waits']) or '- none'}
+
+                        ## Locks
+
+                        {chr(10).join(f"- {item['lock']} owner={item['owner']}" for item in scheduler_report['locks']) or '- none'}
+
+                        ## DLQ
+
+                        {chr(10).join(f"- {item['slice']} reason={item['reason']} attempt={item['attempt']}" for item in scheduler_report['dlq']) or '- none'}
+                        """
+                    ),
+                    encoding="utf-8",
+                )
+                rc = 0 if str(scheduler_report.get("status")) == "passed" else 1
+                output_ref = rel(scheduler_json)
+        else:
+            rc, output_ref = _run_stage_callable(stage_name, slug, callables)
         record["output_ref"] = output_ref
         record["finished_at"] = utc_now()
         if rc == 0:
