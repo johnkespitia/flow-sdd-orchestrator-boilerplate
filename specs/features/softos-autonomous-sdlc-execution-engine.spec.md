@@ -14,9 +14,7 @@ required_capabilities: []
 targets:
   - ../../flow
   - ../../flowctl/**
-  - ../../gateway/**
   - ../../docs/**
-  - ../../.flow/**
 ---
 
 # SoftOS Autonomous SDLC Execution Engine

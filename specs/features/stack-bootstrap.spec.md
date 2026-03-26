@@ -1,10 +1,11 @@
 ---
 schema_version: 2
 name: Stack Bootstrap
-description: TODO describir el resultado observable
-status: draft
+description: Definir y aprobar un stack inicial materializable desde spec con topología declarativa verificable.
+status: approved
 owner: platform
-depends_on: []
+depends_on:
+  - ../../specs/000-foundation/spec-as-source-operating-model.spec.md
 required_runtimes: []
 required_services: []
 required_capabilities: []
@@ -46,7 +47,7 @@ Revisar y confirmar en frontmatter: `repo_code`, `compose_service`, `port`, `env
 
 ### Proyectos
 
-- TODO completar proyectos a materializar
+- completar y validar proyectos a materializar antes de ejecutar `stack apply --spec`
 
 ### Servicios
 
@@ -76,7 +77,7 @@ Revisar y confirmar en frontmatter: `repo_code`, `compose_service`, `port`, `env
 
 ## Resultado esperado
 
-- TODO describir el stack observable que debe quedar listo tras `stack apply --spec`
+- stack observable y verificable listo tras `stack apply --spec`, con proyectos/servicios/capabilities declarados en frontmatter
 
 ## Reglas de negocio
 
@@ -114,8 +115,8 @@ Revisar y confirmar en frontmatter: `repo_code`, `compose_service`, `port`, `env
 
 ## Rollout
 
-- TODO describir cómo se adoptará este stack en el workspace
+- adopción incremental por entorno, validando primero en workspace local y luego en integración compartida
 
 ## Rollback
 
-- TODO describir cómo revertir la materialización del stack si la spec cambia
+- revertir cambios de `workspace.stack.json`, `workspace.config.json` y servicios materializados mediante plan de rollback registrado

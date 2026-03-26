@@ -5,16 +5,15 @@ description: Habilitar ejecución paralela segura con workers, scheduler por cap
 status: approved
 owner: platform
 depends_on:
+  - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
   - ../../specs/features/softos-autonomous-sdlc-execution-engine.spec.md
 required_runtimes: []
 required_services: []
 required_capabilities: []
 targets:
-  - ../../gateway/**
   - ../../flow
   - ../../flowctl/**
   - ../../docs/**
-  - ../../.flow/**
 ---
 
 # SoftOS Multiagent Concurrency And Locking

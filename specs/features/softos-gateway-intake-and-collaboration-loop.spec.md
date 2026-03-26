@@ -11,7 +11,6 @@ required_runtimes: []
 required_services: []
 required_capabilities: []
 targets:
-  - ../../gateway/**
   - ../../flow
   - ../../flowctl/**
   - ../../docs/**

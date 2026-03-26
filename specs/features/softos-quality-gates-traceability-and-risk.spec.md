@@ -5,6 +5,7 @@ description: Endurecer gobernanza con checkpoints por etapa, matriz de trazabili
 status: approved
 owner: platform
 depends_on:
+  - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
   - ../../specs/features/softos-autonomous-sdlc-execution-engine.spec.md
 required_runtimes: []
 required_services: []
@@ -13,7 +14,6 @@ targets:
   - ../../flow
   - ../../flowctl/**
   - ../../docs/**
-  - ../../contracts/**
   - ../../specs/**
 ---
 
