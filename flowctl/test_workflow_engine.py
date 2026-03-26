@@ -213,7 +213,21 @@ class WorkflowEngineTests(unittest.TestCase):
             rc = workflows.command_workflow_run(
                 self._args(),
                 require_dirs=lambda: None,
-                workspace_config={"project": {"workflow": {"default_orchestrator": "bmad", "force_orchestrator": True}}},
+                workspace_config={
+                    "project": {
+                        "workflow": {
+                            "default_orchestrator": "bmad",
+                            "force_orchestrator": True,
+                            # Desactiva auto-retry para que la semantica original del test se mantenga.
+                            "retry_policy": {
+                                "infra": {"max_attempts": 0},
+                                "dependencia": {"max_attempts": 0},
+                                "validacion": {"max_attempts": 0},
+                                "logica": {"max_attempts": 0},
+                            },
+                        }
+                    }
+                },
                 resolve_spec=lambda value: Path(value),
                 spec_slug=lambda path: path.name,
                 read_state=self._read_state,
@@ -242,6 +256,316 @@ class WorkflowEngineTests(unittest.TestCase):
         stage_names = [item["stage_name"] for item in payload["stages"]]
         self.assertIn("ci_repo", stage_names)
         self.assertNotIn("ci_integration", stage_names)
+
+    def test_backoff_and_jitter_applied_between_retries(self) -> None:
+        sleep_calls: list[float] = []
+
+        attempts = {"ci_repo": 0}
+
+        def _ci_repo_maybe_recover(_args: object) -> int:
+            attempts["ci_repo"] += 1
+            return 1 if attempts["ci_repo"] == 1 else 0
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = workflows.command_workflow_run(
+                self._args(),
+                require_dirs=lambda: None,
+                workspace_config={
+                    "project": {
+                        "workflow": {
+                            "default_orchestrator": "bmad",
+                            "force_orchestrator": True,
+                            "retry_policy": {
+                                "dependencia": {"max_attempts": 2, "backoff_seconds": 1, "jitter_seconds": 2},
+                            },
+                        }
+                    }
+                },
+                resolve_spec=lambda value: Path(value),
+                spec_slug=lambda path: path.name,
+                read_state=self._read_state,
+                write_state=self._write_state,
+                command_plan=self._callable_ok(),
+                command_slice_start=self._callable_ok(),
+                command_ci_spec=self._callable_ok(),
+                command_ci_repo=_ci_repo_maybe_recover,
+                command_ci_integration=self._callable_ok(),
+                command_release_promote=self._callable_ok(),
+                command_release_verify=self._callable_ok(),
+                command_infra_apply=self._callable_ok(),
+                command_workflow_execute_feature=self._callable_ok(),
+                command_drift_check=self._callable_ok(),
+                command_contract_verify=self._callable_ok(),
+                command_spec_generate_contracts=self._callable_ok(),
+                plan_root=self.workflow_report_root,
+                workflow_report_root=self.workflow_report_root,
+                rel=lambda path: str(path),
+                utc_now=self._now,
+                json_dumps=lambda obj: json.dumps(obj, ensure_ascii=True),
+                sleep_fn=lambda seconds: sleep_calls.append(seconds),
+            )
+        self.assertEqual(0, rc)
+        self.assertEqual(2, attempts["ci_repo"])
+        # Un solo reintento -> una sola llamada a sleep, sin jitter (attempt=2 => effective_jitter=min(2,1)=1).
+        self.assertEqual(1 + 1, int(sleep_calls[0]))
+
+    def test_retry_policy_applied_by_error_class(self) -> None:
+        slug = "softos-autonomous-sdlc-execution-engine"
+        attempts = {"ci_repo": 0}
+
+        def _ci_repo_maybe_recover(_args: object) -> int:
+            attempts["ci_repo"] += 1
+            # Primer intento falla, segundo pasa.
+            return 1 if attempts["ci_repo"] == 1 else 0
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = workflows.command_workflow_run(
+                self._args(),
+                require_dirs=lambda: None,
+                workspace_config={
+                    "project": {
+                        "workflow": {
+                            "default_orchestrator": "bmad",
+                            "force_orchestrator": True,
+                            "retry_policy": {
+                                # dependencia -> permitir al menos 2 intentos
+                                "dependencia": {"max_attempts": 2},
+                            },
+                        }
+                    }
+                },
+                resolve_spec=lambda value: Path(value),
+                spec_slug=lambda path: path.name,
+                read_state=self._read_state,
+                write_state=self._write_state,
+                command_plan=self._callable_ok(),
+                command_slice_start=self._callable_ok(),
+                command_ci_spec=self._callable_ok(),
+                command_ci_repo=_ci_repo_maybe_recover,
+                command_ci_integration=self._callable_ok(),
+                command_release_promote=self._callable_ok(),
+                command_release_verify=self._callable_ok(),
+                command_infra_apply=self._callable_ok(),
+                command_workflow_execute_feature=self._callable_ok(),
+                command_drift_check=self._callable_ok(),
+                command_contract_verify=self._callable_ok(),
+                command_spec_generate_contracts=self._callable_ok(),
+                plan_root=self.workflow_report_root,
+                workflow_report_root=self.workflow_report_root,
+                rel=lambda path: str(path),
+                utc_now=self._now,
+                json_dumps=lambda obj: json.dumps(obj, ensure_ascii=True),
+            )
+        self.assertEqual(0, rc)
+        self.assertEqual(2, attempts["ci_repo"])
+        state = self.state_store[slug]
+        engine = state["workflow_engine"]
+        self.assertEqual("passed", engine["stages"]["ci_repo"]["status"])
+
+    def test_rollback_complete_and_reassignment_ready(self) -> None:
+        slug = "softos-autonomous-sdlc-execution-engine"
+        # Simular plan y scheduler sin DLQ.
+        plan_path = self.workflow_report_root / f"{slug}.json"
+        plan_path.write_text(json.dumps({"slices": []}, ensure_ascii=True), encoding="utf-8")
+        scheduler_path = self.workflow_report_root / f"{slug}-scheduler.json"
+        scheduler_path.write_text(
+            json.dumps({"status": "passed", "queue_size": 0, "capacity": {}, "jobs": [], "waits": [], "locks": [], "lock_events": [], "dlq": []}, ensure_ascii=True),
+            encoding="utf-8",
+        )
+
+        def _ci_repo_fail(_args: object) -> int:
+            return 1
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = workflows.command_workflow_run(
+                self._args(),
+                require_dirs=lambda: None,
+                workspace_config={
+                    "project": {
+                        "workflow": {
+                            "default_orchestrator": "bmad",
+                            "force_orchestrator": True,
+                            "retry_policy": {
+                                "dependencia": {"max_attempts": 1},
+                            },
+                        }
+                    }
+                },
+                resolve_spec=lambda value: Path(value),
+                spec_slug=lambda path: path.name,
+                read_state=self._read_state,
+                write_state=self._write_state,
+                command_plan=self._callable_ok(),
+                command_slice_start=self._callable_ok(),
+                command_ci_spec=self._callable_ok(),
+                command_ci_repo=_ci_repo_fail,
+                command_ci_integration=self._callable_ok(),
+                command_release_promote=self._callable_ok(),
+                command_release_verify=self._callable_ok(),
+                command_infra_apply=self._callable_ok(),
+                command_workflow_execute_feature=self._callable_ok(),
+                command_drift_check=self._callable_ok(),
+                command_contract_verify=self._callable_ok(),
+                command_spec_generate_contracts=self._callable_ok(),
+                plan_root=self.workflow_report_root,
+                workflow_report_root=self.workflow_report_root,
+                rel=lambda path: str(path),
+                utc_now=self._now,
+                json_dumps=lambda obj: json.dumps(obj, ensure_ascii=True),
+            )
+        self.assertEqual(1, rc)
+        payload = json.loads(out.getvalue().strip())
+        rollback = payload["rollback"]
+        self.assertIn("summary", rollback)
+        self.assertIn("stages", rollback)
+        self.assertIn("reverted_items", rollback)
+        self.assertIn("pending_items", rollback)
+        self.assertIn("manual_actions_required", rollback)
+        self.assertFalse(payload["reassignment_ready"])
+
+    def test_rollback_partial_and_not_reassignment_ready(self) -> None:
+        slug = "softos-autonomous-sdlc-execution-engine"
+        scheduler_path = self.workflow_report_root / f"{slug}-scheduler.json"
+        scheduler_path.write_text(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "queue_size": 1,
+                    "capacity": {},
+                    "jobs": [],
+                    "waits": [],
+                    "locks": [],
+                    "lock_events": [],
+                    "dlq": [{"slice": "bad", "reason": "execution-failed:1", "attempt": 2}],
+                },
+                ensure_ascii=True,
+            ),
+            encoding="utf-8",
+        )
+
+        def _ci_repo_fail(_args: object) -> int:
+            return 1
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = workflows.command_workflow_run(
+                self._args(),
+                require_dirs=lambda: None,
+                workspace_config={
+                    "project": {
+                        "workflow": {
+                            "default_orchestrator": "bmad",
+                            "force_orchestrator": True,
+                            "retry_policy": {
+                                "dependencia": {"max_attempts": 1},
+                            },
+                        }
+                    }
+                },
+                resolve_spec=lambda value: Path(value),
+                spec_slug=lambda path: path.name,
+                read_state=self._read_state,
+                write_state=self._write_state,
+                command_plan=self._callable_ok(),
+                command_slice_start=self._callable_ok(),
+                command_ci_spec=self._callable_ok(),
+                command_ci_repo=_ci_repo_fail,
+                command_ci_integration=self._callable_ok(),
+                command_release_promote=self._callable_ok(),
+                command_release_verify=self._callable_ok(),
+                command_infra_apply=self._callable_ok(),
+                command_workflow_execute_feature=self._callable_ok(),
+                command_drift_check=self._callable_ok(),
+                command_contract_verify=self._callable_ok(),
+                command_spec_generate_contracts=self._callable_ok(),
+                plan_root=self.workflow_report_root,
+                workflow_report_root=self.workflow_report_root,
+                rel=lambda path: str(path),
+                utc_now=self._now,
+                json_dumps=lambda obj: json.dumps(obj, ensure_ascii=True),
+            )
+        self.assertEqual(1, rc)
+        payload = json.loads(out.getvalue().strip())
+        rollback = payload["rollback"]
+        self.assertEqual("partial", rollback["status"])
+        self.assertFalse(payload["reassignment_ready"])
+        self.assertIn("reassignment_reason", payload)
+
+    def test_reassignment_ready_true_when_rollback_safe(self) -> None:
+        engine = {
+            "status": "failed",
+            "rollback": {
+                "status": "completed",
+                "pending_items": [],
+            },
+        }
+        ready, reason = workflows._compute_reassignment_state(
+            engine=engine,
+            workflow_dlq=[],
+            scheduler_report={"jobs": []},
+        )
+        self.assertTrue(ready)
+        self.assertEqual("", reason)
+
+    def test_completed_run_reports_neutral_rollback(self) -> None:
+        # Simula una corrida fallida previa con rollback y luego una corrida exitosa.
+        slug = "softos-autonomous-sdlc-execution-engine"
+        self.state_store[slug] = {
+            "workflow_engine": {
+                "status": "failed",
+                "updated_at": self._now(),
+                "paused_at_stage": None,
+                "stages": {},
+                "rollback": {
+                    "status": "completed",
+                    "updated_at": self._now(),
+                    "stages": {"ci_repo": {"stage_name": "ci_repo", "status": "completed"}},
+                    "reverted_items": [{"stage": "ci_repo", "action": "something"}],
+                    "pending_items": [],
+                    "manual_actions_required": False,
+                    "summary": "some-rollback",
+                },
+            }
+        }
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = workflows.command_workflow_run(
+                self._args(),
+                require_dirs=lambda: None,
+                workspace_config={"project": {"workflow": {"default_orchestrator": "bmad", "force_orchestrator": True}}},
+                resolve_spec=lambda value: Path(value),
+                spec_slug=lambda path: path.name,
+                read_state=self._read_state,
+                write_state=self._write_state,
+                command_plan=self._callable_ok(),
+                command_slice_start=self._callable_ok(),
+                command_ci_spec=self._callable_ok(),
+                command_ci_repo=self._callable_ok(),
+                command_ci_integration=self._callable_ok(),
+                command_release_promote=self._callable_ok(),
+                command_release_verify=self._callable_ok(),
+                command_infra_apply=self._callable_ok(),
+                command_workflow_execute_feature=self._callable_ok(),
+                command_drift_check=self._callable_ok(),
+                command_contract_verify=self._callable_ok(),
+                command_spec_generate_contracts=self._callable_ok(),
+                plan_root=self.workflow_report_root,
+                workflow_report_root=self.workflow_report_root,
+                rel=lambda path: str(path),
+                utc_now=self._now,
+                json_dumps=lambda obj: json.dumps(obj, ensure_ascii=True),
+            )
+        self.assertEqual(0, rc)
+        payload = json.loads(out.getvalue().strip())
+        rb = payload["rollback"]
+        self.assertEqual("idle", rb["status"])
+        self.assertEqual([], rb["reverted_items"])
+        self.assertEqual([], rb["pending_items"])
+
 
 
 if __name__ == "__main__":

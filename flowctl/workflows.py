@@ -6,6 +6,7 @@ import json
 import os
 import shlex
 import textwrap
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -696,21 +697,7 @@ WORKFLOW_ENGINE_STAGES = [
 ]
 
 
-def _workflow_callback(stage_event: str, payload: dict[str, object]) -> None:
-    callback_url = str(os.environ.get("SOFTOS_GATEWAY_WORKFLOW_CALLBACK_URL", "")).strip()
-    if not callback_url:
-        return
-    body = json.dumps({"event": stage_event, **payload}, ensure_ascii=True).encode("utf-8")
-    request = urllib.request.Request(
-        callback_url,
-        data=body,
-        method="POST",
-        headers={"content-type": "application/json"},
-    )
-    try:
-        urllib.request.urlopen(request, timeout=3).read()
-    except (urllib.error.URLError, TimeoutError):
-        return
+ERROR_CLASSES = ("infra", "dependencia", "validacion", "logica")
 
 
 def _ensure_engine_state(state: dict[str, object], *, utc_now: Callable[[], str]) -> dict[str, object]:
@@ -721,10 +708,24 @@ def _ensure_engine_state(state: dict[str, object], *, utc_now: Callable[[], str]
             "updated_at": utc_now(),
             "paused_at_stage": None,
             "stages": {},
+            "rollback": {
+                "status": "idle",
+                "updated_at": utc_now(),
+                "stages": {},
+            },
         }
         state["workflow_engine"] = engine
     if not isinstance(engine.get("stages"), dict):
         engine["stages"] = {}
+    if not isinstance(engine.get("rollback"), dict):
+        engine["rollback"] = {
+            "status": "idle",
+            "updated_at": utc_now(),
+            "stages": {},
+        }
+    rollback = engine["rollback"]
+    if not isinstance(rollback.get("stages"), dict):
+        rollback["stages"] = {}
     return engine
 
 
@@ -742,9 +743,83 @@ def _stage_record(engine: dict[str, object], stage_name: str) -> dict[str, objec
             "output_ref": None,
             "attempt": 0,
             "failure_reason": None,
+            "error_class": None,
         }
         stages[stage_name] = record
+    if "error_class" not in record:
+        record["error_class"] = record.get("error_class")
     return record
+
+
+def _rollback_stage_record(engine: dict[str, object], stage_name: str, *, utc_now: Callable[[], str]) -> dict[str, object]:
+    rollback = engine.get("rollback") or {}
+    assert isinstance(rollback, dict)
+    stages = rollback.get("stages")
+    if not isinstance(stages, dict):
+        stages = {}
+        rollback["stages"] = stages
+    record = stages.get(stage_name)
+    if not isinstance(record, dict):
+        record = {
+            "stage_name": stage_name,
+            "status": "pending",
+            "compensated_at": None,
+            "failure_reason": None,
+        }
+        stages[stage_name] = record
+        rollback["updated_at"] = utc_now()
+    return record
+
+
+def _default_retry_policy() -> dict[str, dict[str, int]]:
+    return {
+        "infra": {"max_attempts": 3, "backoff_seconds": 0, "jitter_seconds": 0},
+        "dependencia": {"max_attempts": 2, "backoff_seconds": 0, "jitter_seconds": 0},
+        "validacion": {"max_attempts": 0, "backoff_seconds": 0, "jitter_seconds": 0},
+        "logica": {"max_attempts": 0, "backoff_seconds": 0, "jitter_seconds": 0},
+    }
+
+
+def _retry_policy_for_error_class(
+    *,
+    error_class: str,
+    workspace_config: dict[str, object],
+) -> dict[str, int]:
+    project = workspace_config.get("project", {}) if isinstance(workspace_config, dict) else {}
+    workflow_cfg = project.get("workflow", {}) if isinstance(project, dict) else {}
+    policy_cfg = workflow_cfg.get("retry_policy", {}) if isinstance(workflow_cfg, dict) else {}
+    defaults = _default_retry_policy()
+    if not isinstance(policy_cfg, dict):
+        return defaults.get(error_class, {"max_attempts": 0, "backoff_seconds": 0, "jitter_seconds": 0})
+    class_cfg = policy_cfg.get(error_class, {})
+    if not isinstance(class_cfg, dict):
+        return defaults.get(error_class, {"max_attempts": 0, "backoff_seconds": 0, "jitter_seconds": 0})
+    result = dict(defaults.get(error_class, {}))
+    for key in ("max_attempts", "backoff_seconds", "jitter_seconds"):
+        if key in class_cfg:
+            try:
+                result[key] = int(class_cfg[key])
+            except (TypeError, ValueError):
+                continue
+    return result
+
+
+def _classify_failure(stage_name: str, failure_reason: str) -> str:
+    text = (failure_reason or "").strip().lower()
+    if text.startswith("checkpoint-failed:"):
+        if "drift-check" in text or "contract-verify" in text or "generate-contracts" in text:
+            return "validacion"
+        if "confidence-threshold" in text or "additional-reviewer" in text:
+            return "validacion"
+    if "dependency-failed:" in text:
+        return "dependencia"
+    if stage_name in {"infra_apply"}:
+        return "infra"
+    if stage_name in {"ci_integration"}:
+        return "infra"
+    if stage_name in {"ci_repo", "ci_spec"}:
+        return "dependencia"
+    return "logica"
 
 
 def _run_stage_callable(stage_name: str, slug: str, callables: dict[str, Callable[[object], int]]) -> tuple[int, str]:
@@ -820,6 +895,23 @@ def _run_stage_callable(stage_name: str, slug: str, callables: dict[str, Callabl
     return 1, f"unknown-stage:{stage_name}"
 
 
+def _workflow_callback(stage_event: str, payload: dict[str, object]) -> None:
+    callback_url = str(os.environ.get("SOFTOS_GATEWAY_WORKFLOW_CALLBACK_URL", "")).strip()
+    if not callback_url:
+        return
+    body = json.dumps({"event": stage_event, **payload}, ensure_ascii=True).encode("utf-8")
+    request = urllib.request.Request(
+        callback_url,
+        data=body,
+        method="POST",
+        headers={"content-type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(request, timeout=3).read()
+    except (urllib.error.URLError, TimeoutError):
+        return
+
+
 def command_workflow_pause(
     args,
     *,
@@ -843,6 +935,161 @@ def command_workflow_pause(
     else:
         print(json.dumps(payload, ensure_ascii=True))
     return 0
+
+
+def _compute_reassignment_state(
+    *,
+    engine: dict[str, object],
+    workflow_dlq: list[dict[str, object]],
+    scheduler_report: dict[str, object] | None,
+) -> tuple[bool, str]:
+    status = str(engine.get("status", "")).strip()
+    rollback = engine.get("rollback") or {}
+    rollback_status = str(rollback.get("status", "")).strip()
+    pending_items = rollback.get("pending_items") or []
+    if status != "failed":
+        return False, "engine-not-failed"
+    if rollback_status not in {"idle", "completed"}:
+        return False, f"rollback-status:{rollback_status or 'unknown'}"
+    if pending_items:
+        return False, "rollback-has-pending-items"
+    if workflow_dlq:
+        return False, "workflow-dlq-has-items"
+    if scheduler_report is not None:
+        jobs = [item for item in scheduler_report.get("jobs", []) if isinstance(item, dict)]
+        running = [item for item in jobs if str(item.get("status")) in {"pending", "running"}]
+        if running:
+            return False, "scheduler-has-active-jobs"
+    return True, ""
+
+
+def _run_rollback_for_failed_stages(
+    *,
+    feature_slug: str,
+    engine: dict[str, object],
+    utc_now: Callable[[], str],
+    workflow_report_root: Path,
+    rel: Callable[[Path], str],
+) -> dict[str, object]:
+    rollback = engine.get("rollback") or {}
+    if not isinstance(rollback, dict):
+        rollback = {}
+        engine["rollback"] = rollback
+
+    stages = rollback.get("stages")
+    if not isinstance(stages, dict):
+        stages = {}
+        rollback["stages"] = stages
+
+    reverted_items: list[dict[str, object]] = []
+    pending_items: list[dict[str, object]] = []
+    manual_actions_required = False
+
+    # Cargar ultimo scheduler report si existe (para slice_start).
+    scheduler_json_path = workflow_report_root / f"{feature_slug}-scheduler.json"
+    scheduler_report: dict[str, object] | None = None
+    if scheduler_json_path.exists():
+        try:
+            scheduler_report = json.loads(scheduler_json_path.read_text(encoding="utf-8"))
+        except Exception:
+            scheduler_report = None
+
+    engine_stages = engine.get("stages") or {}
+    if not isinstance(engine_stages, dict):
+        engine_stages = {}
+
+    for stage_name in WORKFLOW_ENGINE_STAGES:
+        stage_record = engine_stages.get(stage_name)
+        if not isinstance(stage_record, dict):
+            continue
+        if str(stage_record.get("status")) != "passed":
+            continue
+        rb = stages.get(stage_name)
+        if isinstance(rb, dict) and str(rb.get("status")) in {"completed", "partial", "failed", "skipped"}:
+            # Idempotente: no repetir compensaciones ya registradas.
+            continue
+
+        rb = _rollback_stage_record(engine, stage_name, utc_now=utc_now)
+        rb_items: list[dict[str, object]] = []
+        rb_pending: list[dict[str, object]] = []
+        rb_status = "completed"
+        rb_failure_reason = ""
+
+        if stage_name == "slice_start":
+            # No tocamos repos/producto: compensacion es marcar pendientes manuales segun DLQ.
+            dlq = []
+            if isinstance(scheduler_report, dict):
+                dlq = [item for item in scheduler_report.get("dlq", []) if isinstance(item, dict)]
+            if dlq:
+                rb_status = "partial"
+                rb_pending.extend(
+                    {
+                        "kind": "slice",
+                        "slice": str(item.get("slice", "")),
+                        "reason": str(item.get("reason", "")),
+                        "attempt": int(item.get("attempt", 0) or 0),
+                    }
+                    for item in dlq
+                )
+                manual_actions_required = True
+            rb_items.append(
+                {
+                    "stage": stage_name,
+                    "action": "mark-slices-for-manual-recovery",
+                    "report": rel(scheduler_json_path) if scheduler_json_path.exists() else None,
+                }
+            )
+        elif stage_name in {"release_promote", "infra_apply"}:
+            # No-op compensable hoy: documentamos que no hay side-effects que revertir en este scope.
+            rb_status = "skipped"
+            rb_items.append(
+                {
+                    "stage": stage_name,
+                    "action": "no-op",
+                    "reason": "no-compensation-implemented-in-this-scope",
+                }
+            )
+        else:
+            rb_status = "skipped"
+            rb_items.append(
+                {
+                    "stage": stage_name,
+                    "action": "no-op",
+                    "reason": "stage-has-no-registered-compensation",
+                }
+            )
+
+        rb["status"] = rb_status
+        rb["compensated_at"] = utc_now()
+        rb["failure_reason"] = rb_failure_reason or None
+        rb["pending_actions"] = rb_pending
+        stages[stage_name] = rb
+        reverted_items.extend(rb_items)
+        pending_items.extend(rb_pending)
+
+    # Agregar resumen en rollback.
+    completed_stages = [name for name, rb in stages.items() if isinstance(rb, dict) and str(rb.get("status")) in {"completed", "skipped"}]
+    partial_stages = [name for name, rb in stages.items() if isinstance(rb, dict) and str(rb.get("status")) == "partial"]
+    failed_stages = [name for name, rb in stages.items() if isinstance(rb, dict) and str(rb.get("status")) == "failed"]
+    if failed_stages or partial_stages:
+        rollback_status = "partial"
+    else:
+        rollback_status = "completed" if completed_stages else "idle"
+
+    rollback["status"] = rollback_status
+    rollback["updated_at"] = utc_now()
+    rollback["reverted_items"] = reverted_items
+    rollback["pending_items"] = pending_items
+    rollback["manual_actions_required"] = manual_actions_required
+    summary_parts = []
+    if completed_stages:
+        summary_parts.append(f"completed_or_skipped:{','.join(completed_stages)}")
+    if partial_stages:
+        summary_parts.append(f"partial:{','.join(partial_stages)}")
+    if failed_stages:
+        summary_parts.append(f"failed:{','.join(failed_stages)}")
+    rollback["summary"] = "; ".join(summary_parts) if summary_parts else "no-rollback-actions"
+    return rollback
 
 
 def command_workflow_run(
@@ -871,6 +1118,7 @@ def command_workflow_run(
     rel: Callable[[Path], str],
     utc_now: Callable[[], str],
     json_dumps: Callable[[object], str],
+    sleep_fn: Callable[[float], None] = time.sleep,
 ) -> int:
     require_dirs()
     workflow_report_root.mkdir(parents=True, exist_ok=True)
@@ -935,6 +1183,8 @@ def command_workflow_run(
     start_from_stage = resume_from or retry_stage
     started_execution = False if start_from_stage else True
     finalized_status = "completed"
+    workflow_dlq: list[dict[str, object]] = []
+    scheduler_report_cache: dict[str, object] | None = None
     for stage_name in WORKFLOW_ENGINE_STAGES:
         if start_from_stage and not started_execution:
             if stage_name != start_from_stage:
@@ -1054,33 +1304,135 @@ def command_workflow_run(
                 output_ref = rel(scheduler_json)
         else:
             rc, output_ref = _run_stage_callable(stage_name, slug, callables)
-        record["output_ref"] = output_ref
-        record["finished_at"] = utc_now()
-        if rc == 0:
-            if output_ref.endswith("skipped-by-default"):
-                record["status"] = "skipped"
-            else:
-                record["status"] = "passed"
-                _workflow_callback(
-                    "stage_passed",
-                    {"feature": slug, "stage_name": stage_name, "attempt": record["attempt"], "output_ref": output_ref},
-                )
-        else:
+
+        # Retry loop by clase de error (infra, dependencia, validacion, logica)
+        failure_reason = ""
+        error_class = None
+        while True:
+            record["output_ref"] = output_ref
+            record["finished_at"] = utc_now()
+            if rc == 0:
+                if output_ref.endswith("skipped-by-default"):
+                    record["status"] = "skipped"
+                else:
+                    record["status"] = "passed"
+                    _workflow_callback(
+                        "stage_passed",
+                        {"feature": slug, "stage_name": stage_name, "attempt": record["attempt"], "output_ref": output_ref},
+                    )
+                break
+
+            failure_reason = f"stage `{stage_name}` failed with exit code {rc}."
             record["status"] = "failed"
-            record["failure_reason"] = f"stage `{stage_name}` failed with exit code {rc}."
-            engine["status"] = "failed"
-            _workflow_callback(
-                "stage_failed",
+            record["failure_reason"] = failure_reason
+            error_class = _classify_failure(stage_name, failure_reason)
+            record["error_class"] = error_class
+            policy = _retry_policy_for_error_class(error_class=error_class, workspace_config=workspace_config)
+            configured = int(policy.get("max_attempts", 0) or 0)
+            max_attempts = configured if configured > 0 else 1
+            if record["attempt"] >= max_attempts:
+                engine["status"] = "failed"
+                workflow_dlq.append(
+                    {
+                        "feature": slug,
+                        "stage": stage_name,
+                        "error_class": error_class,
+                        "attempts": record["attempt"],
+                        "failure_reason": record["failure_reason"],
+                        "timestamp": utc_now(),
+                    }
+                )
+                _workflow_callback(
+                    "stage_failed",
+                    {
+                        "feature": slug,
+                        "stage_name": stage_name,
+                        "attempt": record["attempt"],
+                        "failure_reason": record["failure_reason"],
+                    },
+                )
+                write_state(slug, state)
+                stage_reports.append(dict(record))
+                finalized_status = "failed"
+                break
+
+            # Programar reintento sin corromper estado previo: marcar intento y re-ejecutar callable.
+            stage_reports.append(
                 {
-                    "feature": slug,
                     "stage_name": stage_name,
+                    "status": "retrying",
                     "attempt": record["attempt"],
                     "failure_reason": record["failure_reason"],
-                },
+                    "error_class": error_class,
+                }
             )
             write_state(slug, state)
-            stage_reports.append(dict(record))
-            finalized_status = "failed"
+            record["attempt"] = int(record.get("attempt", 0) or 0) + 1
+            backoff = max(0, int(policy.get("backoff_seconds", 0) or 0))
+            jitter = max(0, int(policy.get("jitter_seconds", 0) or 0))
+            # Jitter deterministico simple basado en intento (estable y testeable).
+            effective_jitter = min(jitter, max(0, record["attempt"] - 1))
+            sleep_seconds = float(backoff + effective_jitter)
+            if sleep_seconds > 0:
+                sleep_fn(sleep_seconds)
+            if stage_name == "slice_start":
+                # slice_start ya recalcula scheduler en cada iteracion via plan + run_slice_scheduler
+                plan_path = plan_root / f"{slug}.json"
+                if not plan_path.exists():
+                    rc, output_ref = _run_stage_callable(stage_name, slug, callables)
+                else:
+                    plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
+
+                    def _start_slice(slice_name: str) -> int:
+                        args_obj = type("SliceStartArgs", (), {"spec": slug, "slice": slice_name})()
+                        return command_slice_start(args_obj)
+
+                    scheduler_report = run_slice_scheduler(
+                        feature_slug=slug,
+                        plan_payload=plan_payload,
+                        start_slice_callable=_start_slice,
+                        utc_now=utc_now,
+                        config=SchedulerConfig(
+                            max_workers=max(1, int(os.environ.get("FLOW_SCHEDULER_MAX_WORKERS", "4"))),
+                            per_repo_capacity=max(1, int(os.environ.get("FLOW_SCHEDULER_PER_REPO_CAPACITY", "1"))),
+                            per_hot_area_capacity=max(1, int(os.environ.get("FLOW_SCHEDULER_PER_HOT_AREA_CAPACITY", "1"))),
+                            lock_ttl_seconds=max(5, int(os.environ.get("FLOW_SCHEDULER_LOCK_TTL_SECONDS", "120"))),
+                            max_retries_execution=max(0, int(os.environ.get("FLOW_SCHEDULER_MAX_RETRIES_EXECUTION", "1"))),
+                        ),
+                    )
+                    scheduler_json = workflow_report_root / f"{slug}-scheduler.json"
+                    scheduler_md = workflow_report_root / f"{slug}-scheduler.md"
+                    scheduler_json.write_text(json.dumps(scheduler_report, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+                    scheduler_md.write_text(
+                        textwrap.dedent(
+                            f"""\
+                            # Scheduler Report: {slug}
+
+                            - Status: `{scheduler_report['status']}`
+                            - Queue size: `{scheduler_report['queue_size']}`
+                            - Max workers: `{scheduler_report['capacity']['max_workers']}`
+
+                            ## Waits
+
+                            {chr(10).join(f"- {item['slice']}: {item['reason']}" for item in scheduler_report['waits']) or '- none'}
+
+                            ## Locks
+
+                            {chr(10).join(f"- {item['lock']} owner={item['owner']}" for item in scheduler_report['locks']) or '- none'}
+
+                            ## DLQ
+
+                            {chr(10).join(f"- {item['slice']} reason={item['reason']} attempt={item['attempt']}" for item in scheduler_report['dlq']) or '- none'}
+                            """
+                        ),
+                        encoding="utf-8",
+                    )
+                    rc = 0 if str(scheduler_report.get("status")) == "passed" else 1
+                    output_ref = rel(scheduler_json)
+                    scheduler_report_cache = scheduler_report
+            else:
+                rc, output_ref = _run_stage_callable(stage_name, slug, callables)
+        if finalized_status == "failed":
             break
 
         stage_checkpoint_results: list[dict[str, object]] = []
@@ -1209,8 +1561,34 @@ def command_workflow_run(
         write_state(slug, state)
         stage_reports.append(dict(record))
 
+    rollback_payload: dict[str, object]
+    rollback_last_failure: dict[str, object] | None = None
     if finalized_status == "completed":
         engine["status"] = "completed"
+        # En runs exitosos no ejecutamos rollback: reportamos rollback neutral
+        # para esta corrida y, si existe, exponemos el historial previo de forma separada.
+        existing_rb = engine.get("rollback")
+        if isinstance(existing_rb, dict) and existing_rb:
+            rollback_last_failure = dict(existing_rb)
+        rollback_payload = {
+            "status": "idle",
+            "updated_at": utc_now(),
+            "stages": {},
+            "reverted_items": [],
+            "pending_items": [],
+            "manual_actions_required": False,
+            "summary": "no-rollback-actions",
+        }
+    else:
+        # Ejecutar rollback solo en fallos para dejar estado consistente y auditable.
+        rollback_payload = _run_rollback_for_failed_stages(
+            feature_slug=slug,
+            engine=engine,
+            utc_now=utc_now,
+            workflow_report_root=workflow_report_root,
+            rel=rel,
+        )
+
     engine["updated_at"] = utc_now()
     write_state(slug, state)
     _workflow_callback("finalized", {"feature": slug, "status": finalized_status, "stages": stage_reports})
@@ -1222,7 +1600,11 @@ def command_workflow_run(
         "stages": stage_reports,
         "quality_checkpoints": checkpoint_reports,
         "updated_at": engine["updated_at"],
+        "rollback": rollback_payload,
+        "workflow_dlq": workflow_dlq,
     }
+    if rollback_last_failure is not None:
+        payload["rollback_last_failure"] = rollback_last_failure
     stage_records_map = {
         str(item.get("stage_name")): item for item in stage_reports if isinstance(item, dict) and item.get("stage_name")
     }
@@ -1257,6 +1639,14 @@ def command_workflow_run(
     json_path = workflow_report_root / f"{slug}-workflow-run.json"
     json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
     payload["json_report"] = rel(json_path)
+    reassignment_ready, reassignment_reason = _compute_reassignment_state(
+        engine=engine,
+        workflow_dlq=workflow_dlq,
+        scheduler_report=scheduler_report_cache,
+    )
+    payload["reassignment_ready"] = reassignment_ready
+    if not reassignment_ready:
+        payload["reassignment_reason"] = reassignment_reason
     if bool(getattr(args, "json", False)):
         print(json_dumps(payload))
     else:
