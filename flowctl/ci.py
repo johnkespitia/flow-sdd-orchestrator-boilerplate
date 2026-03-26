@@ -343,8 +343,84 @@ def command_ci_integration(
     json_dumps: Callable[[object], str],
 ) -> int:
     require_dirs()
-    checks: list[tuple[str, str, str]] = []
+    checks: list[tuple[str, str, str, str]] = []
     findings: list[str] = []
+    root = Path.cwd().resolve()
+
+    profile = str(getattr(args, "profile", "smoke") or "smoke").strip().lower()
+    strict_preflight = profile in {"smoke:ci-clean", "smoke-ci-clean", "ci-clean"}
+
+    stack_up_attempts = max(1, int(os.environ.get("FLOW_CI_STACK_UP_ATTEMPTS", "3")))
+    stack_up_backoff_seconds = max(0.0, float(os.environ.get("FLOW_CI_STACK_UP_BACKOFF_SECONDS", "2")))
+    smoke_attempts = max(1, int(os.environ.get("FLOW_CI_SMOKE_ATTEMPTS", "4")))
+    smoke_retry_delay_seconds = max(0.0, float(os.environ.get("FLOW_CI_SMOKE_BACKOFF_SECONDS", "2")))
+    health_wait_timeout_seconds = max(1, int(os.environ.get("FLOW_CI_HEALTH_TIMEOUT_SECONDS", "30")))
+    health_wait_interval_seconds = max(1, int(os.environ.get("FLOW_CI_HEALTH_POLL_SECONDS", "2")))
+
+    def add_check(status: str, category: str, name: str, detail: str) -> None:
+        checks.append((status, category, name, detail))
+
+    def _compose_ps_records() -> list[dict[str, object]] | None:
+        ps_json = capture_compose(["ps", "--format", "json"])
+        if int(ps_json.get("returncode", 1)) != 0:
+            return None
+        raw = str(ps_json.get("stdout", "")).strip()
+        if not raw:
+            return None
+        try:
+            payload = json.loads(raw)
+            if isinstance(payload, list):
+                return [item for item in payload if isinstance(item, dict)]
+            if isinstance(payload, dict):
+                return [payload]
+        except json.JSONDecodeError:
+            records: list[dict[str, object]] = []
+            for line in raw.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(item, dict):
+                    records.append(item)
+            if records:
+                return records
+        return None
+
+    def _health_status(records: list[dict[str, object]] | None, service_name: str) -> str:
+        if records is None:
+            return "unknown"
+        for item in records:
+            service = str(item.get("Service", "") or item.get("Name", "")).strip()
+            if service != service_name:
+                continue
+            health = str(item.get("Health", "")).strip().lower()
+            if health:
+                return health
+            return "no-healthcheck"
+        return "missing"
+
+    def wait_for_healthy_if_declared(service_name: str) -> tuple[bool, str]:
+        deadline = time.time() + float(health_wait_timeout_seconds)
+        saw_healthcheck = False
+        last = "unknown"
+        while time.time() <= deadline:
+            records = _compose_ps_records()
+            current = _health_status(records, service_name)
+            last = current
+            if current in {"unknown", "missing"}:
+                return True, current
+            if current == "no-healthcheck":
+                return True, current
+            saw_healthcheck = True
+            if current == "healthy":
+                return True, "healthy"
+            time.sleep(float(health_wait_interval_seconds))
+        if saw_healthcheck:
+            return False, last
+        return True, last
 
     if shutil.which("docker") is None:
         raise SystemExit("No encontre `docker` en PATH para ejecutar CI de integracion.")
@@ -356,36 +432,62 @@ def command_ci_integration(
         if env_rc != 0:
             env_ready_for_compose = False
             findings.append("No pude materializar `.devcontainer/.env.generated` antes de validar Compose.")
-            checks.append(("FAIL", "Secrets bootstrap", "No se pudo generar el entorno del devcontainer."))
+            add_check("FAIL", "infra", "Secrets bootstrap", "No se pudo generar el entorno del devcontainer.")
         else:
-            checks.append(("PASS", "Secrets bootstrap", "El entorno del devcontainer esta listo para Compose."))
+            add_check("PASS", "infra", "Secrets bootstrap", "El entorno del devcontainer esta listo para Compose.")
 
     config_check = capture_compose(["config", "--quiet"])
     if int(config_check["returncode"]) == 0:
-        checks.append(("PASS", "Compose config", "La configuracion Compose es valida."))
+        add_check("PASS", "infra", "Compose config", "La configuracion Compose es valida.")
     else:
-        checks.append(("FAIL", "Compose config", "La configuracion Compose no pudo validarse."))
+        add_check("FAIL", "infra", "Compose config", "La configuracion Compose no pudo validarse.")
         findings.append("`docker compose config --quiet` fallo.")
 
     if not context["active"] and args.auto_up and env_ready_for_compose:
         up_args = ["up", "-d"]
         if args.build:
             up_args.append("--build")
-        up_rc = run_compose(up_args)
+        up_rc = 1
+        attempts_used = 0
+        for attempt in range(1, stack_up_attempts + 1):
+            attempts_used = attempt
+            up_rc = run_compose(up_args)
+            if up_rc == 0:
+                break
+            if attempt < stack_up_attempts:
+                time.sleep(stack_up_backoff_seconds)
         context = detect_compose_context()
         if up_rc != 0:
-            findings.append("No pude levantar el stack para la smoke suite.")
-            checks.append(("FAIL", "Stack bootstrap", "El stack no pudo arrancar."))
+            ps_tail = str(capture_compose(["ps"]).get("output_tail", "")).strip()
+            findings.append(
+                f"No pude levantar el stack para la smoke suite tras {attempts_used} intentos."
+            )
+            if ps_tail:
+                findings.append(f"Diagnostico stack bootstrap (tail): {ps_tail}")
+            add_check(
+                "FAIL",
+                "infra",
+                "Stack bootstrap",
+                f"El stack no pudo arrancar tras {attempts_used} intentos.",
+            )
         elif context["active"]:
-            checks.append(("PASS", "Stack bootstrap", "El stack se levanto para ejecutar la smoke suite."))
+            if attempts_used == 1:
+                add_check("PASS", "infra", "Stack bootstrap", "El stack se levanto para ejecutar la smoke suite.")
+            else:
+                add_check(
+                    "PASS",
+                    "infra",
+                    "Stack bootstrap",
+                    f"El stack se levanto tras {attempts_used} intentos.",
+                )
 
     if context["active"]:
         ps_check = capture_compose(["ps"])
         if int(ps_check["returncode"]) == 0:
-            checks.append(("PASS", "Stack status", "Se pudo inspeccionar el estado de los servicios."))
+            add_check("PASS", "infra", "Stack status", "Se pudo inspeccionar el estado de los servicios.")
         else:
             findings.append("`docker compose ps` fallo durante la smoke suite.")
-            checks.append(("FAIL", "Stack status", "No se pudo inspeccionar el stack."))
+            add_check("FAIL", "infra", "Stack status", "No se pudo inspeccionar el stack.")
 
         services_check = capture_compose(["config", "--services"])
         service_names = [line.strip() for line in str(services_check["stdout"]).splitlines() if line.strip()]
@@ -405,11 +507,48 @@ def command_ci_integration(
                 smoke_commands[service_name] = ["sh", "-lc", "node --version >/dev/null && pnpm --version >/dev/null"]
             elif runner == "go":
                 smoke_commands[service_name] = ["go", "version"]
+            repo_path_raw = str(repo_config(repo).get("path", ".")).strip() or "."
+            repo_path = Path(repo_path_raw)
+            if not repo_path.is_absolute():
+                repo_path = (root / repo_path).resolve()
+            preflight_issues: list[str] = []
+            if runner == "php":
+                composer_json = repo_path / "composer.json"
+                autoload = repo_path / "vendor" / "autoload.php"
+                if composer_json.exists() and not autoload.exists():
+                    preflight_issues.append("falta `vendor/autoload.php`")
+            elif runner == "pnpm":
+                package_json = repo_path / "package.json"
+                has_lock = any((repo_path / name).exists() for name in ("pnpm-lock.yaml", "package-lock.json", "yarn.lock"))
+                node_modules = repo_path / "node_modules"
+                if package_json.exists() and not has_lock:
+                    preflight_issues.append("falta lockfile (`pnpm-lock.yaml`/`package-lock.json`/`yarn.lock`)")
+                if package_json.exists() and not node_modules.exists():
+                    preflight_issues.append("falta `node_modules/`")
+            if preflight_issues:
+                detail = f"Preflight `{service_name}`: " + ", ".join(preflight_issues)
+                if strict_preflight:
+                    findings.append(detail)
+                    add_check("FAIL", "app", f"Preflight {service_name}", "Prerequisitos de runtime incompletos.")
+                else:
+                    findings.append(f"(advisory) {detail}")
+                    add_check("WARN", "app", f"Preflight {service_name}", "Prerequisitos incompletos (advisory).")
 
-        smoke_attempts = 4
-        smoke_retry_delay_seconds = 2.0
         for service_name, smoke_command in smoke_commands.items():
             if service_name not in service_names:
+                continue
+
+            health_ok, health_state = wait_for_healthy_if_declared(service_name)
+            if not health_ok:
+                findings.append(
+                    f"El servicio `{service_name}` no llego a healthy en {health_wait_timeout_seconds}s (estado: {health_state})."
+                )
+                add_check(
+                    "FAIL",
+                    "infra",
+                    f"Health {service_name}",
+                    f"No llego a healthy en {health_wait_timeout_seconds}s (estado: {health_state}).",
+                )
                 continue
 
             attempt = 0
@@ -424,29 +563,30 @@ def command_ci_integration(
 
             if int(last_execution.get("returncode", 1)) == 0:
                 if attempt == 1:
-                    checks.append(("PASS", f"Smoke {service_name}", f"El servicio `{service_name}` respondio al smoke check."))
+                    add_check("PASS", "app", f"Smoke {service_name}", f"El servicio `{service_name}` respondio al smoke check.")
                 else:
-                    checks.append(
-                        (
-                            "PASS",
-                            f"Smoke {service_name}",
-                            f"El servicio `{service_name}` respondio al smoke check tras {attempt} intentos.",
-                        )
+                    add_check(
+                        "PASS",
+                        "app",
+                        f"Smoke {service_name}",
+                        f"El servicio `{service_name}` respondio al smoke check tras {attempt} intentos.",
                     )
             else:
+                tail = str(last_execution.get("output_tail", "")).strip()
                 findings.append(
                     f"El smoke check de `{service_name}` fallo tras {smoke_attempts} intentos."
                 )
-                checks.append(
-                    (
-                        "FAIL",
-                        f"Smoke {service_name}",
-                        f"El comando del smoke check devolvio error tras {smoke_attempts} intentos.",
-                    )
+                if tail:
+                    findings.append(f"Diagnostico smoke `{service_name}` (tail): {tail}")
+                add_check(
+                    "FAIL",
+                    "app",
+                    f"Smoke {service_name}",
+                    f"El comando del smoke check devolvio error tras {smoke_attempts} intentos.",
                 )
     else:
         findings.append("El stack no esta activo; usa `--auto-up` o levanta Compose antes de integrar.")
-        checks.append(("FAIL", "Stack active", "No hay proyecto Compose activo para la smoke suite."))
+        add_check("FAIL", "infra", "Stack active", "No hay proyecto Compose activo para la smoke suite.")
 
     report_path = ci_report_root / f"integration-{slugify(args.profile)}.md"
     report = textwrap.dedent(
@@ -458,7 +598,7 @@ def command_ci_integration(
 
         ## Checks
 
-        {chr(10).join(f"- [{status}] **{name}**: {detail}" for status, name, detail in checks)}
+        {chr(10).join(f"- [{status}][{category}] **{name}**: {detail}" for status, category, name, detail in checks)}
 
         ## Findings
 
@@ -469,11 +609,14 @@ def command_ci_integration(
     payload = {
         "generated_at": utc_now(),
         "profile": args.profile,
-        "checks": [{"status": status, "name": name, "detail": detail} for status, name, detail in checks],
+        "checks": [
+            {"status": status, "category": category, "name": name, "detail": detail}
+            for status, category, name, detail in checks
+        ],
         "findings": findings,
         "markdown_report": rel(report_path),
     }
-    failed = any(status == "FAIL" for status, _, _ in checks)
+    failed = any(status == "FAIL" for status, _, _, _ in checks)
     if bool(getattr(args, "json", False)):
         print(json_dumps(payload))
         return 1 if failed else 0

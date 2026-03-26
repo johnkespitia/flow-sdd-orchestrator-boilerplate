@@ -482,6 +482,7 @@ make help
 
 ## Documentación
 
+- [docs/softos-agent-dev-handbook.md](docs/softos-agent-dev-handbook.md)
 - [docs/spec-driven-orchestration.md](docs/spec-driven-orchestration.md)
 - [docs/softos-full-workflow.md](docs/softos-full-workflow.md)
 - [docs/flow-json-contract.md](docs/flow-json-contract.md)
