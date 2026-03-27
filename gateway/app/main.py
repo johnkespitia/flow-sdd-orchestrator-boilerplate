@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+import os
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -26,6 +28,9 @@ from .security import verify_bearer_token, verify_github_signature, verify_slack
 from .store import SpecRegistryError, TaskStore
 from .worker import TaskWorker
 from flowctl.operations import collect_workflow_metrics
+from .auth import require_api_auth
+from .webhook_validation import validate_github_payload, validate_jira_payload, validate_slack_command
+from .rate_limit import SlidingWindowRateLimiter
 
 
 def _accepted_payload(task: dict[str, Any]) -> TaskAccepted:
@@ -58,7 +63,7 @@ def _intake_spec_exists(settings: Settings, intent_request: IntentRequest) -> tu
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = load_settings()
-    store = TaskStore(settings.database_path)
+    store = TaskStore(settings.database_path, database_url=settings.database_url)
     store.initialize()
     store.reset_running_tasks()
     worker = TaskWorker(settings, store)
@@ -66,6 +71,21 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.store = store
     app.state.worker = worker
+    rate_limit_mode = str(os.getenv("SOFTOS_GATEWAY_RATE_LIMIT_MODE", "db") or "db").strip().lower()
+    app.state.rate_limit_mode = rate_limit_mode
+    app.state.rate_limit_window_seconds = max(
+        1, int(os.getenv("SOFTOS_GATEWAY_RATE_LIMIT_WINDOW_SECONDS", "60") or "60")
+    )
+    app.state.rate_limit_max_requests = max(
+        1, int(os.getenv("SOFTOS_GATEWAY_RATE_LIMIT_MAX_REQUESTS", "30") or "30")
+    )
+    if rate_limit_mode == "memory":
+        app.state.rate_limiter = SlidingWindowRateLimiter(
+            window_seconds=app.state.rate_limit_window_seconds,
+            max_requests=app.state.rate_limit_max_requests,
+        )
+    else:
+        app.state.rate_limiter = None
     yield
     worker.stop()
 
@@ -98,6 +118,45 @@ def _require_workflow_intake(intent_request: IntentRequest, *, source: str, stor
     raise HTTPException(status_code=400, detail={"code": "WEBHOOK_INTENT_NOT_ALLOWED", "message": reason})
 
 
+def _enforce_rate_limit(request: Request, *, source: str, endpoint: str) -> None:
+    store: TaskStore = request.app.state.store
+    mode = str(getattr(request.app.state, "rate_limit_mode", "db") or "db").strip().lower()
+    actor = str(request.headers.get("x-api-actor") or "").strip()
+    forwarded_for = str(request.headers.get("x-forwarded-for") or "").strip()
+    client_host = (request.client.host if request.client else "") or ""
+    actor_or_ip = actor or (forwarded_for.split(",")[0].strip() if forwarded_for else "") or client_host or "anonymous"
+    allowed = True
+    if mode == "memory":
+        limiter: SlidingWindowRateLimiter = request.app.state.rate_limiter
+        key = f"{source}:{endpoint}:{actor_or_ip}"
+        allowed = limiter.allow(key)
+    else:
+        result = store.check_rate_limit(
+            source=source,
+            endpoint=endpoint,
+            actor_key=actor_or_ip,
+            window_seconds=int(getattr(request.app.state, "rate_limit_window_seconds", 60)),
+            max_requests=int(getattr(request.app.state, "rate_limit_max_requests", 30)),
+        )
+        allowed = bool(result.get("allowed", False))
+    if allowed:
+        return
+
+    store.record_intake_failure(source=source, reason="RATE_LIMIT_EXCEEDED", payload={"endpoint": endpoint})
+    store.record_auth_audit(
+        actor=actor_or_ip,
+        source=source,
+        endpoint=endpoint,
+        decision="rejected",
+        reason_code="RATE_LIMIT_EXCEEDED",
+        correlation_id=str(request.headers.get("x-request-id") or "").strip() or None,
+    )
+    raise HTTPException(
+        status_code=429,
+        detail={"code": "RATE_LIMIT_EXCEEDED", "message": "Too many requests for this source/endpoint."},
+    )
+
+
 @app.get("/healthz")
 async def healthz(request: Request) -> dict[str, Any]:
     settings: Settings = request.app.state.settings
@@ -117,10 +176,7 @@ async def metrics(request: Request) -> JSONResponse:
 
 @app.post("/v1/intents", response_model=TaskAccepted, status_code=202)
 async def create_intent(intent_request: IntentRequest, request: Request) -> TaskAccepted:
-    settings: Settings = request.app.state.settings
-    auth_header = request.headers.get("authorization")
-    if settings.gateway_api_token and not verify_bearer_token(auth_header, settings.gateway_api_token):
-        raise HTTPException(status_code=401, detail="Invalid API token.")
+    _ = require_api_auth(request, endpoint="/v1/intents", source=str(intent_request.source or "api"))
     try:
         task = enqueue_intent(request, intent_request)
     except IntentError as exc:
@@ -131,14 +187,13 @@ async def create_intent(intent_request: IntentRequest, request: Request) -> Task
 @app.get("/v1/repos", response_model=RepoCatalogView)
 async def list_repos(request: Request) -> RepoCatalogView:
     settings: Settings = request.app.state.settings
-    auth_header = request.headers.get("authorization")
-    if settings.gateway_api_token and not verify_bearer_token(auth_header, settings.gateway_api_token):
-        raise HTTPException(status_code=401, detail="Invalid API token.")
+    _ = require_api_auth(request, endpoint="/v1/repos", source="api")
     return RepoCatalogView(**repo_catalog_payload(settings.workspace_root))
 
 
 @app.get("/v1/tasks/{task_id}", response_model=TaskView)
 async def get_task(task_id: str, request: Request) -> TaskView:
+    _ = require_api_auth(request, endpoint="/v1/tasks/{task_id}", source="api")
     store: TaskStore = request.app.state.store
     try:
         task = store.get(task_id)
@@ -149,6 +204,7 @@ async def get_task(task_id: str, request: Request) -> TaskView:
 
 @app.post("/v1/tasks/{task_id}/comments", response_model=TaskView)
 async def add_task_comment(task_id: str, payload: TaskCommentRequest, request: Request) -> TaskView:
+    _ = require_api_auth(request, endpoint="/v1/tasks/{task_id}/comments", source=str(payload.source or "api"))
     store: TaskStore = request.app.state.store
     try:
         task = store.append_comment(
@@ -165,6 +221,7 @@ async def add_task_comment(task_id: str, payload: TaskCommentRequest, request: R
 
 @app.post("/webhooks/slack/commands")
 async def slack_commands(request: Request) -> PlainTextResponse:
+    _enforce_rate_limit(request, source="slack", endpoint="/webhooks/slack/commands")
     settings: Settings = request.app.state.settings
     body = await request.body()
     if not verify_slack_signature(
@@ -176,6 +233,10 @@ async def slack_commands(request: Request) -> PlainTextResponse:
         raise HTTPException(status_code=401, detail="Invalid Slack signature.")
 
     form = await request.form()
+    ok, code, message = validate_slack_command(dict(form))
+    if not ok:
+        request.app.state.store.record_intake_failure(source="slack", reason=f"{code}:{message}", payload={"code": code})
+        raise HTTPException(status_code=400, detail={"code": code, "message": message})
     if str(form.get("ssl_check", "")).strip() == "1":
         return PlainTextResponse("")
     text = str(form.get("text", "")).strip()
@@ -201,6 +262,7 @@ async def slack_commands(request: Request) -> PlainTextResponse:
 
 @app.post("/webhooks/github")
 async def github_webhook(request: Request) -> JSONResponse:
+    _enforce_rate_limit(request, source="github", endpoint="/webhooks/github")
     settings: Settings = request.app.state.settings
     body = await request.body()
     if not verify_github_signature(
@@ -212,6 +274,10 @@ async def github_webhook(request: Request) -> JSONResponse:
 
     event = request.headers.get("x-github-event", "")
     payload = await request.json()
+    ok, code, message = validate_github_payload(event, payload)
+    if not ok:
+        request.app.state.store.record_intake_failure(source="github", reason=f"{code}:{message}", payload={"code": code, "event": event})
+        raise HTTPException(status_code=400, detail={"code": code, "message": message})
     try:
         intent_request = intent_from_github(event, payload)
     except IntentError as exc:
@@ -245,12 +311,17 @@ async def github_webhook(request: Request) -> JSONResponse:
 
 @app.post("/webhooks/jira")
 async def jira_webhook(request: Request) -> JSONResponse:
+    _enforce_rate_limit(request, source="jira", endpoint="/webhooks/jira")
     settings: Settings = request.app.state.settings
     auth_header = request.headers.get("authorization") or request.headers.get("x-jira-token")
     if settings.jira_webhook_token and not verify_bearer_token(auth_header, settings.jira_webhook_token):
         raise HTTPException(status_code=401, detail="Invalid Jira token.")
 
     payload = await request.json()
+    ok, code, message = validate_jira_payload(payload)
+    if not ok:
+        request.app.state.store.record_intake_failure(source="jira", reason=f"{code}:{message}", payload={"code": code})
+        raise HTTPException(status_code=400, detail={"code": code, "message": message})
     try:
         intent_request = intent_from_jira(payload)
     except IntentError as exc:
@@ -280,6 +351,7 @@ def _sanitize_spec_id(spec_id: str) -> str:
 
 @app.post("/v1/specs/{spec_id}/claim", response_model=SpecView)
 async def claim_spec(spec_id: str, payload: SpecClaimRequest, request: Request) -> SpecView:
+    _ = require_api_auth(request, endpoint="/v1/specs/{spec_id}/claim", source=str(payload.source or "api"))
     store: TaskStore = request.app.state.store
     try:
         record = store.claim_spec(
@@ -313,6 +385,7 @@ async def claim_spec(spec_id: str, payload: SpecClaimRequest, request: Request) 
 
 @app.post("/v1/specs/{spec_id}/heartbeat", response_model=SpecView)
 async def heartbeat_spec(spec_id: str, payload: SpecHeartbeatRequest, request: Request) -> SpecView:
+    _ = require_api_auth(request, endpoint="/v1/specs/{spec_id}/heartbeat", source=str(payload.source or "api"))
     store: TaskStore = request.app.state.store
     try:
         record = store.heartbeat_spec(
@@ -330,6 +403,7 @@ async def heartbeat_spec(spec_id: str, payload: SpecHeartbeatRequest, request: R
 
 @app.post("/v1/specs/{spec_id}/release", response_model=SpecView)
 async def release_spec(spec_id: str, payload: SpecReleaseRequest, request: Request) -> SpecView:
+    _ = require_api_auth(request, endpoint="/v1/specs/{spec_id}/release", source=str(payload.source or "api"))
     store: TaskStore = request.app.state.store
     try:
         record = store.release_spec(
@@ -346,6 +420,7 @@ async def release_spec(spec_id: str, payload: SpecReleaseRequest, request: Reque
 
 @app.post("/v1/specs/{spec_id}/transition", response_model=SpecView)
 async def transition_spec(spec_id: str, payload: SpecTransitionRequest, request: Request) -> SpecView:
+    _ = require_api_auth(request, endpoint="/v1/specs/{spec_id}/transition", source=str(payload.source or "api"))
     store: TaskStore = request.app.state.store
     try:
         record = store.transition_spec(
@@ -363,6 +438,7 @@ async def transition_spec(spec_id: str, payload: SpecTransitionRequest, request:
 
 @app.get("/v1/specs/{spec_id}", response_model=SpecView)
 async def get_spec(spec_id: str, request: Request) -> SpecView:
+    _ = require_api_auth(request, endpoint="/v1/specs/{spec_id}", source="api")
     store: TaskStore = request.app.state.store
     try:
         record = store.get_spec(_sanitize_spec_id(spec_id))
@@ -375,5 +451,6 @@ async def get_spec(spec_id: str, request: Request) -> SpecView:
 
 @app.get("/v1/specs")
 async def list_specs(request: Request, state: str | None = None, assignee: str | None = None) -> dict[str, Any]:
+    _ = require_api_auth(request, endpoint="/v1/specs", source="api")
     store: TaskStore = request.app.state.store
     return {"items": store.list_specs(state=state, assignee=assignee)}

@@ -1,0 +1,6 @@
+{
+  "text": "workflow intake sample-spec --title \"Sample Spec\" --repo root",
+  "response_url": "https://example.test/slack-response",
+  "channel_id": "C123456",
+  "ssl_check": "0"
+}

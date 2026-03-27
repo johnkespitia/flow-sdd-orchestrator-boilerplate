@@ -195,3 +195,19 @@ Uso recomendado:
      - actualizar la bitácora con decisión de cierre.
      - volver a ejecutar `flow ops metrics` y `flow ops sla` para confirmar vuelta a parámetros normales.
 
+### 6. Guardrails anti-spam (rate-limit compartido)
+
+- El gateway aplica rate-limit persistente en DB por clave:
+  - `source + endpoint + actor_or_ip + time_window`
+- Variables:
+  - `SOFTOS_GATEWAY_RATE_LIMIT_WINDOW_SECONDS`
+  - `SOFTOS_GATEWAY_RATE_LIMIT_MAX_REQUESTS`
+  - `SOFTOS_GATEWAY_RATE_LIMIT_MODE=db|memory` (default: `db`)
+- Modo recomendado en despliegue central:
+  - `SOFTOS_GATEWAY_RATE_LIMIT_MODE=db` para compartir el límite entre réplicas.
+- Modo `memory`:
+  - solo para desarrollo/local; no comparte contadores entre instancias.
+- Rechazos:
+  - HTTP `429` con `detail.code = RATE_LIMIT_EXCEEDED`.
+  - se persisten en `intake_failures` y `auth_audit`.
+

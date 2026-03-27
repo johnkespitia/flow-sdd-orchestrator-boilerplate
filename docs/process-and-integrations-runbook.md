@@ -1,5 +1,11 @@
 # Process And Integrations Runbook
 
+## Payloads canónicos (copy/paste)
+
+Para ejemplos mínimos alineados con fixtures y validación del gateway, ver:
+
+- `docs/webhook-canonical-payloads.md`
+
 ## Objetivo
 
 Este documento resume el flujo operativo completo del workspace, el estado actual de las integraciones (Jira/GitHub/Slack), y las decisiones que se implementaron para que el sistema sea usable en la práctica.

@@ -55,6 +55,30 @@ def command_ci_spec(
     for spec_path in spec_paths:
         analysis = analyze_spec(spec_path)
         frontmatter = analysis["frontmatter"]
+        status = str(frontmatter.get("status", "")).strip().lower()
+        if bool(getattr(args, "all", False)) and status != "approved":
+            advisory = (
+                "Spec omitida en `ci spec --all` por estado no aprobado. "
+                "Usa `flow spec review` + `flow spec approve` para incluirla en validacion estricta."
+            )
+            items.append(
+                {
+                    "spec": rel(spec_path),
+                    "status": "skipped",
+                    "frontmatter_status": frontmatter.get("status", ""),
+                    "schema_version": analysis["schema_version"],
+                    "repos": list(analysis["target_index"]),
+                    "findings": [advisory],
+                }
+            )
+            report_lines.append(f"## {rel(spec_path)}")
+            report_lines.append("")
+            report_lines.append("- Resultado: `skipped`")
+            report_lines.append(f"- Estado frontmatter: `{frontmatter.get('status', 'missing')}`")
+            report_lines.append("")
+            report_lines.extend(format_findings([advisory]))
+            report_lines.append("")
+            continue
         findings: list[str] = []
 
         findings.extend(str(error) for error in analysis["frontmatter_errors"])
@@ -66,11 +90,17 @@ def command_ci_spec(
         findings.extend(test_reference_findings(analysis))
         if analysis["todo_count"]:
             findings.append("La spec contiene `TODO`.")
-        if frontmatter.get("status") != "approved":
-            findings.append(
+        is_non_approved = status != "approved"
+        non_blocking_draft = False
+        if is_non_approved:
+            message = (
                 "La spec debe estar en estado `approved` para pasar CI. "
                 "Si aun esta en `draft`, usa `flow spec review` para validarla y `flow spec approve` antes de correr este gate."
             )
+            if non_blocking_draft:
+                findings.append(f"(advisory) {message}")
+            else:
+                findings.append(message)
 
         missing_repo_tests = repos_missing_test_refs(analysis["target_index"], analysis["test_index"])
         if missing_repo_tests:
@@ -78,7 +108,8 @@ def command_ci_spec(
                 "Faltan referencias `[@test]` para: " + ", ".join(sorted(missing_repo_tests)) + "."
             )
 
-        passed = not findings
+        blocking_findings = [item for item in findings if not str(item).startswith("(advisory) ")]
+        passed = not blocking_findings
         failures += 0 if passed else 1
         items.append(
             {

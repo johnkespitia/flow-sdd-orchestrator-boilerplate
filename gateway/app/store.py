@@ -5,9 +5,16 @@ import sqlite3
 import threading
 import uuid
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 from typing import Any
 
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+except Exception:  # pragma: no cover - optional dependency in local dev
+    psycopg2 = None
+    RealDictCursor = None  # type: ignore[assignment]
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -35,13 +42,65 @@ class SpecRegistryError(RuntimeError):
         self.status_code = status_code
 
 
+class _PostgresConnectionAdapter:
+    def __init__(self, dsn: str) -> None:
+        if psycopg2 is None or RealDictCursor is None:
+            raise RuntimeError("Postgres backend requires psycopg2-binary installed in this environment.")
+        self._conn = psycopg2.connect(dsn)
+        self._conn.autocommit = False
+
+    def _rewrite_sql(self, sql: str) -> str:
+        rewritten = sql.replace("?", "%s").replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY")
+        if rewritten.strip().upper() == "BEGIN IMMEDIATE":
+            return "BEGIN"
+        return rewritten
+
+    def execute(self, sql: str, params: tuple[Any, ...] | list[Any] = ()) -> Any:
+        cur = self._conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(self._rewrite_sql(sql), tuple(params))
+        return cur
+
+    def executemany(self, sql: str, params_seq: list[tuple[Any, ...]]) -> Any:
+        cur = self._conn.cursor(cursor_factory=RealDictCursor)
+        cur.executemany(self._rewrite_sql(sql), params_seq)
+        return cur
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def close(self) -> None:
+        self._conn.close()
+
+    def __enter__(self) -> "_PostgresConnectionAdapter":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if exc_type:
+            self._conn.rollback()
+        self.close()
+
+
 class TaskStore:
-    def __init__(self, database_path: Path) -> None:
+    def __init__(self, database_path: Path, *, database_url: str | None = None) -> None:
         self.database_path = database_path
+        self.database_url = str(database_url).strip() if database_url else None
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
 
     def _connect(self) -> sqlite3.Connection:
+        # 8A: backend seleccionable. En esta ola soportamos:
+        # - SQLite por path (default)
+        # - `sqlite:///...` vía SOFTOS_GATEWAY_DB_URL para pruebas/migración local
+        # - Postgres se habilita por URL `postgresql://...` (requiere driver en 8B/env central).
+        if self.database_url:
+            lowered = self.database_url.lower()
+            if lowered.startswith("sqlite:///"):
+                sqlite_path = Path(self.database_url[len("sqlite:///") :]).resolve()
+                connection = sqlite3.connect(sqlite_path, check_same_thread=False)
+                connection.row_factory = sqlite3.Row
+                return connection
+            if lowered.startswith("postgres://") or lowered.startswith("postgresql://"):
+                return _PostgresConnectionAdapter(self.database_url)  # type: ignore[return-value]
         connection = sqlite3.connect(self.database_path, check_same_thread=False)
         connection.row_factory = sqlite3.Row
         return connection
@@ -143,6 +202,38 @@ class TaskStore:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_spec_registry_audit_spec ON spec_registry_audit(spec_id, id)"
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS auth_audit (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor TEXT,
+                    source TEXT NOT NULL,
+                    endpoint TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    reason_code TEXT NOT NULL,
+                    correlation_id TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_auth_audit_endpoint ON auth_audit(endpoint, id)")
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rate_limits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL,
+                    endpoint TEXT NOT NULL,
+                    actor_key TEXT NOT NULL,
+                    window_start INTEGER NOT NULL,
+                    request_count INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(source, endpoint, actor_key, window_start)
+                )
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_rate_limits_lookup ON rate_limits(source, endpoint, actor_key, window_start)"
+            )
             connection.commit()
 
     def reset_running_tasks(self) -> None:
@@ -182,7 +273,27 @@ class TaskStore:
             "created_at": now,
             "updated_at": now,
         }
+        window_seconds = int(os.getenv("SOFTOS_GATEWAY_DEDUPE_WINDOW_SECONDS", "300") or "300")
+        window_start = datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() - float(max(0, window_seconds)),
+            tz=timezone.utc,
+        ).replace(microsecond=0).isoformat()
+
         with self._connect() as connection:
+            # Dedupe semantico basico: mismo source+intent+payload_json dentro de ventana temporal
+            duplicate = connection.execute(
+                """
+                SELECT task_id
+                FROM tasks
+                WHERE source = ? AND intent = ? AND payload_json = ? AND created_at >= ?
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (source, intent, record["payload_json"], window_start),
+            ).fetchone()
+            if duplicate is not None:
+                return self.get(str(duplicate["task_id"]))
+
             connection.execute(
                 """
                 INSERT INTO tasks (
@@ -343,6 +454,40 @@ class TaskStore:
             )
             connection.commit()
 
+    def record_auth_audit(
+        self,
+        *,
+        actor: str | None,
+        source: str,
+        endpoint: str,
+        decision: str,
+        reason_code: str,
+        correlation_id: str | None,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO auth_audit (actor, source, endpoint, decision, reason_code, correlation_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (actor, source, endpoint, decision, reason_code, correlation_id, utc_now()),
+            )
+            connection.commit()
+
+    def list_auth_audit(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        limit = max(1, int(limit))
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT actor, source, endpoint, decision, reason_code, correlation_id, created_at
+                FROM auth_audit
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def record_intake_failure(self, *, source: str, reason: str, payload: dict[str, Any]) -> None:
         now = utc_now()
         with self._connect() as connection:
@@ -361,6 +506,78 @@ class TaskStore:
                 (None, "failed-intake", source, "failed", json.dumps({"reason": reason}, ensure_ascii=True), now),
             )
             connection.commit()
+
+    def check_rate_limit(
+        self,
+        *,
+        source: str,
+        endpoint: str,
+        actor_key: str,
+        window_seconds: int,
+        max_requests: int,
+    ) -> dict[str, Any]:
+        safe_window = max(1, int(window_seconds))
+        safe_max = max(1, int(max_requests))
+        epoch_now = int(datetime.now(timezone.utc).timestamp())
+        window_start = epoch_now - (epoch_now % safe_window)
+        timestamp = utc_now()
+        actor_normalized = str(actor_key or "anonymous").strip() or "anonymous"
+        lowered = (self.database_url or "").lower()
+
+        if lowered.startswith("postgres://") or lowered.startswith("postgresql://"):
+            if psycopg2 is None:
+                raise RuntimeError("Postgres backend requires psycopg2-binary installed in this environment.")
+            with self._lock:
+                conn = psycopg2.connect(self.database_url)  # type: ignore[arg-type]
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            INSERT INTO rate_limits (source, endpoint, actor_key, window_start, request_count, updated_at)
+                            VALUES (%s, %s, %s, %s, 1, %s)
+                            ON CONFLICT (source, endpoint, actor_key, window_start)
+                            DO UPDATE SET request_count = rate_limits.request_count + 1, updated_at = EXCLUDED.updated_at
+                            """,
+                            (source, endpoint, actor_normalized, int(window_start), timestamp),
+                        )
+                        cur.execute(
+                            """
+                            SELECT request_count
+                            FROM rate_limits
+                            WHERE source = %s AND endpoint = %s AND actor_key = %s AND window_start = %s
+                            """,
+                            (source, endpoint, actor_normalized, int(window_start)),
+                        )
+                        row = cur.fetchone()
+                    conn.commit()
+                finally:
+                    conn.close()
+            count = int(row[0] if row else 0)
+            return {"allowed": count <= safe_max, "count": count, "max_requests": safe_max, "window_start": window_start}
+
+        with self._lock:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    """
+                    INSERT INTO rate_limits (source, endpoint, actor_key, window_start, request_count, updated_at)
+                    VALUES (?, ?, ?, ?, 1, ?)
+                    ON CONFLICT(source, endpoint, actor_key, window_start)
+                    DO UPDATE SET request_count = request_count + 1, updated_at = excluded.updated_at
+                    """,
+                    (source, endpoint, actor_normalized, int(window_start), timestamp),
+                )
+                row = connection.execute(
+                    """
+                    SELECT request_count
+                    FROM rate_limits
+                    WHERE source = ? AND endpoint = ? AND actor_key = ? AND window_start = ?
+                    """,
+                    (source, endpoint, actor_normalized, int(window_start)),
+                ).fetchone()
+                connection.commit()
+        count = int(row["request_count"] if row else 0)
+        return {"allowed": count <= safe_max, "count": count, "max_requests": safe_max, "window_start": window_start}
 
     def get(self, task_id: str) -> dict[str, Any]:
         with self._connect() as connection:

@@ -1,0 +1,12 @@
+{
+  "issue": {
+    "key": "PLG-123",
+    "fields": {
+      "summary": "Jira intake fixture",
+      "description": "Create spec from jira fixture",
+      "labels": [
+        "flow-repo:root"
+      ]
+    }
+  }
+}

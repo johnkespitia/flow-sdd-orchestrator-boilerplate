@@ -20,6 +20,8 @@ control plane aceptan `--json` para agentes, CI y tooling.
 
 ## Gateway Event Contract
 
+Para payloads HTTP de entrada (Jira/GitHub/Slack), ver `docs/webhook-canonical-payloads.md`.
+
 Eventos de ciclo de vida emitidos por el gateway (timeline + feedback):
 
 - `created`

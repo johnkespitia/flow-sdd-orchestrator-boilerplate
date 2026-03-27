@@ -1,0 +1,19 @@
+{
+  "comment": {
+    "id": 2222,
+    "body": "/spec trigger intake"
+  },
+  "issue": {
+    "number": 1002,
+    "title": "Comment based intake",
+    "body": "Comment-based intake body",
+    "comments": 3,
+    "comments_url": "https://api.github.com/repos/acme/repo/issues/1002/comments",
+    "labels": [
+      { "name": "flow-repo:root" }
+    ]
+  },
+  "repository": {
+    "full_name": "acme/repo"
+  }
+}

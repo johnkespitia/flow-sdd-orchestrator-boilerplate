@@ -191,6 +191,28 @@ python3 ./flow ci repo --all --json
 python3 ./flow ci integration --profile smoke:ci-clean --auto-up --json
 ```
 
+## Ola 9: Documentación canónica de webhooks (DoD gateway intake)
+
+Trazabilidad de numeración: `docs/program-wave-log.md` (corrección Ola 8 documental → Ola 9).
+
+Specs:
+
+- `softos-gateway-intake-and-collaboration-loop` (solo entregables documentales del DoD)
+
+Implementar:
+
+- runbook con **payloads canónicos** copy/paste para Jira, GitHub y Slack
+- enlaces desde runbooks existentes al contrato de eventos
+
+Evidencia obligatoria:
+
+```bash
+python3 -m pytest gateway/tests -q
+python3 ./flow ci spec --all --json
+python3 ./flow ci repo --all --json
+python3 ./flow ci integration --profile smoke:ci-clean --auto-up --json
+```
+
 ## Matriz backlog operativo -> Specs
 
 - Política aprobación CLI/Gateway -> `softos-gateway-intake-and-collaboration-loop`

@@ -28,18 +28,29 @@ def test_metrics_endpoint_returns_required_fields(monkeypatch) -> None:  # type:
         }
         (reports / "demo-workflow-run.json").write_text(json.dumps(payload, ensure_ascii=True), encoding="utf-8")
 
-        class _Settings(gateway_config.Settings):
-            @property
-            def workspace_root(self) -> Path:  # type: ignore[override]
-                return root
-
-        def _load_settings() -> _Settings:
-            return _Settings()
+        def _load_settings() -> gateway_config.Settings:
+            return gateway_config.Settings(
+                workspace_root=root,
+                database_path=root / "tasks.db",
+                flow_bin="python3",
+                flow_entrypoint="./flow",
+                gateway_api_token=None,
+                slack_signing_secret=None,
+                github_webhook_secret=None,
+                jira_webhook_token=None,
+                default_feedback_provider=None,
+                worker_poll_interval=0.01,
+            )
 
         monkeypatch.setattr(gateway_config, "load_settings", _load_settings)
+        # `gateway.app.main` ya importó `load_settings`, así que también hay que patchar el símbolo local.
+        import gateway.app.main as gateway_main
 
-        client = TestClient(app)
-        response = client.get("/metrics")
+        monkeypatch.setattr(gateway_main, "load_settings", _load_settings)
+
+        # Usar context manager para disparar lifespan y setear app.state.settings/store/worker.
+        with TestClient(app) as client:
+            response = client.get("/metrics")
         assert response.status_code == 200
         body = response.json()
         assert "throughput" in body
