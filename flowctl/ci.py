@@ -56,9 +56,9 @@ def command_ci_spec(
         analysis = analyze_spec(spec_path)
         frontmatter = analysis["frontmatter"]
         status = str(frontmatter.get("status", "")).strip().lower()
-        if bool(getattr(args, "all", False)) and status != "approved":
+        if (bool(getattr(args, "all", False)) or bool(getattr(args, "changed", False))) and status != "approved":
             advisory = (
-                "Spec omitida en `ci spec --all` por estado no aprobado. "
+                "Spec omitida en `ci spec` (modo `--all` o `--changed`) por estado no aprobado. "
                 "Usa `flow spec review` + `flow spec approve` para incluirla en validacion estricta."
             )
             items.append(
