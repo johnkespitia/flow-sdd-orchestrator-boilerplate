@@ -1,4 +1,29 @@
-# Flow SDD Orchestrator Boilerplate
+# SoftOS SDD Orchestrator Boilerplate
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](#)
+[![CI](https://img.shields.io/badge/ci-root--ci-success-brightgreen.svg)](#)
+[![Gateway](https://img.shields.io/badge/gateway-fastapi-009688.svg)](#)
+
+Plantilla base para levantar un workspace **Spec-Driven Delivery (SDD)** con `flow` + Tessl + BMAD.
+
+## TL;DR
+
+- `specs/**` como fuente de verdad.
+- `flow` como control plane del SDLC y del stack.
+- `gateway/` como ingress HTTP central para webhooks/intents.
+- Bootstrap en dos perfiles: `master` (control plane completo) y `slave` (runner conectado a gateway remoto).
+
+## Quick Navigation
+
+- [Qué trae](#qué-trae)
+- [Uso recomendado](#uso-recomendado)
+- [Perfiles master/slave](#perfiles-de-bootstrap-master-y-slave)
+- [Después de crear tu workspace](#después-de-crear-tu-workspace)
+- [Gateway de Integraciones](#gateway-de-integraciones)
+- [Contribuir](./CONTRIBUTING.md)
+- [Seguridad](./SECURITY.md)
+- [Código de conducta](./CODE_OF_CONDUCT.md)
 
 Template repo para levantar un workspace de `Spec As Source` con:
 
