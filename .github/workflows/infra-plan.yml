@@ -17,6 +17,9 @@ on:
         default: local-hooks
         type: string
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   infra-plan:
     runs-on: ubuntu-latest
