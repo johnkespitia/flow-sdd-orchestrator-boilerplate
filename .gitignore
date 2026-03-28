@@ -62,3 +62,7 @@ contracts/generated/*
 !releases/manifests/.gitkeep
 !releases/promotions/.gitkeep
 !contracts/generated/.gitkeep
+
+# Runtime artifact when gateway runs from /workspace/gateway
+gateway/gateway/data/*.db
+gateway/gateway/data/*.log

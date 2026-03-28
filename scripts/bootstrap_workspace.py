@@ -6,6 +6,7 @@ import argparse
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import urlparse
@@ -161,6 +162,22 @@ def patch_devcontainer(destination: Path, project_name: str) -> None:
     devcontainer_json.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def patch_gateway_pythonpath(destination: Path) -> None:
+    compose_path = destination / ".devcontainer" / "docker-compose.yml"
+    if not compose_path.exists():
+        return
+
+    text = compose_path.read_text(encoding="utf-8")
+    if "PYTHONPATH: /workspace" in text:
+        return
+
+    marker = "    env_file:\n      - .env.generated\n"
+    replacement = marker + "    environment:\n      PYTHONPATH: /workspace\n"
+    if marker not in text:
+        return
+    compose_path.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
+
+
 def rewrite_text_file(path: Path, replacements: dict[str, str]) -> None:
     text = path.read_text(encoding="utf-8")
     updated = text
@@ -246,7 +263,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--profile",
         choices=BOOTSTRAP_PROFILES,
-        default="master",
+        default=None,
         help="Perfil de bootstrap: `master` (control-plane con gateway) o `slave` (runner conectado a gateway remoto).",
     )
     parser.add_argument(
@@ -265,6 +282,23 @@ def parse_args() -> argparse.Namespace:
         help="Solo profile=slave. Omite validación HTTP /healthz del gateway remoto.",
     )
     return parser.parse_args()
+
+
+def resolve_profile(profile: str | None) -> str:
+    if profile in BOOTSTRAP_PROFILES:
+        return profile
+
+    if not sys.stdin.isatty():
+        print("[bootstrap] --profile no especificado; usando `master` por defecto en modo no interactivo.")
+        return "master"
+
+    while True:
+        raw = input("Perfil de bootstrap [master/slave] (default: master): ").strip().lower()
+        if not raw:
+            return "master"
+        if raw in BOOTSTRAP_PROFILES:
+            return raw
+        print("Valor invalido. Usa `master` o `slave`.")
 
 
 def _normalize_gateway_url(raw: str) -> str:
@@ -329,11 +363,12 @@ def _persist_slave_gateway_connection(destination: Path, gateway_url: str, gatew
 
 def main() -> int:
     args = parse_args()
+    profile = resolve_profile(args.profile)
     destination = Path(args.destination).expanduser().resolve()
     source_config = load_config(CONFIG_FILE)
 
     ensure_clean_destination(destination, args.force)
-    copy_template(source_config, destination, profile=args.profile)
+    copy_template(source_config, destination, profile=profile)
     reset_flow_state(destination)
     remove_repo_specific_files(destination)
     rewrite_workspace_config(
@@ -343,6 +378,7 @@ def main() -> int:
         root_repo=args.root_repo,
     )
     patch_devcontainer(destination, args.project_name)
+    patch_gateway_pythonpath(destination)
     rewrite_project_texts(
         destination,
         source_config,
@@ -350,7 +386,7 @@ def main() -> int:
         root_repo=args.root_repo,
     )
 
-    if args.profile == "slave":
+    if profile == "slave":
         gateway_url = _normalize_gateway_url(args.gateway_url)
         if not gateway_url:
             gateway_url = _prompt_gateway_url()
