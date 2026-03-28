@@ -349,6 +349,16 @@ def build_parser(
     ci_integration.add_argument("--profile", default="smoke", help="Integration profile label.")
     ci_integration.add_argument("--auto-up", action="store_true", help="Start the stack if it is not active.")
     ci_integration.add_argument("--build", action="store_true", help="Build images if `--auto-up` starts the stack.")
+    ci_integration.add_argument(
+        "--bootstrap-runtime",
+        action="store_true",
+        help="Opt-in: ejecuta composer/pnpm install dentro del servicio antes del preflight (entorno Compose).",
+    )
+    ci_integration.add_argument(
+        "--preflight-relaxed",
+        action="store_true",
+        help="Desactiva preflight estricto incluso en perfil smoke:ci-clean (solo diagnostico / bypass controlado).",
+    )
     ci_integration.add_argument("--json", action="store_true", help="Print the integration report as JSON.")
     ci_integration.set_defaults(func=commands["ci_integration"])
 

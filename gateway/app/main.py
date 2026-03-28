@@ -6,11 +6,15 @@ import os
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from .config import Settings, load_settings
 from .feedback import send_feedback_event
-from .intents import IntentError, build_flow_command, intent_from_github, intent_from_jira, parse_text_command, slugify
+from .flow_command import build_flow_command
+from .gateway_config import load_gateway_block
+from .intents import IntentError, intent_from_github, intent_from_jira, parse_text_command, slugify
+from .spec_quality import lint_inbound_spec_payload
+from .transforms import apply_source_transforms
 from .models import (
     IntentRequest,
     RepoCatalogView,
@@ -104,15 +108,27 @@ def enqueue_intent(app_request: Request, intent_request: IntentRequest) -> dict[
         raise HTTPException(status_code=400, detail={"code": code or "POLICY_VIOLATION", "message": msg or "Policy rejected intent."})
 
     store: TaskStore = app_request.app.state.store
+    payload = apply_source_transforms(intent_request.source, dict(intent_request.payload), settings.workspace_root)
+    if intent_request.intent == "workflow.intake":
+        issues = lint_inbound_spec_payload(payload)
+        gw = load_gateway_block(settings.workspace_root)
+        lint_cfg = gw.get("spec_inbound_lint", {}) if isinstance(gw, dict) else {}
+        if issues:
+            payload = {**payload, "_lint_findings": issues}
+        if issues and bool(lint_cfg.get("reject_on_error")):
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "SPEC_INBOUND_LINT", "message": "; ".join(issues[:12])},
+            )
     command = build_flow_command(
         intent_request.intent,
-        intent_request.payload,
+        payload,
         workspace_root=settings.workspace_root,
     )
     return store.enqueue(
         source=intent_request.source,
         intent=intent_request.intent,
-        payload=intent_request.payload,
+        payload=payload,
         command=command,
         response_target=intent_request.reply_to,
     )
@@ -181,8 +197,40 @@ async def healthz(request: Request) -> dict[str, Any]:
 @app.get("/metrics")
 async def metrics(request: Request) -> JSONResponse:
     settings: Settings = request.app.state.settings
+    store: TaskStore = request.app.state.store
     payload = collect_workflow_metrics(root=settings.workspace_root, utc_now=lambda: datetime.now(timezone.utc).isoformat())
+    payload = dict(payload)
+    payload["gateway_intent_metrics"] = store.aggregate_intent_provider_metrics()
     return JSONResponse(payload)
+
+
+@app.get("/v1/ops/monitor", response_class=HTMLResponse)
+async def ops_monitor(request: Request) -> HTMLResponse:
+    """T15: vista mínima de tareas recientes (HTML)."""
+    _ = require_api_auth(request, endpoint="/v1/ops/monitor", source="api")
+    store: TaskStore = request.app.state.store
+    rows = store.recent_tasks(limit=40)
+    trs = []
+    for t in rows:
+        trs.append(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
+                t.get("task_id", ""),
+                t.get("source", ""),
+                t.get("intent", ""),
+                t.get("status", ""),
+                t.get("created_at", ""),
+                t.get("finished_at") or "",
+            )
+        )
+    body = (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Gateway task monitor</title>"
+        "<style>body{font-family:system-ui;margin:16px;} table{border-collapse:collapse;} td,th{border:1px solid #ccc;padding:4px 8px;font-size:13px;}</style></head><body>"
+        "<h2>SoftOS Gateway — task monitor</h2><table><thead><tr>"
+        "<th>task_id</th><th>source</th><th>intent</th><th>status</th><th>created</th><th>finished</th></tr></thead><tbody>"
+        + "".join(trs)
+        + "</tbody></table></body></html>"
+    )
+    return HTMLResponse(body)
 
 
 @app.post("/v1/intents", response_model=TaskAccepted, status_code=202)

@@ -3,16 +3,173 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .config import Settings
+from .gateway_config import load_gateway_block
+
+
+def _sleep(seconds: float) -> None:
+    """Hook para tests (monkeypatch)."""
+    time.sleep(seconds)
+
+
+@dataclass(frozen=True)
+class FeedbackRetryConfig:
+    max_attempts: int = 4
+    initial_delay_s: float = 0.5
+    max_delay_s: float = 8.0
+    backoff_multiplier: float = 2.0
+
+
+def _default_retry_from_env() -> FeedbackRetryConfig:
+    def _i(name: str, default: int) -> int:
+        raw = str(os.getenv(name, "") or "").strip()
+        if not raw:
+            return default
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            return default
+
+    def _f(name: str, default: float) -> float:
+        raw = str(os.getenv(name, "") or "").strip()
+        if not raw:
+            return default
+        try:
+            return float(raw)
+        except ValueError:
+            return default
+
+    return FeedbackRetryConfig(
+        max_attempts=_i("SOFTOS_FEEDBACK_RETRY_MAX_ATTEMPTS", 4),
+        initial_delay_s=_f("SOFTOS_FEEDBACK_RETRY_INITIAL_DELAY_S", 0.5),
+        max_delay_s=_f("SOFTOS_FEEDBACK_RETRY_MAX_DELAY_S", 8.0),
+        backoff_multiplier=_f("SOFTOS_FEEDBACK_RETRY_BACKOFF_MULTIPLIER", 2.0),
+    )
+
+
+def _coerce_retry_dict(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+    return raw
+
+
+def _merge_retry_config(
+    base: FeedbackRetryConfig,
+    *overlays: dict[str, Any],
+) -> FeedbackRetryConfig:
+    cfg = base
+    for overlay in overlays:
+        if not overlay:
+            continue
+        ma = cfg.max_attempts
+        init_d = cfg.initial_delay_s
+        max_d = cfg.max_delay_s
+        mult = cfg.backoff_multiplier
+        if "max_attempts" in overlay:
+            raw = overlay["max_attempts"]
+            if isinstance(raw, (int, float)):
+                ma = int(raw)
+        if "initial_delay_s" in overlay:
+            raw = overlay["initial_delay_s"]
+            if isinstance(raw, (int, float)):
+                init_d = float(raw)
+        if "max_delay_s" in overlay:
+            raw = overlay["max_delay_s"]
+            if isinstance(raw, (int, float)):
+                max_d = float(raw)
+        if "backoff_multiplier" in overlay:
+            raw = overlay["backoff_multiplier"]
+            if isinstance(raw, (int, float)):
+                mult = float(raw)
+        cfg = FeedbackRetryConfig(
+            max_attempts=max(1, ma),
+            initial_delay_s=max(0.0, init_d),
+            max_delay_s=max(0.0, max_d),
+            backoff_multiplier=max(1.0, mult),
+        )
+    return cfg
+
+
+def _resolve_retry_config(
+    settings: Settings,
+    section: dict[str, Any],
+    provider_config: dict[str, Any],
+) -> FeedbackRetryConfig:
+    base = _default_retry_from_env()
+    global_overlay = _coerce_retry_dict(section.get("retry_policy"))
+    provider_overlay = _coerce_retry_dict(provider_config.get("retry_policy"))
+    return _merge_retry_config(base, global_overlay, provider_overlay)
+
+
+def _is_permanent_feedback_failure(returncode: int, stderr: str) -> bool:
+    """
+    Convención: exit 2 o prefijo PERMANENT: en stderr => no reintentar.
+    Cualquier otro código distinto de 0 se trata como transitorio (red/429/etc. simulado).
+    """
+    if returncode == 0:
+        return False
+    if returncode == 2:
+        return True
+    err = (stderr or "").strip()
+    return err.startswith("PERMANENT:")
+
+
+def _run_feedback_bash(
+    entrypoint: Path,
+    *,
+    cwd: Path,
+    env: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(entrypoint)],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _run_with_retry(
+    settings: Settings,
+    section: dict[str, Any],
+    provider_name: str,
+    provider_config: dict[str, Any],
+    run_once: Callable[[], subprocess.CompletedProcess[str]],
+) -> dict[str, Any]:
+    cfg = _resolve_retry_config(settings, section, provider_config)
+    delay = cfg.initial_delay_s
+    last: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(cfg.max_attempts):
+        last = run_once()
+        if last.returncode == 0:
+            break
+        if _is_permanent_feedback_failure(last.returncode, last.stderr):
+            break
+        if attempt + 1 >= cfg.max_attempts:
+            break
+        _sleep(min(delay, cfg.max_delay_s))
+        delay = min(delay * cfg.backoff_multiplier, cfg.max_delay_s)
+    assert last is not None
+    return {
+        "provider": provider_name,
+        "return_code": last.returncode,
+        "stdout": last.stdout.strip(),
+        "stderr": last.stderr.strip(),
+        "attempts_used": attempt + 1,
+    }
 
 
 def _load_feedback_section(settings: Settings) -> dict[str, Any]:
     if not settings.providers_manifest.is_file():
         return {
             "default_provider": "local-log",
+            "retry_policy": {},
             "providers": {
                 "local-log": {
                     "enabled": True,
@@ -38,7 +195,7 @@ def _provider_entrypoint(settings: Settings, config: dict[str, Any]) -> Path:
     return (settings.workspace_root / entrypoint).resolve()
 
 
-def _feedback_message(task: dict[str, Any]) -> str:
+def _feedback_message(task: dict[str, Any], *, settings: Settings | None = None) -> str:
     lines = [
         f"Task `{task['task_id']}`",
         f"Intent: `{task['intent']}`",
@@ -60,7 +217,23 @@ def _feedback_message(task: dict[str, Any]) -> str:
         if stderr:
             lines.append("stderr:")
             lines.append(f"```\n{stderr[-3000:]}\n```")
-    return "\n".join(lines)
+    base = "\n".join(lines)
+    if settings is None:
+        return base
+    gw = load_gateway_block(settings.workspace_root)
+    tmpl = gw.get("feedback_templates", {})
+    intent = str(task.get("intent", ""))
+    if isinstance(tmpl, dict) and intent in tmpl:
+        try:
+            return str(tmpl[intent]).format(
+                task_id=task["task_id"],
+                intent=intent,
+                status=task["status"],
+                body=base,
+            )
+        except Exception:
+            return base
+    return base
 
 
 def _resolve_provider(
@@ -117,7 +290,7 @@ def send_feedback(settings: Settings, task: dict[str, Any]) -> dict[str, Any] | 
             "FLOW_FEEDBACK_STATUS": task["status"],
             "FLOW_FEEDBACK_SOURCE": task["source"],
             "FLOW_FEEDBACK_INTENT": task["intent"],
-            "FLOW_FEEDBACK_MESSAGE": _feedback_message(task),
+            "FLOW_FEEDBACK_MESSAGE": _feedback_message(task, settings=settings),
             "FLOW_FEEDBACK_TARGET_KIND": str(response_target.get("kind", "")),
             "FLOW_GITHUB_COMMENTS_URL": str(response_target.get("comments_url", "")),
             "FLOW_SLACK_RESPONSE_URL": str(response_target.get("response_url", "")),
@@ -125,20 +298,10 @@ def send_feedback(settings: Settings, task: dict[str, Any]) -> dict[str, Any] | 
         }
     )
 
-    result = subprocess.run(
-        ["bash", str(entrypoint)],
-        cwd=settings.workspace_root,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return {
-        "provider": provider_name,
-        "return_code": result.returncode,
-        "stdout": result.stdout.strip(),
-        "stderr": result.stderr.strip(),
-    }
+    def run_once() -> subprocess.CompletedProcess[str]:
+        return _run_feedback_bash(entrypoint, cwd=settings.workspace_root, env=env)
+
+    return _run_with_retry(settings, section, provider_name, provider_config, run_once)
 
 
 def send_feedback_event(
@@ -180,17 +343,8 @@ def send_feedback_event(
             "FLOW_JIRA_ISSUE_KEY": str(target.get("issue_key", "")),
         }
     )
-    result = subprocess.run(
-        ["bash", str(entrypoint)],
-        cwd=settings.workspace_root,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return {
-        "provider": provider_name,
-        "return_code": result.returncode,
-        "stdout": result.stdout.strip(),
-        "stderr": result.stderr.strip(),
-    }
+
+    def run_once() -> subprocess.CompletedProcess[str]:
+        return _run_feedback_bash(entrypoint, cwd=settings.workspace_root, env=env)
+
+    return _run_with_retry(settings, section, provider_name, provider_config, run_once)

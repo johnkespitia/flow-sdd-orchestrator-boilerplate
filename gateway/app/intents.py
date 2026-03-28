@@ -1,17 +1,44 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
 from pathlib import Path
 from typing import Any
 
+from .intent_utils import IntentError, _normalize_acceptance_criteria, _normalize_description, slugify
 from .models import IntentRequest
-from .repos import resolve_repo_references
 
 
-class IntentError(ValueError):
-    pass
+def _workspace_root() -> Path:
+    return Path(os.getenv("FLOW_WORKSPACE_ROOT", ".")).resolve()
+
+
+def load_jira_acceptance_criteria_field_id(workspace_root: Path | None = None) -> str | None:
+    """
+    Lee `workspace.providers.json` -> `gateway.jira.acceptance_criteria_field` (o `acceptance_criteria_field_id`).
+    Sin archivo o clave: None (el caller usa fallback por env u omitir).
+    """
+    root = workspace_root or _workspace_root()
+    manifest = root / "workspace.providers.json"
+    if not manifest.is_file():
+        return None
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    gw = payload.get("gateway")
+    if not isinstance(gw, dict):
+        return None
+    jira = gw.get("jira")
+    if not isinstance(jira, dict):
+        return None
+    for key in ("acceptance_criteria_field", "acceptance_criteria_field_id"):
+        raw = jira.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return None
 
 
 _APPROVE_PREFIXES = ("approve ", "/approve ", "lgtm ")
@@ -82,22 +109,6 @@ def extract_github_acceptance_from_body(body: str) -> list[str]:
     return _normalize_acceptance_criteria(rest)
 
 
-def slugify(value: str) -> str:
-    lowered = value.strip().lower()
-    lowered = re.sub(r"[^a-z0-9]+", "-", lowered)
-    lowered = re.sub(r"-{2,}", "-", lowered)
-    return lowered.strip("-")
-
-
-def _normalize_description(value: object) -> str:
-    if value is None:
-        return ""
-    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
-    lines = [line.strip() for line in text.split("\n")]
-    normalized = "\n".join(line for line in lines if line)
-    return normalized.strip()
-
-
 def _collect_jira_adf_text(value: object, chunks: list[str]) -> None:
     if isinstance(value, str):
         if value:
@@ -138,124 +149,6 @@ def _jira_description_text(value: object) -> str:
         _collect_jira_adf_text(value, chunks)
         return _normalize_description("".join(chunks))
     return ""
-
-
-def _normalize_acceptance_criteria(value: object) -> list[str]:
-    if value is None:
-        return []
-    items: list[str] = []
-    if isinstance(value, list):
-        candidates = value
-    else:
-        candidates = [value]
-    for candidate in candidates:
-        if candidate is None:
-            continue
-        text = str(candidate).replace("\r\n", "\n").replace("\r", "\n")
-        for line in text.split("\n"):
-            normalized = line.strip().lstrip("-* ").strip()
-            if normalized:
-                items.append(normalized)
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for item in items:
-        if item in seen:
-            continue
-        seen.add(item)
-        deduped.append(item)
-    return deduped
-
-
-def build_flow_command(intent: str, payload: dict[str, Any], *, workspace_root: Path) -> list[str]:
-    if intent == "status.get":
-        return ["status", "--json"]
-
-    if intent in {"spec.create", "workflow.intake"}:
-        slug = slugify(str(payload.get("slug", "")))
-        title = str(payload.get("title", "")).strip()
-        try:
-            repos = resolve_repo_references(payload, workspace_root=workspace_root)
-        except ValueError as exc:
-            raise IntentError(str(exc)) from exc
-        if not slug or not title or not repos:
-            raise IntentError(f"`{intent}` requiere `slug`, `title` y al menos un repo/codigo.")
-        command = ["workflow", "intake", slug, "--title", title] if intent == "workflow.intake" else ["spec", "create", slug, "--title", title]
-        for repo in repos:
-            command.extend(["--repo", repo])
-        for runtime in payload.get("required_runtimes", payload.get("runtimes", [])) or []:
-            candidate = str(runtime).strip()
-            if candidate:
-                command.extend(["--runtime", candidate])
-        for service in payload.get("required_services", payload.get("services", [])) or []:
-            candidate = str(service).strip()
-            if candidate:
-                command.extend(["--service", candidate])
-        for capability in payload.get("required_capabilities", payload.get("capabilities", [])) or []:
-            candidate = str(capability).strip()
-            if candidate:
-                command.extend(["--capability", candidate])
-        for dependency in payload.get("depends_on", []) or []:
-            candidate = str(dependency).strip()
-            if candidate:
-                command.extend(["--depends-on", candidate])
-        description = _normalize_description(payload.get("description", ""))
-        if description:
-            command.extend(["--description", description])
-        for criterion in _normalize_acceptance_criteria(payload.get("acceptance_criteria")):
-            command.extend(["--acceptance-criteria", criterion])
-        command.append("--json")
-        return command
-
-    if intent == "workflow.next_step":
-        slug = slugify(str(payload.get("slug", "")))
-        if not slug:
-            raise IntentError("`workflow.next_step` requiere `slug`.")
-        return ["workflow", "next-step", slug, "--json"]
-
-    if intent == "workflow.execute_feature":
-        slug = slugify(str(payload.get("slug", "")))
-        if not slug:
-            raise IntentError("`workflow.execute_feature` requiere `slug`.")
-        command = ["workflow", "execute-feature", slug, "--json"]
-        if bool(payload.get("refresh_plan")):
-            command.append("--refresh-plan")
-        if bool(payload.get("start_slices")):
-            command.append("--start-slices")
-        return command
-
-    if intent == "spec.review":
-        slug = slugify(str(payload.get("slug", "")))
-        if not slug:
-            raise IntentError("`spec.review` requiere `slug`.")
-        return ["spec", "review", slug, "--json"]
-
-    if intent == "spec.approve":
-        slug = slugify(str(payload.get("slug", "")))
-        if not slug:
-            raise IntentError("`spec.approve` requiere `slug`.")
-        command = ["spec", "approve", slug]
-        approver = str(payload.get("approver", "")).strip()
-        if approver:
-            command.extend(["--approver", approver])
-        return command
-
-    if intent == "plan.create":
-        slug = slugify(str(payload.get("slug", "")))
-        if not slug:
-            raise IntentError("`plan.create` requiere `slug`.")
-        return ["plan", slug]
-
-    if intent == "slice.verify":
-        slug = slugify(str(payload.get("slug", "")))
-        slice_name = str(payload.get("slice", "")).strip()
-        if not slug or not slice_name:
-            raise IntentError("`slice.verify` requiere `slug` y `slice`.")
-        return ["slice", "verify", slug, slice_name]
-
-    if intent == "ci.spec":
-        return ["ci", "spec", "--all", "--json"]
-
-    raise IntentError(f"Intent no soportado: {intent}")
 
 
 def parse_text_command(text: str, *, source: str, reply_to: dict[str, Any] | None = None) -> IntentRequest:
@@ -617,6 +510,22 @@ def intent_from_github(event: str, payload: dict[str, Any]) -> IntentRequest | N
                 return None
             return intake_from_issue(issue, repository_full_name=repository_full_name)
 
+    if event == "pull_request":
+        action = str(payload.get("action", "")).strip()
+        pr = payload.get("pull_request")
+        if not isinstance(pr, dict):
+            return None
+        repository_full_name = str(payload.get("repository", {}).get("full_name", "")).strip()
+        if action == "opened":
+            return intake_from_issue(pr, repository_full_name=repository_full_name)
+        if action == "edited":
+            return intake_from_issue(pr, repository_full_name=repository_full_name)
+        if action == "labeled":
+            label_name = str(payload.get("label", {}).get("name", "")).strip()
+            if label_name != "flow-spec":
+                return None
+            return intake_from_issue(pr, repository_full_name=repository_full_name)
+
     return None
 
 
@@ -670,7 +579,9 @@ def intent_from_jira(payload: dict[str, Any]) -> IntentRequest | None:
     acceptance_criteria = _normalize_acceptance_criteria(
         fields.get("acceptance_criteria", fields.get("acceptanceCriteria"))
     )
-    custom_ac_field = str(os.getenv("SOFTOS_JIRA_ACCEPTANCE_FIELD", "") or "").strip()
+    env_field = str(os.getenv("SOFTOS_JIRA_ACCEPTANCE_FIELD", "") or "").strip()
+    manifest_field = load_jira_acceptance_criteria_field_id()
+    custom_ac_field = env_field or (manifest_field or "")
     if custom_ac_field and isinstance(fields.get(custom_ac_field), (str, list)):
         acceptance_criteria = list(
             dict.fromkeys(

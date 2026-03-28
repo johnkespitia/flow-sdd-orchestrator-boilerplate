@@ -7,8 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gateway.app.approval_policy import WEBHOOK_ALLOWED_INTENTS, validate_api_intent_for_policy
+from gateway.app.flow_command import build_flow_command
 from gateway.app.intents import (
-    build_flow_command,
     extract_github_acceptance_from_body,
     intent_from_github,
     intent_from_jira,

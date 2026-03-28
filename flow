@@ -129,10 +129,6 @@ from flowctl.runtimes import (
     resolve_runtime_pack,
 )
 from flowctl.secret_scan import scan_secret_paths as flow_scan_secret_paths
-from flowctl.operations import (
-    collect_workflow_metrics as flow_collect_workflow_metrics,
-    collect_runs_dashboard as flow_collect_runs_dashboard,
-)
 from flowctl.state import (
     relpath as flow_relpath,
     read_state as flow_read_state,
@@ -168,6 +164,8 @@ from flowctl.testing import (
 from flowctl.operations import (
     collect_workflow_metrics as flow_collect_workflow_metrics,
     collect_runs_dashboard as flow_collect_runs_dashboard,
+    collect_gateway_sqlite_task_metrics as flow_collect_gateway_sqlite_task_metrics,
+    evaluate_gateway_task_processing_sla as flow_evaluate_gateway_task_processing_sla,
     evaluate_sla_alerts as flow_evaluate_sla_alerts,
     append_decision as flow_append_decision,
     read_decisions as flow_read_decisions,
@@ -1526,6 +1524,9 @@ def command_workflow_retry(args: argparse.Namespace) -> int:
 def command_ops_metrics(args: argparse.Namespace) -> int:
     OPERATIONS_REPORT_ROOT.mkdir(parents=True, exist_ok=True)
     payload = flow_collect_workflow_metrics(root=ROOT, utc_now=utc_now)
+    payload = dict(payload)
+    gw_db = ROOT / "gateway" / "data" / "tasks.db"
+    payload["gateway_tasks"] = flow_collect_gateway_sqlite_task_metrics(db_path=gw_db)
     json_path = OPERATIONS_REPORT_ROOT / "metrics.json"
     json_path.write_text(json_dumps(payload) + "\n", encoding="utf-8")
     if wants_json(args):
@@ -1558,6 +1559,9 @@ def command_ops_sla(args: argparse.Namespace) -> int:
         "ci_integration": 1800.0,
     }
     payload = flow_evaluate_sla_alerts(root=ROOT, utc_now=utc_now, thresholds=thresholds)
+    payload = dict(payload)
+    gw_db = ROOT / "gateway" / "data" / "tasks.db"
+    payload["gateway_processing"] = flow_evaluate_gateway_task_processing_sla(db_path=gw_db, utc_now=utc_now)
     json_path = OPERATIONS_REPORT_ROOT / "sla-alerts.json"
     json_path.write_text(json_dumps(payload) + "\n", encoding="utf-8")
     if wants_json(args):

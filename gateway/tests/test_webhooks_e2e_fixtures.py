@@ -18,6 +18,7 @@ def _load(name: str) -> dict:
 
 def test_webhook_fixtures_github_dedupe_and_rate_limit(monkeypatch) -> None:  # type: ignore[override]
     # limit bajo para validar 429 en tercera llamada
+    monkeypatch.setenv("SOFTOS_GATEWAY_RATE_LIMIT_MODE", "memory")
     monkeypatch.setenv("SOFTOS_GATEWAY_RATE_LIMIT_WINDOW_SECONDS", "60")
     monkeypatch.setenv("SOFTOS_GATEWAY_RATE_LIMIT_MAX_REQUESTS", "2")
 
@@ -55,4 +56,3 @@ def test_webhook_fixtures_slack_validation(monkeypatch) -> None:  # type: ignore
         response = client.post("/webhooks/slack/commands", data=payload)
         assert response.status_code == 200
         assert "Aceptado task" in response.text
-

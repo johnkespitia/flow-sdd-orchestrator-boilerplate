@@ -12,6 +12,68 @@ from typing import Callable, Optional
 from flowctl.secret_scan import is_advisory_secret_finding
 
 
+def load_ci_service_overrides_from_env() -> dict[str, dict[str, object]]:
+    """JSON en FLOW_CI_SERVICE_OVERRIDES: { \"servicio\": { \"smoke_attempts\": 5, ... } }."""
+    raw = os.environ.get("FLOW_CI_SERVICE_OVERRIDES", "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, dict[str, object]] = {}
+    for k, v in data.items():
+        if isinstance(v, dict):
+            out[str(k)] = v
+    return out
+
+
+def integration_profile_is_ci_clean(profile: str) -> bool:
+    p = str(profile or "").strip().lower()
+    return p in {"smoke:ci-clean", "smoke-ci-clean", "ci-clean"}
+
+
+def resolve_ci_strict_preflight(profile: str, *, preflight_relaxed: bool) -> bool:
+    return integration_profile_is_ci_clean(profile) and not preflight_relaxed
+
+
+def merge_service_integration_settings(
+    service_name: str,
+    overrides: dict[str, dict[str, object]],
+    *,
+    default_attempts: int,
+    default_backoff: float,
+    default_health_timeout: int,
+    default_health_poll: int,
+) -> dict[str, float | int]:
+    raw = overrides.get(service_name, {})
+
+    def _int(key: str, default: int) -> int:
+        if key not in raw:
+            return default
+        try:
+            return int(raw[key])  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return default
+
+    def _float(key: str, default: float) -> float:
+        if key not in raw:
+            return default
+        try:
+            return float(raw[key])  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return default
+
+    return {
+        "smoke_attempts": max(1, _int("smoke_attempts", default_attempts)),
+        "smoke_backoff_seconds": max(0.0, _float("smoke_backoff_seconds", default_backoff)),
+        "health_timeout_seconds": max(1, _int("health_timeout_seconds", default_health_timeout)),
+        "health_poll_seconds": max(1, _int("health_poll_seconds", default_health_poll)),
+    }
+
+
 def command_ci_spec(
     args,
     *,
@@ -379,7 +441,10 @@ def command_ci_integration(
     root = Path.cwd().resolve()
 
     profile = str(getattr(args, "profile", "smoke") or "smoke").strip().lower()
-    strict_preflight = profile in {"smoke:ci-clean", "smoke-ci-clean", "ci-clean"}
+    preflight_relaxed = bool(getattr(args, "preflight_relaxed", False))
+    bootstrap_runtime = bool(getattr(args, "bootstrap_runtime", False))
+    strict_preflight = resolve_ci_strict_preflight(profile, preflight_relaxed=preflight_relaxed)
+    service_overrides = load_ci_service_overrides_from_env()
 
     stack_up_attempts = max(1, int(os.environ.get("FLOW_CI_STACK_UP_ATTEMPTS", "3")))
     stack_up_backoff_seconds = max(0.0, float(os.environ.get("FLOW_CI_STACK_UP_BACKOFF_SECONDS", "2")))
@@ -433,8 +498,8 @@ def command_ci_integration(
             return "no-healthcheck"
         return "missing"
 
-    def wait_for_healthy_if_declared(service_name: str) -> tuple[bool, str]:
-        deadline = time.time() + float(health_wait_timeout_seconds)
+    def wait_for_healthy_if_declared(service_name: str, *, timeout_s: int, poll_s: int) -> tuple[bool, str]:
+        deadline = time.time() + float(timeout_s)
         saw_healthcheck = False
         last = "unknown"
         while time.time() <= deadline:
@@ -448,7 +513,7 @@ def command_ci_integration(
             saw_healthcheck = True
             if current == "healthy":
                 return True, "healthy"
-            time.sleep(float(health_wait_interval_seconds))
+            time.sleep(float(poll_s))
         if saw_healthcheck:
             return False, last
         return True, last
@@ -538,6 +603,48 @@ def command_ci_integration(
                 smoke_commands[service_name] = ["sh", "-lc", "node --version >/dev/null && pnpm --version >/dev/null"]
             elif runner == "go":
                 smoke_commands[service_name] = ["go", "version"]
+
+        container_root = os.environ.get("FLOW_WORKSPACE_CONTAINER_PATH", "/workspace").strip() or "/workspace"
+        if bootstrap_runtime:
+            for repo in implementation_repos():
+                service_name = repo_compose_service(repo)
+                if service_name not in service_names:
+                    continue
+                runner = str(repo_config(repo).get("test_runner", "")).strip()
+                repo_path_raw = str(repo_config(repo).get("path", ".")).strip() or "."
+                repo_path = Path(repo_path_raw)
+                if not repo_path.is_absolute():
+                    repo_path = (root / repo_path).resolve()
+                try:
+                    rel_posix = repo_path.relative_to(root).as_posix()
+                except ValueError:
+                    findings.append(f"(bootstrap) Path de repo `{repo}` fuera del workspace; omitido.")
+                    continue
+                cwd = f"{container_root}/{rel_posix}".replace("//", "/")
+                if runner == "php" and (repo_path / "composer.json").exists():
+                    bc = capture_compose(
+                        compose_exec_args(service_name, interactive=False, workdir=cwd)
+                        + ["composer", "install", "--no-interaction", "--no-progress"]
+                    )
+                    if int(bc["returncode"]) != 0:
+                        findings.append(f"Bootstrap composer fallo en `{service_name}`.")
+                        add_check("FAIL", "app", f"Bootstrap {service_name}", "`composer install` fallo.")
+                    else:
+                        add_check("PASS", "app", f"Bootstrap {service_name}", "`composer install` ok.")
+                elif runner == "pnpm" and (repo_path / "package.json").exists():
+                    bc = capture_compose(
+                        compose_exec_args(service_name, interactive=False, workdir=cwd)
+                        + ["sh", "-lc", "pnpm install --frozen-lockfile 2>/dev/null || pnpm install"]
+                    )
+                    if int(bc["returncode"]) != 0:
+                        findings.append(f"Bootstrap pnpm fallo en `{service_name}`.")
+                        add_check("FAIL", "app", f"Bootstrap {service_name}", "`pnpm install` fallo.")
+                    else:
+                        add_check("PASS", "app", f"Bootstrap {service_name}", "`pnpm install` ok.")
+
+        for repo in implementation_repos():
+            runner = str(repo_config(repo).get("test_runner", "")).strip()
+            service_name = repo_compose_service(repo)
             repo_path_raw = str(repo_config(repo).get("path", ".")).strip() or "."
             repo_path = Path(repo_path_raw)
             if not repo_path.is_absolute():
@@ -569,28 +676,43 @@ def command_ci_integration(
             if service_name not in service_names:
                 continue
 
-            health_ok, health_state = wait_for_healthy_if_declared(service_name)
+            svc = merge_service_integration_settings(
+                service_name,
+                service_overrides,
+                default_attempts=smoke_attempts,
+                default_backoff=smoke_retry_delay_seconds,
+                default_health_timeout=health_wait_timeout_seconds,
+                default_health_poll=health_wait_interval_seconds,
+            )
+            svc_attempts = int(svc["smoke_attempts"])
+            svc_backoff = float(svc["smoke_backoff_seconds"])
+            svc_health_timeout = int(svc["health_timeout_seconds"])
+            svc_health_poll = int(svc["health_poll_seconds"])
+
+            health_ok, health_state = wait_for_healthy_if_declared(
+                service_name, timeout_s=svc_health_timeout, poll_s=svc_health_poll
+            )
             if not health_ok:
                 findings.append(
-                    f"El servicio `{service_name}` no llego a healthy en {health_wait_timeout_seconds}s (estado: {health_state})."
+                    f"El servicio `{service_name}` no llego a healthy en {svc_health_timeout}s (estado: {health_state})."
                 )
                 add_check(
                     "FAIL",
                     "infra",
                     f"Health {service_name}",
-                    f"No llego a healthy en {health_wait_timeout_seconds}s (estado: {health_state}).",
+                    f"No llego a healthy en {svc_health_timeout}s (estado: {health_state}).",
                 )
                 continue
 
             attempt = 0
             last_execution: dict[str, object] = {}
-            while attempt < smoke_attempts:
+            while attempt < svc_attempts:
                 attempt += 1
                 last_execution = capture_compose(compose_exec_args(service_name, interactive=False) + smoke_command)
                 if int(last_execution["returncode"]) == 0:
                     break
-                if attempt < smoke_attempts:
-                    time.sleep(smoke_retry_delay_seconds)
+                if attempt < svc_attempts:
+                    time.sleep(svc_backoff)
 
             if int(last_execution.get("returncode", 1)) == 0:
                 if attempt == 1:
@@ -605,7 +727,7 @@ def command_ci_integration(
             else:
                 tail = str(last_execution.get("output_tail", "")).strip()
                 findings.append(
-                    f"El smoke check de `{service_name}` fallo tras {smoke_attempts} intentos."
+                    f"El smoke check de `{service_name}` fallo tras {svc_attempts} intentos."
                 )
                 if tail:
                     findings.append(f"Diagnostico smoke `{service_name}` (tail): {tail}")
@@ -613,7 +735,7 @@ def command_ci_integration(
                     "FAIL",
                     "app",
                     f"Smoke {service_name}",
-                    f"El comando del smoke check devolvio error tras {smoke_attempts} intentos.",
+                    f"El comando del smoke check devolvio error tras {svc_attempts} intentos.",
                 )
     else:
         findings.append("El stack no esta activo; usa `--auto-up` o levanta Compose antes de integrar.")
@@ -640,6 +762,13 @@ def command_ci_integration(
     payload = {
         "generated_at": utc_now(),
         "profile": args.profile,
+        "contract": {
+            "ci_clean_profile": integration_profile_is_ci_clean(profile),
+            "strict_preflight": strict_preflight,
+            "preflight_relaxed": preflight_relaxed,
+            "bootstrap_runtime": bootstrap_runtime,
+            "service_overrides_keys": sorted(service_overrides.keys()),
+        },
         "checks": [
             {"status": status, "category": category, "name": name, "detail": detail}
             for status, category, name, detail in checks

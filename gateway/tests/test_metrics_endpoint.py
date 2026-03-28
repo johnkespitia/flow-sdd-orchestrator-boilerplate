@@ -58,6 +58,7 @@ def test_metrics_endpoint_returns_required_fields(monkeypatch) -> None:  # type:
         assert "stage_latency" in body
         assert "retries" in body
         assert "dlq_size" in body
+        assert "gateway_intent_metrics" in body
 
 
 def test_collect_workflow_metrics_directly() -> None:

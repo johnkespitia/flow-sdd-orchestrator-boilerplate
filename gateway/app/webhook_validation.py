@@ -8,7 +8,7 @@ def validate_github_payload(event: str, payload: Any) -> tuple[bool, str, str]:
         return False, "INVALID_JSON", "GitHub payload must be a JSON object."
     if not isinstance(event, str) or not event.strip():
         return False, "MISSING_EVENT", "Missing x-github-event header."
-    if event not in {"issues", "issue_comment"}:
+    if event not in {"issues", "issue_comment", "pull_request"}:
         return False, "UNSUPPORTED_EVENT", f"Unsupported GitHub event: {event}"
     if "repository" not in payload or not isinstance(payload.get("repository"), dict):
         return False, "MISSING_REPOSITORY", "Missing repository field."
@@ -22,6 +22,11 @@ def validate_github_payload(event: str, payload: Any) -> tuple[bool, str, str]:
             return False, "MISSING_COMMENT", "Missing comment field."
         if "issue" not in payload or not isinstance(payload.get("issue"), dict):
             return False, "MISSING_ISSUE", "Missing issue field."
+    if event == "pull_request":
+        if "action" not in payload:
+            return False, "MISSING_ACTION", "Missing action field."
+        if "pull_request" not in payload or not isinstance(payload.get("pull_request"), dict):
+            return False, "MISSING_PULL_REQUEST", "Missing pull_request field."
     return True, "", ""
 
 

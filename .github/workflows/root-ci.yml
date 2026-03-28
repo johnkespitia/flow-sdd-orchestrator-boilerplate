@@ -462,8 +462,8 @@ jobs:
       - name: Start stack
         run: python3 ./flow stack up
 
-      - name: Integration smoke
-        run: python3 ./flow ci integration --profile smoke
+      - name: Integration smoke (smoke:ci-clean — bloqueante)
+        run: python3 ./flow ci integration --profile smoke:ci-clean --auto-up --json
 
       - name: Upload integration reports
         uses: actions/upload-artifact@v4

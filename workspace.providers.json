@@ -43,8 +43,19 @@
       }
     }
   },
+  "gateway": {
+    "jira": {
+      "acceptance_criteria_field": "customfield_softos_acceptance"
+    }
+  },
   "feedback": {
     "default_provider": "local-log",
+    "retry_policy": {
+      "max_attempts": 4,
+      "initial_delay_s": 0.5,
+      "max_delay_s": 8.0,
+      "backoff_multiplier": 2.0
+    },
     "providers": {
       "local-log": {
         "enabled": true,

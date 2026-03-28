@@ -5,7 +5,10 @@ import argparse
 import sqlite3
 from pathlib import Path
 
-import psycopg2
+try:
+    import psycopg2
+except Exception:  # pragma: no cover - optional for sqlite-only runs
+    psycopg2 = None  # type: ignore[assignment]
 
 
 TABLES = [
@@ -52,6 +55,8 @@ def main() -> int:
         return 0 if ok else 1
 
     if target_url.lower().startswith("postgresql://") or target_url.lower().startswith("postgres://"):
+        if psycopg2 is None:
+            raise SystemExit("Postgres backend requires psycopg2 to be installed.")
         conn = psycopg2.connect(target_url)
         try:
             with conn.cursor() as cur:
@@ -72,4 +77,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

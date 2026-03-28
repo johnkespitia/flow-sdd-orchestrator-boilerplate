@@ -251,6 +251,62 @@ class TaskStore:
             )
             connection.commit()
 
+    def aggregate_intent_provider_metrics(self, *, limit_rows: int = 8000) -> dict[str, Any]:
+        """T14: latencia y tasa de error agregadas por (source, intent)."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT source, intent, status, exit_code, created_at, finished_at
+                FROM tasks
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit_rows,),
+            ).fetchall()
+        buckets: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            src = str(row["source"])
+            intent = str(row["intent"])
+            key = f"{src}|{intent}"
+            b = buckets.setdefault(
+                key,
+                {"source": src, "intent": intent, "count": 0, "failures": 0, "latencies": []},
+            )
+            b["count"] += 1
+            st = str(row["status"])
+            ec = row["exit_code"]
+            if st.startswith("failed") or (ec is not None and int(ec) != 0):
+                b["failures"] += 1
+            fin = row["finished_at"]
+            cre = row["created_at"]
+            if fin and cre:
+                try:
+                    a = datetime.fromisoformat(str(cre).replace("Z", "+00:00"))
+                    b_ = datetime.fromisoformat(str(fin).replace("Z", "+00:00"))
+                    b["latencies"].append(max(0.0, (b_ - a).total_seconds()))
+                except Exception:
+                    pass
+        series: list[dict[str, Any]] = []
+        for b in buckets.values():
+            lat = b["latencies"]
+            p95 = 0.0
+            if lat:
+                s = sorted(lat)
+                p95 = s[min(len(s) - 1, int(0.95 * (len(s) - 1)))]
+            avg = sum(lat) / len(lat) if lat else 0.0
+            fail_rate = b["failures"] / b["count"] if b["count"] else 0.0
+            series.append(
+                {
+                    "source": b["source"],
+                    "intent": b["intent"],
+                    "samples": b["count"],
+                    "failure_rate": round(fail_rate, 4),
+                    "avg_latency_seconds": round(avg, 3),
+                    "p95_latency_seconds": round(p95, 3),
+                }
+            )
+        return {"by_intent_provider": sorted(series, key=lambda x: (x["source"], x["intent"]))}
+
     def enqueue(
         self,
         *,
@@ -280,6 +336,8 @@ class TaskStore:
         ).replace(microsecond=0).isoformat()
 
         with self._connect() as connection:
+            if isinstance(connection, sqlite3.Connection):
+                connection.execute("BEGIN IMMEDIATE")
             # Dedupe semantico basico: mismo source+intent+payload_json dentro de ventana temporal
             duplicate = connection.execute(
                 """
@@ -603,6 +661,19 @@ class TaskStore:
         if row is None:
             raise KeyError(task_id)
         return self._inflate(row, timeline_rows=timeline_rows, event_rows=event_rows)
+
+    def recent_tasks(self, *, limit: int = 40) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT task_id, source, intent, status, created_at, finished_at
+                FROM tasks
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def _inflate(
         self,

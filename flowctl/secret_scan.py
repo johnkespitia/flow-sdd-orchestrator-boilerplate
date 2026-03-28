@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Callable
@@ -69,7 +70,14 @@ def secret_value_looks_placeholder(value: str) -> bool:
     if normalized.startswith("${") or normalized.startswith("op://") or normalized.startswith("sops://"):
         return True
     placeholders = ("example", "sample", "changeme", "replace", "dummy", "placeholder", "fake", "test")
-    return any(token in lower for token in placeholders)
+    if any(token in lower for token in placeholders):
+        return True
+    extra = os.environ.get("FLOW_SECRET_SCAN_EXTRA_PLACEHOLDER_SUBSTRINGS", "")
+    for token in extra.split(","):
+        t = token.strip().lower()
+        if t and t in lower:
+            return True
+    return False
 
 
 def _line_for_offset(text: str, offset: int) -> str:

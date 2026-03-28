@@ -5,7 +5,10 @@ import argparse
 import sqlite3
 from pathlib import Path
 
-import psycopg2
+try:
+    import psycopg2
+except Exception:  # pragma: no cover - optional for sqlite-only runs
+    psycopg2 = None  # type: ignore[assignment]
 
 
 TABLES = [
@@ -113,6 +116,8 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.postgres_url and args.sqlite_path:
+        if psycopg2 is None:
+            raise SystemExit("Postgres rollback drill requires psycopg2 to be installed.")
         sqlite_path = Path(args.sqlite_path).resolve()
         sqlite_path.parent.mkdir(parents=True, exist_ok=True)
         pg_conn = psycopg2.connect(args.postgres_url)
@@ -156,4 +161,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

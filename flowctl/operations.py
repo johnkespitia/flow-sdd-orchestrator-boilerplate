@@ -207,6 +207,118 @@ def evaluate_sla_alerts(
     }
 
 
+def collect_gateway_sqlite_task_metrics(*, db_path: Path) -> dict[str, object]:
+    """T14: métricas agregadas leyendo la DB SQLite del gateway (sin importar gateway)."""
+    import sqlite3
+
+    if not db_path.is_file():
+        return {"available": False, "reason": "database_missing"}
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT source, intent, status, exit_code, created_at, finished_at
+            FROM tasks
+            ORDER BY created_at DESC
+            LIMIT 8000
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+    buckets: dict[str, dict[str, object]] = {}
+    for row in rows:
+        src = str(row["source"])
+        intent = str(row["intent"])
+        key = f"{src}|{intent}"
+        b = buckets.setdefault(
+            key,
+            {"source": src, "intent": intent, "count": 0, "failures": 0, "latencies": []},
+        )
+        b["count"] = int(b["count"]) + 1  # type: ignore[arg-type]
+        st = str(row["status"])
+        ec = row["exit_code"]
+        if st.startswith("failed") or (ec is not None and int(ec) != 0):
+            b["failures"] = int(b["failures"]) + 1  # type: ignore[arg-type]
+        fin = row["finished_at"]
+        cre = row["created_at"]
+        if fin and cre:
+            try:
+                a = _utcparse(str(cre))
+                b_ = _utcparse(str(fin))
+                if a and b_:
+                    b["latencies"].append(max(0.0, (b_ - a).total_seconds()))  # type: ignore[index]
+            except Exception:
+                pass
+    series: list[dict[str, object]] = []
+    for b in buckets.values():
+        lat = b["latencies"]  # type: ignore[assignment]
+        p95 = 0.0
+        if lat:
+            s = sorted(lat)
+            p95 = s[min(len(s) - 1, int(0.95 * (len(s) - 1)))]
+        avg = sum(lat) / len(lat) if lat else 0.0  # type: ignore[arg-type]
+        fail_rate = (b["failures"] / b["count"]) if b["count"] else 0.0  # type: ignore[operator]
+        series.append(
+            {
+                "source": b["source"],
+                "intent": b["intent"],
+                "samples": b["count"],
+                "failure_rate": round(float(fail_rate), 4),
+                "avg_latency_seconds": round(float(avg), 3),
+                "p95_latency_seconds": round(float(p95), 3),
+            }
+        )
+    return {
+        "available": True,
+        "by_intent_provider": sorted(series, key=lambda x: (str(x["source"]), str(x["intent"]))),
+    }
+
+
+def evaluate_gateway_task_processing_sla(
+    *,
+    db_path: Path,
+    utc_now: Callable[[], str],
+    p95_latency_threshold_seconds: float = 3600.0,
+    failure_rate_threshold: float = 0.25,
+) -> dict[str, object]:
+    """T22: alertas simples sobre colas gateway (latencia p95 y tasa de fallo)."""
+    metrics = collect_gateway_sqlite_task_metrics(db_path=db_path)
+    if not metrics.get("available"):
+        return {"generated_at": utc_now(), "alerts": [], "reason": "no_gateway_db"}
+    alerts: list[dict[str, object]] = []
+    now = utc_now()
+    for item in metrics.get("by_intent_provider", []) or []:
+        if not isinstance(item, dict):
+            continue
+        p95 = float(item.get("p95_latency_seconds", 0.0) or 0.0)
+        fr = float(item.get("failure_rate", 0.0) or 0.0)
+        key = f"{item.get('source')}|{item.get('intent')}"
+        if p95 > p95_latency_threshold_seconds:
+            alerts.append(
+                {
+                    "kind": "gateway_latency",
+                    "key": key,
+                    "p95_latency_seconds": p95,
+                    "threshold": p95_latency_threshold_seconds,
+                    "severity": "critical" if p95 > p95_latency_threshold_seconds * 2 else "warning",
+                    "timestamp": now,
+                }
+            )
+        if fr > failure_rate_threshold:
+            alerts.append(
+                {
+                    "kind": "gateway_failure_rate",
+                    "key": key,
+                    "failure_rate": fr,
+                    "threshold": failure_rate_threshold,
+                    "severity": "critical" if fr > 0.5 else "warning",
+                    "timestamp": now,
+                }
+            )
+    return {"generated_at": now, "alerts": alerts, "metrics": metrics}
+
+
 def append_decision(
     *,
     root: Path,

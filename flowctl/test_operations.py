@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,6 +65,119 @@ class OperationsMetricsTests(unittest.TestCase):
             (reports / "demo-workflow-run.json").write_text(json.dumps(payload, ensure_ascii=True), encoding="utf-8")
             alerts = operations.evaluate_sla_alerts(root=root, utc_now=self._now, thresholds={"ci_repo": 600.0})
             self.assertGreater(len(alerts["alerts"]), 0)
+
+    def test_collect_gateway_sqlite_task_metrics_by_intent_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "gw.db"
+            conn = sqlite3.connect(db)
+            conn.execute(
+                """
+                CREATE TABLE tasks (
+                    task_id TEXT PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    intent TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    command_json TEXT NOT NULL,
+                    response_target_json TEXT,
+                    status TEXT NOT NULL,
+                    stdout TEXT,
+                    stderr TEXT,
+                    parsed_output_json TEXT,
+                    exit_code INTEGER,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            for i in range(3):
+                conn.execute(
+                    """
+                    INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        f"t{i}",
+                        "github",
+                        "workflow.intake",
+                        "{}",
+                        "[]",
+                        None,
+                        "succeeded",
+                        "",
+                        "",
+                        None,
+                        0,
+                        "2026-01-01T00:00:00+00:00",
+                        None,
+                        "2026-01-01T00:00:10+00:00",
+                        "2026-01-01T00:00:10+00:00",
+                    ),
+                )
+            conn.commit()
+            conn.close()
+            m = operations.collect_gateway_sqlite_task_metrics(db_path=db)
+            self.assertTrue(m.get("available"))
+            rows = m.get("by_intent_provider") or []
+            self.assertTrue(any(r.get("source") == "github" and r.get("intent") == "workflow.intake" for r in rows))
+
+    def test_evaluate_gateway_task_processing_sla_failure_rate_alert(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "gw.db"
+            conn = sqlite3.connect(db)
+            conn.execute(
+                """
+                CREATE TABLE tasks (
+                    task_id TEXT PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    intent TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    command_json TEXT NOT NULL,
+                    response_target_json TEXT,
+                    status TEXT NOT NULL,
+                    stdout TEXT,
+                    stderr TEXT,
+                    parsed_output_json TEXT,
+                    exit_code INTEGER,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            for i in range(4):
+                conn.execute(
+                    """
+                    INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        f"f{i}",
+                        "api",
+                        "spec.approve",
+                        "{}",
+                        "[]",
+                        None,
+                        "failed",
+                        "",
+                        "",
+                        None,
+                        1,
+                        "2026-01-01T00:00:00+00:00",
+                        None,
+                        "2026-01-01T00:00:01+00:00",
+                        "2026-01-01T00:00:01+00:00",
+                    ),
+                )
+            conn.commit()
+            conn.close()
+            out = operations.evaluate_gateway_task_processing_sla(
+                db_path=db,
+                utc_now=self._now,
+                failure_rate_threshold=0.25,
+            )
+            kinds = {a.get("kind") for a in out.get("alerts", []) if isinstance(a, dict)}
+            self.assertIn("gateway_failure_rate", kinds)
 
 
 class OperationsDecisionLogTests(unittest.TestCase):
