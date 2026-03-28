@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import shlex
 from pathlib import Path
@@ -11,6 +12,74 @@ from .repos import resolve_repo_references
 
 class IntentError(ValueError):
     pass
+
+
+_APPROVE_PREFIXES = ("approve ", "/approve ", "lgtm ")
+_REVIEW_PREFIXES = ("review ", "/review ")
+
+
+def parse_simple_approval_comment(body: str, *, source: str, reply_to: dict[str, Any] | None) -> IntentRequest | None:
+    """
+    Comandos cortos en una línea (GitHub/Jira comentarios):
+    - approve <slug> | /approve <slug> | lgtm <slug>
+    - review <slug> | /review <slug>
+    """
+    line = (body or "").strip().split("\n", 1)[0].strip()
+    if not line:
+        return None
+    lowered = line.lower()
+
+    for prefix in _APPROVE_PREFIXES:
+        if lowered.startswith(prefix):
+            raw = line[len(prefix) :].strip()
+            if not raw:
+                return None
+            slug = slugify(raw.split()[0] if raw.split() else raw)
+            if not slug:
+                return None
+            return IntentRequest(
+                source=source,
+                intent="spec.approve",
+                payload={"slug": slug},
+                reply_to=reply_to,
+            )
+
+    for prefix in _REVIEW_PREFIXES:
+        if lowered.startswith(prefix):
+            raw = line[len(prefix) :].strip()
+            if not raw:
+                return None
+            slug = slugify(raw.split()[0] if raw.split() else raw)
+            if not slug:
+                return None
+            return IntentRequest(
+                source=source,
+                intent="spec.review",
+                payload={"slug": slug},
+                reply_to=reply_to,
+            )
+
+    return None
+
+
+def extract_github_acceptance_from_body(body: str) -> list[str]:
+    """Extrae viñetas bajo '## Acceptance' o '## Criterios de aceptacion' (mínimo)."""
+    text = str(body or "")
+    lower = text.lower()
+    markers = ("## acceptance", "## criterios de aceptacion", "## acceptance criteria")
+    start = -1
+    for m in markers:
+        idx = lower.find(m)
+        if idx != -1:
+            start = idx + len(m)
+            break
+    if start == -1:
+        return []
+    rest = text[start:]
+    # hasta el próximo ##
+    if "##" in rest:
+        rest = rest.split("##", 1)[0]
+    return _normalize_acceptance_criteria(rest)
 
 
 def slugify(value: str) -> str:
@@ -190,6 +259,10 @@ def build_flow_command(intent: str, payload: dict[str, Any], *, workspace_root: 
 
 
 def parse_text_command(text: str, *, source: str, reply_to: dict[str, Any] | None = None) -> IntentRequest:
+    simple = parse_simple_approval_comment(text, source=source, reply_to=reply_to)
+    if simple is not None:
+        return simple
+
     tokens = shlex.split(text)
     if not tokens:
         raise IntentError("No se recibieron tokens para el intent.")
@@ -458,20 +531,25 @@ def intent_from_github(event: str, payload: dict[str, Any]) -> IntentRequest | N
             "issue_number": issue.get("number"),
             "repository": repository_full_name,
         }
-        description = _normalize_description(description_override) or _normalize_description(issue.get("body", ""))
+        body_text = str(issue.get("body", ""))
+        description = _normalize_description(description_override) or _normalize_description(body_text)
+        acceptance_from_body = extract_github_acceptance_from_body(body_text)
+        payload_issue: dict[str, Any] = {
+            "slug": slug,
+            "title": title,
+            "repos": repos,
+            "required_runtimes": runtimes,
+            "required_services": services,
+            "required_capabilities": capabilities,
+            "depends_on": depends_on,
+            "description": description,
+        }
+        if acceptance_from_body:
+            payload_issue["acceptance_criteria"] = acceptance_from_body
         return IntentRequest(
             source="github",
             intent="workflow.intake",
-            payload={
-                "slug": slug,
-                "title": title,
-                "repos": repos,
-                "required_runtimes": runtimes,
-                "required_services": services,
-                "required_capabilities": capabilities,
-                "depends_on": depends_on,
-                "description": description,
-            },
+            payload=payload_issue,
             reply_to=reply_to,
         )
 
@@ -490,6 +568,10 @@ def intent_from_github(event: str, payload: dict[str, Any]) -> IntentRequest | N
 
         if body.startswith("/flow "):
             return parse_text_command(body[len("/flow ") :], source="github", reply_to=reply_to)
+
+        simple = parse_simple_approval_comment(body, source="github", reply_to=reply_to)
+        if simple is not None:
+            return simple
 
         normalized = body.strip()
         lowered = normalized.lower()
@@ -540,6 +622,23 @@ def intent_from_github(event: str, payload: dict[str, Any]) -> IntentRequest | N
 
 def intent_from_jira(payload: dict[str, Any]) -> IntentRequest | None:
     explicit_intent = str(payload.get("intent", "")).strip()
+    comment = payload.get("comment")
+    if not explicit_intent and isinstance(comment, dict):
+        cbody = str(comment.get("body", "")).strip()
+        if cbody:
+            issue = payload.get("issue")
+            issue_key = ""
+            if isinstance(issue, dict):
+                issue_key = str(issue.get("key", "")).strip()
+            reply_to = {
+                "kind": "jira",
+                "provider": "jira-comment",
+                "issue_key": issue_key,
+            }
+            simple = parse_simple_approval_comment(cbody, source="jira", reply_to=reply_to)
+            if simple is not None:
+                return simple
+
     if explicit_intent:
         reply_to = payload.get("reply_to")
         if reply_to is not None and not isinstance(reply_to, dict):
@@ -571,6 +670,13 @@ def intent_from_jira(payload: dict[str, Any]) -> IntentRequest | None:
     acceptance_criteria = _normalize_acceptance_criteria(
         fields.get("acceptance_criteria", fields.get("acceptanceCriteria"))
     )
+    custom_ac_field = str(os.getenv("SOFTOS_JIRA_ACCEPTANCE_FIELD", "") or "").strip()
+    if custom_ac_field and isinstance(fields.get(custom_ac_field), (str, list)):
+        acceptance_criteria = list(
+            dict.fromkeys(
+                acceptance_criteria + _normalize_acceptance_criteria(fields[custom_ac_field])
+            )
+        )
     slug = slugify(f"{issue_key}-{title}") if issue_key else slugify(title)
     payload_out: dict[str, Any] = {
         "slug": slug,

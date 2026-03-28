@@ -28,6 +28,7 @@ from .security import verify_bearer_token, verify_github_signature, verify_slack
 from .store import SpecRegistryError, TaskStore
 from .worker import TaskWorker
 from flowctl.operations import collect_workflow_metrics
+from .approval_policy import WEBHOOK_ALLOWED_INTENTS, validate_api_intent_for_policy
 from .auth import require_api_auth
 from .webhook_validation import validate_github_payload, validate_jira_payload, validate_slack_command
 from .rate_limit import SlidingWindowRateLimiter
@@ -95,6 +96,13 @@ app = FastAPI(title="SoftOS Gateway", version="0.1.0", lifespan=lifespan)
 
 def enqueue_intent(app_request: Request, intent_request: IntentRequest) -> dict[str, Any]:
     settings: Settings = app_request.app.state.settings
+    ok, code, msg = validate_api_intent_for_policy(
+        intent_request,
+        enforce_approver=bool(getattr(settings, "enforce_approver_on_spec_approve_api", False)),
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail={"code": code or "POLICY_VIOLATION", "message": msg or "Policy rejected intent."})
+
     store: TaskStore = app_request.app.state.store
     command = build_flow_command(
         intent_request.intent,
@@ -110,10 +118,13 @@ def enqueue_intent(app_request: Request, intent_request: IntentRequest) -> dict[
     )
 
 
-def _require_workflow_intake(intent_request: IntentRequest, *, source: str, store: TaskStore, raw_payload: dict[str, Any]) -> None:
-    if intent_request.intent == "workflow.intake":
+def _require_allowed_webhook_intent(intent_request: IntentRequest, *, source: str, store: TaskStore, raw_payload: dict[str, Any]) -> None:
+    if intent_request.intent in WEBHOOK_ALLOWED_INTENTS:
         return
-    reason = f"Webhook intent not allowed: `{intent_request.intent}`. Only `workflow.intake` is accepted."
+    reason = (
+        f"Webhook intent not allowed: `{intent_request.intent}`. "
+        f"Permitidos: {', '.join(sorted(WEBHOOK_ALLOWED_INTENTS))}."
+    )
     store.record_intake_failure(source=source, reason=reason, payload=raw_payload)
     raise HTTPException(status_code=400, detail={"code": "WEBHOOK_INTENT_NOT_ALLOWED", "message": reason})
 
@@ -252,7 +263,7 @@ async def slack_commands(request: Request) -> PlainTextResponse:
                 "channel_id": str(form.get("channel_id", "")).strip(),
             },
         )
-        _require_workflow_intake(intent_request, source="slack", store=request.app.state.store, raw_payload={"text": text})
+        _require_allowed_webhook_intent(intent_request, source="slack", store=request.app.state.store, raw_payload={"text": text})
         task = enqueue_intent(request, intent_request)
     except IntentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -289,7 +300,14 @@ async def github_webhook(request: Request) -> JSONResponse:
             payload={"event": event},
         )
         return JSONResponse({"accepted": False, "reason": "event ignored"}, status_code=200)
-    _require_workflow_intake(intent_request, source="github", store=request.app.state.store, raw_payload=payload)
+    _require_allowed_webhook_intent(intent_request, source="github", store=request.app.state.store, raw_payload=payload)
+    if intent_request.intent != "workflow.intake":
+        try:
+            task = enqueue_intent(request, intent_request)
+        except IntentError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse(_accepted_payload(task).model_dump(), status_code=202)
+
     exists, slug = _intake_spec_exists(settings, intent_request)
     if exists:
         request.app.state.store.record_intake_failure(
@@ -333,7 +351,14 @@ async def jira_webhook(request: Request) -> JSONResponse:
             payload=payload if isinstance(payload, dict) else {},
         )
         return JSONResponse({"accepted": False, "reason": "event ignored"}, status_code=200)
-    _require_workflow_intake(intent_request, source="jira", store=request.app.state.store, raw_payload=payload)
+    _require_allowed_webhook_intent(intent_request, source="jira", store=request.app.state.store, raw_payload=payload)
+
+    if intent_request.intent != "workflow.intake":
+        try:
+            task = enqueue_intent(request, intent_request)
+        except IntentError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse(_accepted_payload(task).model_dump(), status_code=202)
 
     try:
         task = enqueue_intent(request, intent_request)

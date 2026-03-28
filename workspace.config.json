@@ -16,6 +16,8 @@
       "target_roots": [
         "AGENTS.md",
         "README.md",
+        "TODO.md",
+        "gateway",
         "flow",
         "templates",
         "specs",

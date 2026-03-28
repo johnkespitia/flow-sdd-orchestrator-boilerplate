@@ -19,6 +19,7 @@ class Settings:
     jira_webhook_token: str | None
     default_feedback_provider: str | None
     worker_poll_interval: float
+    enforce_approver_on_spec_approve_api: bool = False
     database_url: str | None = None
 
     @property
@@ -45,4 +46,8 @@ def load_settings() -> Settings:
         jira_webhook_token=secrets.get("SOFTOS_JIRA_WEBHOOK_TOKEN"),
         default_feedback_provider=os.getenv("SOFTOS_DEFAULT_FEEDBACK_PROVIDER") or None,
         worker_poll_interval=float(os.getenv("SOFTOS_GATEWAY_POLL_INTERVAL", "0.5")),
+        enforce_approver_on_spec_approve_api=str(os.getenv("SOFTOS_GATEWAY_ENFORCE_APPROVER_ON_SPEC_APPROVE", "") or "")
+        .strip()
+        .lower()
+        in ("1", "true", "yes"),
     )
