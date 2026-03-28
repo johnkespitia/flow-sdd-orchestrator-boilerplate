@@ -74,6 +74,40 @@ Eso genera un workspace nuevo:
 - con un chasis root-only limpio
 - sin arrastrar estado operativo previo
 
+### Perfiles de bootstrap: `master` y `slave`
+
+`bootstrap_workspace.py` soporta perfiles para copiar solo lo necesario:
+
+- `master`: instala control-plane completo (incluye `gateway/` y operación central).
+- `slave`: instala runner de desarrollo (excluye `gateway/`) y configura conexión a gateway remoto.
+
+Ejemplo `master`:
+
+```bash
+python3 scripts/bootstrap_workspace.py /ruta/master \
+  --project-name "SoftOS Master" \
+  --root-repo softos-master \
+  --profile master
+```
+
+Ejemplo `slave`:
+
+```bash
+python3 scripts/bootstrap_workspace.py /ruta/slave \
+  --project-name "SoftOS Dev Runner" \
+  --root-repo softos-dev-runner \
+  --profile slave \
+  --gateway-url https://gateway.example.internal
+```
+
+Si en `slave` no pasas `--gateway-url`, el script la pide por prompt. Por defecto valida `GET /healthz`
+del gateway remoto (puedes omitir con `--skip-gateway-check`).
+
+En `slave`, además, persiste:
+
+- `workspace.config.json` con `gateway.connection = {"mode":"remote","base_url":"..."}`
+- `.env.gateway` con `SOFTOS_GATEWAY_URL` y placeholder de `SOFTOS_GATEWAY_API_TOKEN`
+
 ## Después de crear tu workspace
 
 1. Abre el root en devcontainer

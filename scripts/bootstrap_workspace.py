@@ -7,11 +7,15 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from urllib.error import URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_FILE = ROOT / "workspace.config.json"
 TEXT_EXTENSIONS = {".md", ".json", ".yml", ".yaml", ".txt"}
+BOOTSTRAP_PROFILES = ("master", "slave")
 
 
 def load_config(path: Path) -> dict[str, object]:
@@ -31,7 +35,7 @@ def ensure_clean_destination(destination: Path, force: bool) -> None:
     destination.mkdir(parents=True, exist_ok=True)
 
 
-def copy_template(source_config: dict[str, object], destination: Path) -> None:
+def copy_template(source_config: dict[str, object], destination: Path, *, profile: str) -> None:
     excluded_repo_paths = {
         path
         for repo, path in source_repo_paths(source_config).items()
@@ -46,6 +50,9 @@ def copy_template(source_config: dict[str, object], destination: Path) -> None:
             for legacy_path in ("backend", "frontend"):
                 if legacy_path not in excluded_repo_paths:
                     ignored.add(legacy_path)
+            if profile == "slave":
+                # En modo slave no levantamos control-plane central.
+                ignored.add("gateway")
         if current.name == ".flow":
             ignored.update({"state", "plans", "reports", "runs"})
         if current.name == "data" and current.parent.name == "gateway":
@@ -236,7 +243,88 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--force", action="store_true", help="Permitir escribir sobre un directorio existente.")
     parser.add_argument("--git-init", action="store_true", help="Inicializar Git y crear un primer commit.")
+    parser.add_argument(
+        "--profile",
+        choices=BOOTSTRAP_PROFILES,
+        default="master",
+        help="Perfil de bootstrap: `master` (control-plane con gateway) o `slave` (runner conectado a gateway remoto).",
+    )
+    parser.add_argument(
+        "--gateway-url",
+        default="",
+        help="Solo profile=slave. URL base del gateway master (ej: https://gateway.example.com).",
+    )
+    parser.add_argument(
+        "--gateway-token",
+        default="",
+        help="Solo profile=slave. Token opcional para autenticación hacia gateway master.",
+    )
+    parser.add_argument(
+        "--skip-gateway-check",
+        action="store_true",
+        help="Solo profile=slave. Omite validación HTTP /healthz del gateway remoto.",
+    )
     return parser.parse_args()
+
+
+def _normalize_gateway_url(raw: str) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        return value
+    parsed = urlparse(value)
+    if not parsed.scheme:
+        value = f"http://{value}"
+        parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"}:
+        raise SystemExit("Gateway URL invalida. Usa esquema http:// o https://.")
+    if not parsed.netloc:
+        raise SystemExit("Gateway URL invalida. Falta host.")
+    return value.rstrip("/")
+
+
+def _prompt_gateway_url() -> str:
+    print("")
+    print("[slave setup] Configuracion de gateway remoto")
+    print("Ingresa la URL base del gateway master (ej: https://gateway.example.internal)")
+    raw = input("Gateway URL: ").strip()
+    return _normalize_gateway_url(raw)
+
+
+def _check_gateway_health(base_url: str, timeout_seconds: int = 5) -> None:
+    health_url = f"{base_url}/healthz"
+    request = Request(health_url, method="GET")
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310 - URL provista por operador
+            if int(getattr(response, "status", 0)) != 200:
+                raise SystemExit(f"No se pudo validar gateway ({health_url}): status {getattr(response, 'status', 'n/a')}")
+    except URLError as exc:
+        raise SystemExit(f"No se pudo conectar a {health_url}: {exc}") from exc
+
+
+def _persist_slave_gateway_connection(destination: Path, gateway_url: str, gateway_token: str) -> None:
+    config_path = destination / "workspace.config.json"
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    gateway_cfg = payload.get("gateway")
+    if not isinstance(gateway_cfg, dict):
+        gateway_cfg = {}
+    gateway_cfg["connection"] = {
+        "mode": "remote",
+        "base_url": gateway_url,
+    }
+    payload["gateway"] = gateway_cfg
+    config_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+    env_gateway = destination / ".env.gateway"
+    lines = [
+        "# Generado por scripts/bootstrap_workspace.py (profile=slave)",
+        f"SOFTOS_GATEWAY_URL={gateway_url}",
+    ]
+    token = gateway_token.strip()
+    if token:
+        lines.append(f"SOFTOS_GATEWAY_API_TOKEN={token}")
+    else:
+        lines.append("# SOFTOS_GATEWAY_API_TOKEN=<set-me>")
+    env_gateway.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main() -> int:
@@ -245,7 +333,7 @@ def main() -> int:
     source_config = load_config(CONFIG_FILE)
 
     ensure_clean_destination(destination, args.force)
-    copy_template(source_config, destination)
+    copy_template(source_config, destination, profile=args.profile)
     reset_flow_state(destination)
     remove_repo_specific_files(destination)
     rewrite_workspace_config(
@@ -261,6 +349,14 @@ def main() -> int:
         project_name=args.project_name,
         root_repo=args.root_repo,
     )
+
+    if args.profile == "slave":
+        gateway_url = _normalize_gateway_url(args.gateway_url)
+        if not gateway_url:
+            gateway_url = _prompt_gateway_url()
+        if not args.skip_gateway_check:
+            _check_gateway_health(gateway_url)
+        _persist_slave_gateway_connection(destination, gateway_url, args.gateway_token)
 
     if args.git_init:
         git_init(destination)
