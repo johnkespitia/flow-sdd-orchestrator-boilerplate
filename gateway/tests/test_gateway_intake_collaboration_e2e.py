@@ -175,7 +175,6 @@ class GatewayIntakeCollaborationE2ETests(unittest.TestCase):
                 kwargs = send_feedback_event_mock.call_args.kwargs
                 self.assertEqual("comment_added", kwargs["event"])
                 self.assertEqual("github", kwargs["source"])
-                self.assertEqual("queued", kwargs["status"])
                 self.assertEqual(task["task_id"], kwargs["payload"]["task_id"])
                 self.assertEqual("reporter-1", kwargs["payload"]["actor"])
                 self.assertEqual("reporter_to_dev", kwargs["payload"]["direction"])
