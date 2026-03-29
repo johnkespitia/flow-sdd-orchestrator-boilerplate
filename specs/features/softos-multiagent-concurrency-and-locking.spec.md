@@ -2,7 +2,7 @@
 schema_version: 2
 name: SoftOS Multiagent Concurrency And Locking
 description: Habilitar ejecución paralela segura con workers, scheduler por capacidad, DAG de slices y locks semánticos
-status: approved
+status: released
 owner: platform
 depends_on:
   - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
