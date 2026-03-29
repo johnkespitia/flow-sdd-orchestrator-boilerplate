@@ -84,9 +84,51 @@ import yaml
 
 root = Path(".").resolve()
 workspace_config = json.loads((root / "workspace.config.json").read_text(encoding="utf-8"))
-compose_path = root / ".devcontainer" / "docker-compose.yml"
-compose_payload = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
-services = compose_payload.get("services", {}) if isinstance(compose_payload, dict) else {}
+
+compose_candidates = (
+    "docker-compose.yml",
+    "docker-compose.yaml",
+    "compose.yml",
+    "compose.yaml",
+    ".devcontainer/docker-compose.yml",
+    ".devcontainer/docker-compose.yaml",
+)
+
+def resolve_compose_files() -> list[Path]:
+    files: list[Path] = [root / ".devcontainer" / "docker-compose.yml"]
+    repos = workspace_config.get("repos", {})
+    if not isinstance(repos, dict):
+        return [path for path in files if path.is_file()]
+    for repo_cfg in repos.values():
+        if not isinstance(repo_cfg, dict):
+            continue
+        repo_path_text = str(repo_cfg.get("path", ".")).strip()
+        if not repo_path_text or repo_path_text == ".":
+            continue
+        explicit = str(repo_cfg.get("compose_file", "")).strip()
+        candidate = root / explicit if explicit else None
+        if candidate is None or not candidate.is_file():
+            repo_root = root / repo_path_text
+            candidate = None
+            for relative in compose_candidates:
+                probe = repo_root / relative
+                if probe.is_file():
+                    candidate = probe
+                    break
+        if candidate is None or not candidate.is_file():
+            continue
+        resolved = candidate.resolve()
+        if resolved not in [item.resolve() for item in files]:
+            files.append(resolved)
+    return [path for path in files if path.is_file()]
+
+
+services: dict[str, object] = {}
+for compose_path in resolve_compose_files():
+    compose_payload = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
+    compose_services = compose_payload.get("services", {}) if isinstance(compose_payload, dict) else {}
+    if isinstance(compose_services, dict):
+        services.update(compose_services)
 
 errors: list[str] = []
 warnings: list[str] = []
@@ -154,6 +196,8 @@ import re
 from pathlib import Path
 import os
 
+import yaml
+
 root = Path(".").resolve()
 workspace_config = json.loads((root / "workspace.config.json").read_text(encoding="utf-8"))
 repos = workspace_config.get("repos", {})
@@ -164,6 +208,51 @@ if config_path.exists():
 
 errors: list[str] = []
 warnings: list[str] = []
+
+compose_candidates = (
+    "docker-compose.yml",
+    "docker-compose.yaml",
+    "compose.yml",
+    "compose.yaml",
+    ".devcontainer/docker-compose.yml",
+    ".devcontainer/docker-compose.yaml",
+)
+
+def resolve_compose_files() -> list[Path]:
+    files: list[Path] = [root / ".devcontainer" / "docker-compose.yml"]
+    repos = workspace_config.get("repos", {})
+    if not isinstance(repos, dict):
+        return [path for path in files if path.is_file()]
+    for repo_cfg in repos.values():
+        if not isinstance(repo_cfg, dict):
+            continue
+        repo_path_text = str(repo_cfg.get("path", ".")).strip()
+        if not repo_path_text or repo_path_text == ".":
+            continue
+        explicit = str(repo_cfg.get("compose_file", "")).strip()
+        candidate = root / explicit if explicit else None
+        if candidate is None or not candidate.is_file():
+            repo_root = root / repo_path_text
+            candidate = None
+            for relative in compose_candidates:
+                probe = repo_root / relative
+                if probe.is_file():
+                    candidate = probe
+                    break
+        if candidate is None or not candidate.is_file():
+            continue
+        resolved = candidate.resolve()
+        if resolved not in [item.resolve() for item in files]:
+            files.append(resolved)
+    return [path for path in files if path.is_file()]
+
+
+services: dict[str, object] = {}
+for compose_path in resolve_compose_files():
+    compose_payload = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
+    compose_services = compose_payload.get("services", {}) if isinstance(compose_payload, dict) else {}
+    if isinstance(compose_services, dict):
+        services.update(compose_services)
 
 implementation_repos: list[tuple[str, dict]] = [
     (name, cfg) for name, cfg in repos.items()
@@ -193,20 +282,20 @@ for repo_name, repo_cfg in implementation_repos:
     compose_service = str(repo_cfg.get("compose_service", "")).strip()
     if not compose_service:
         continue
-    compose_path = root / ".devcontainer" / "docker-compose.yml"
-    if not compose_path.exists():
+    service_payload = services.get(compose_service)
+    if not isinstance(service_payload, dict):
         continue
-    compose_text = compose_path.read_text(encoding="utf-8", errors="ignore")
     missing = []
-    service_block = re.search(rf"(?ms)^\s*{re.escape(compose_service)}:\s(.*?)(?=^\S|\Z)", compose_text)
-    block_text = service_block.group(1) if service_block else ""
+    environment = service_payload.get("environment")
+    env_map = environment if isinstance(environment, dict) else {}
+    env_list = environment if isinstance(environment, list) else []
     for key in required_env_keys:
         key_name = str(key).strip()
         if not key_name:
             continue
-        if re.search(rf"(?m)^\s*{re.escape(key_name)}\s*:", block_text):
+        if isinstance(env_map, dict) and key_name in env_map:
             continue
-        if re.search(rf"(?m)-\s*{re.escape(key_name)}=", block_text):
+        if isinstance(env_list, list) and any(str(item).startswith(f"{key_name}=") for item in env_list):
             continue
         missing.append(key_name)
     if missing:

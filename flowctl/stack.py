@@ -7,10 +7,56 @@ from pathlib import Path
 from typing import Callable, Optional
 
 
+COMPOSE_FILE_CANDIDATES = (
+    "docker-compose.yml",
+    "docker-compose.yaml",
+    "compose.yml",
+    "compose.yaml",
+    ".devcontainer/docker-compose.yml",
+    ".devcontainer/docker-compose.yaml",
+)
+
+
 def load_compose_text(compose_file: Path) -> str:
     if not compose_file.is_file():
         raise SystemExit(f"Falta {compose_file}.")
     return compose_file.read_text(encoding="utf-8")
+
+
+def find_repo_compose_file(repo_root: Path) -> Optional[Path]:
+    for relative in COMPOSE_FILE_CANDIDATES:
+        candidate = (repo_root / relative).resolve()
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def workspace_compose_files(root_compose_file: Path, workspace_config: dict[str, object]) -> list[Path]:
+    resolved_root_compose = root_compose_file.resolve()
+    workspace_root = resolved_root_compose.parent.parent
+    files: list[Path] = [resolved_root_compose]
+    repos = workspace_config.get("repos", {})
+    if not isinstance(repos, dict):
+        return files
+
+    for repo_cfg in repos.values():
+        if not isinstance(repo_cfg, dict):
+            continue
+        repo_path_text = str(repo_cfg.get("path", ".")).strip()
+        if not repo_path_text or repo_path_text == ".":
+            continue
+
+        explicit_compose = str(repo_cfg.get("compose_file", "")).strip()
+        if explicit_compose:
+            candidate = (workspace_root / explicit_compose).resolve()
+        else:
+            candidate = find_repo_compose_file((workspace_root / repo_path_text).resolve())
+        if candidate is None or not candidate.is_file():
+            continue
+        if candidate in files:
+            continue
+        files.append(candidate)
+    return files
 
 
 def write_compose_text(compose_file: Path, text: str) -> None:
@@ -331,11 +377,13 @@ def detect_compose_context(
     default_project: str,
     *,
     running_inside_workspace: bool,
+    expected_files: Optional[list[Path]] = None,
 ) -> dict[str, object]:
     resolved_compose_file = compose_file.resolve()
+    resolved_expected_files = [path.resolve() for path in expected_files] if expected_files else [resolved_compose_file]
     context: dict[str, object] = {
         "project": default_project,
-        "files": [resolved_compose_file],
+        "files": resolved_expected_files,
         "active": False,
     }
 
@@ -388,17 +436,20 @@ def detect_compose_context(
     return context
 
 
-def compose_base_command(project: str, compose_file: Path) -> list[str]:
-    return [
+def compose_base_command(project: str, compose_files: list[Path]) -> list[str]:
+    if not compose_files:
+        raise SystemExit("No hay archivos docker-compose configurados para el workspace.")
+    command = [
         "docker",
         "compose",
         "-p",
         str(project),
         "--project-directory",
-        str(compose_file.resolve().parent),
-        "-f",
-        str(compose_file.resolve()),
+        str(compose_files[0].resolve().parent),
     ]
+    for compose_file in compose_files:
+        command.extend(["-f", str(compose_file.resolve())])
+    return command
 
 
 def compose_exec_args(

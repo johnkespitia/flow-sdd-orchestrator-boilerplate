@@ -911,6 +911,7 @@ def apply_project_definition(
     repo_placeholder_text,
     resolve_runtime_pack,
     add_service_to_compose,
+    find_repo_compose_file,
     rel: Callable[[Path], str],
 ) -> dict[str, object]:
     repo_name = validate_identifier(str(project.get("name", "")).strip(), "nombre del proyecto")
@@ -954,6 +955,14 @@ def apply_project_definition(
     compose_overrides = project.get("compose_overrides", {})
     if isinstance(compose_config, dict) and isinstance(compose_overrides, dict):
         compose_config = _merge_dict(compose_config, compose_overrides)
+    explicit_compose_file = str(project.get("compose_file", "")).strip()
+    external_compose_file: Path | None = None
+    if explicit_compose_file:
+        candidate = (root / explicit_compose_file).resolve()
+        if candidate.is_file():
+            external_compose_file = candidate
+    if external_compose_file is None:
+        external_compose_file = find_repo_compose_file(destination)
 
     updated_workspace = load_workspace_config()
     repos = updated_workspace["repos"]
@@ -974,6 +983,11 @@ def apply_project_definition(
         "agent_skill_refs": list(runtime_pack["agent_skill_refs"]),
         "test_runner": str(project.get("test_runner") or runtime_pack["test_runner"]),
     }
+    if external_compose_file is not None:
+        try:
+            repos[repo_name]["compose_file"] = external_compose_file.relative_to(root).as_posix()
+        except ValueError:
+            repos[repo_name]["compose_file"] = str(external_compose_file)
     repo_code = str(project.get("repo_code", "")).strip()
     if repo_code:
         repos[repo_name]["code"] = repo_code
@@ -990,7 +1004,7 @@ def apply_project_definition(
         encoding="utf-8",
     )
 
-    if isinstance(compose_config, dict):
+    if external_compose_file is None and isinstance(compose_config, dict):
         add_service_to_compose(
             compose_service,
             repo_path,
@@ -1016,6 +1030,7 @@ def apply_project_definition(
         "path": repo_path,
         "runtime": runtime,
         "compose_service": compose_service,
+        "compose_source": "external" if external_compose_file is not None else "workspace",
         "missing_skill_refs": missing_skill_refs,
     }
 
@@ -1278,6 +1293,7 @@ def command_stack_apply(
     resolve_runtime_pack,
     add_service_to_compose,
     add_standalone_service_to_compose,
+    find_repo_compose_file,
     resolve_capability_pack,
     rel: Callable[[Path], str],
     utc_now: Callable[[], str],
@@ -1347,6 +1363,7 @@ def command_stack_apply(
             repo_placeholder_text=repo_placeholder_text,
             resolve_runtime_pack=resolve_runtime_pack,
             add_service_to_compose=add_service_to_compose,
+            find_repo_compose_file=find_repo_compose_file,
             rel=rel,
         )
         results["projects"].append(result)

@@ -148,7 +148,9 @@ from flowctl.stack import (
     compose_base_command as flow_compose_base_command,
     compose_exec_args as flow_compose_exec_args,
     detect_compose_context as flow_detect_compose_context,
+    find_repo_compose_file as flow_find_repo_compose_file,
     run_compose as flow_run_compose,
+    workspace_compose_files as flow_workspace_compose_files,
     workspace_executable_available as flow_workspace_executable_available,
 )
 from flowctl.skills import (
@@ -1100,22 +1102,28 @@ def infra_hook(action: str) -> Optional[Path]:
 
 
 def detect_compose_context() -> dict[str, object]:
+    expected_files = compose_control_files()
     if not shutil.which("docker"):
         return {
             "project": DEFAULT_COMPOSE_PROJECT,
-            "files": [compose_control_file().resolve()],
+            "files": expected_files,
             "active": False,
         }
     return flow_detect_compose_context(
         compose_control_file(),
         DEFAULT_COMPOSE_PROJECT,
         running_inside_workspace=running_inside_workspace(),
+        expected_files=expected_files,
     )
 
 
 def compose_base_command() -> list[str]:
     context = detect_compose_context()
-    return flow_compose_base_command(str(context["project"]), compose_control_file())
+    files = context.get("files", compose_control_files())
+    return flow_compose_base_command(
+        str(context["project"]),
+        [Path(item).resolve() for item in files],
+    )
 
 
 def tty_enabled() -> bool:
@@ -1139,6 +1147,10 @@ def compose_control_root() -> Path:
 
 def compose_control_file() -> Path:
     return compose_control_root() / ".devcontainer" / "docker-compose.yml"
+
+
+def compose_control_files() -> list[Path]:
+    return flow_workspace_compose_files(compose_control_file(), load_workspace_config())
 
 
 def compose_exec_args(
@@ -1368,6 +1380,7 @@ def command_stack_apply(args: argparse.Namespace) -> int:
         resolve_runtime_pack=resolve_runtime_pack,
         add_service_to_compose=add_service_to_compose,
         add_standalone_service_to_compose=add_standalone_service_to_compose,
+        find_repo_compose_file=flow_find_repo_compose_file,
         resolve_capability_pack=flow_stack_design.resolve_capability_pack,
         rel=rel,
         utc_now=utc_now,
