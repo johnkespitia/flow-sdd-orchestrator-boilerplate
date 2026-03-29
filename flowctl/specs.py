@@ -1051,6 +1051,14 @@ def spec_slug(spec_path: Path) -> str:
     return spec_path.name.replace(".spec.md", "")
 
 
+def _path_is_under(root: Path, candidate: Path) -> bool:
+    try:
+        candidate.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def render_targets(config: SpecConfig, repos: list[str]) -> str:
     lines: list[str] = []
     for repo in repos:
@@ -1081,9 +1089,12 @@ def select_spec_paths(
         if error:
             raise SystemExit(f"No pude resolver specs cambiadas: {error}")
         spec_paths = [
-            (config.root / relative_path).resolve()
+            candidate.resolve()
             for relative_path in changed_files
-            if relative_path.endswith(".spec.md") and (config.root / relative_path).exists()
+            for candidate in [config.root / relative_path]
+            if relative_path.endswith(".spec.md")
+            and candidate.exists()
+            and _path_is_under(config.specs_root, candidate)
         ]
         return sorted(dict.fromkeys(spec_paths))
 
