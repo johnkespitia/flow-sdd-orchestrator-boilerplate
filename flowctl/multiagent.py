@@ -17,6 +17,12 @@ class SchedulerConfig:
 
 
 def _hot_areas(slice_payload: dict[str, object]) -> list[str]:
+    declared = [str(item).strip() for item in slice_payload.get("hot_areas", []) if str(item).strip()]
+    if declared:
+        return sorted(set(declared))
+    explicit = str(slice_payload.get("hot_area", "")).strip()
+    if explicit:
+        return [explicit]
     patterns = [str(item) for item in slice_payload.get("owned_patterns", []) if str(item).strip()]
     result: list[str] = []
     for pattern in patterns:
@@ -291,4 +297,3 @@ def run_slice_scheduler(
             for job in sorted(jobs.values(), key=lambda item: str(item["slice"]))
         ],
     }
-

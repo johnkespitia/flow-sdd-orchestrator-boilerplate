@@ -21,6 +21,7 @@ from .quality_gates import (
     risk_thresholds_by_level,
     slice_confidence_score,
 )
+from .specs import slice_governance_findings
 
 
 def workflow_assets(root: Path) -> dict[str, Path]:
@@ -404,6 +405,17 @@ def command_workflow_next_step(
     if not isinstance(slice_results, dict):
         slice_results = {}
 
+    if str(frontmatter.get("status", "draft")).strip() == "approved":
+        governance_findings = slice_governance_findings(
+            analysis,
+            planned_slices=plan_payload.get("slices", []) if isinstance(plan_payload, dict) else None,
+        )
+        if governance_findings:
+            raise SystemExit(
+                "La spec aprobada no cumple la gobernanza de slices:\n"
+                + "\n".join(f"- {item}" for item in governance_findings)
+            )
+
     stage = "spec-refinement"
     summary = "La spec aun debe cerrarse y revisarse con Tessl + BMAD quick-spec."
     next_commands: list[str] = [
@@ -570,6 +582,7 @@ def command_workflow_execute_feature(
     workspace_config: dict[str, object],
     resolve_spec: Callable[[str], Path],
     spec_slug: Callable[[Path], str],
+    analyze_spec: Callable[[Path], dict[str, object]],
     plan_root: Path,
     workflow_report_root: Path,
     plan_callable: Callable[[object], int],
@@ -588,6 +601,7 @@ def command_workflow_execute_feature(
 
     spec_path = resolve_spec(args.spec)
     slug = spec_slug(spec_path)
+    analysis = analyze_spec(spec_path)
     assets = workflow_assets(root)
     plan_path = plan_root / f"{slug}.json"
     if bool(getattr(args, "refresh_plan", False)) or not plan_path.exists():
@@ -598,6 +612,12 @@ def command_workflow_execute_feature(
             return plan_rc
 
     plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    governance_findings = slice_governance_findings(analysis, planned_slices=plan_payload.get("slices", []))
+    if governance_findings:
+        raise SystemExit(
+            "No puedo ejecutar la feature porque el plan no cumple la gobernanza de slices:\n"
+            + "\n".join(f"- {item}" for item in governance_findings)
+        )
     handoffs: list[dict[str, object]] = []
     if bool(getattr(args, "start_slices", False)):
         for slice_payload in plan_payload.get("slices", []):

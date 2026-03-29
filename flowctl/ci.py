@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from flowctl.secret_scan import is_advisory_secret_finding
+from flowctl.specs import slice_governance_findings
 
 
 def load_ci_service_overrides_from_env() -> dict[str, dict[str, object]]:
@@ -150,6 +151,7 @@ def command_ci_spec(
         findings.extend(str(error) for error in analysis["test_errors"])
         findings.extend(spec_dependency_findings(analysis))
         findings.extend(test_reference_findings(analysis))
+        findings.extend(slice_governance_findings(analysis))
         if analysis["todo_count"]:
             findings.append("La spec contiene `TODO`.")
         is_non_approved = status != "approved"

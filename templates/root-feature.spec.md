@@ -1,9 +1,12 @@
 ---
-schema_version: 2
+schema_version: 3
 name: <Feature Name>
 description: <Descripcion breve y concreta>
 status: draft
 owner: platform
+single_slice_reason: ""
+multi_domain: false
+phases: []
 depends_on: []
 required_runtimes: []
 required_services: []
@@ -110,6 +113,16 @@ Describir el comportamiento observable que esta feature debe introducir en el si
 - Cada slice debe pertenecer a un solo repo.
 - El plan operativo vive en `.flow/plans/**`.
 - Las dependencias estructurales viven en el frontmatter y deben resolverse antes de aprobar.
+
+## Slice Breakdown
+
+```yaml
+- name: <slice-name>
+  targets:
+    - ../../<implementation-repo>/app/**
+  hot_area: <implementation-repo>/app
+  depends_on: []
+```
 
 ## Criterios de aceptacion
 

@@ -10,6 +10,8 @@ import textwrap
 from pathlib import Path
 from typing import Callable, Optional
 
+from .specs import slice_governance_findings
+
 
 def render_yaml_list(key: str, values: list[str]) -> list[str]:
     items = [str(value).strip() for value in values if str(value).strip()]
@@ -166,11 +168,14 @@ def command_spec_create(
     body = "\n".join(
         [
             "---",
-            "schema_version: 2",
+            "schema_version: 3",
             f"name: {json.dumps(title, ensure_ascii=True)}",
             f"description: {json.dumps(summary_description, ensure_ascii=True)}",
             "status: draft",
             "owner: platform",
+            "single_slice_reason: \"\"",
+            "multi_domain: false",
+            "phases: []",
             *render_yaml_list("depends_on", depends_on),
             *render_yaml_list("required_runtimes", required_runtimes),
             *render_yaml_list("required_services", required_services),
@@ -253,6 +258,16 @@ def command_spec_create(
             "- El plan operativo vive en `.flow/plans/**`.",
             "- Las dependencias estructurales viven en el frontmatter y deben resolverse antes de aprobar.",
             "",
+            "## Slice Breakdown",
+            "",
+            "```yaml",
+            "- name: <slice-name>",
+            "  targets:",
+            "    - <target-de-esta-slice>",
+            "  hot_area: <repo/area-caliente>",
+            "  depends_on: []",
+            "```",
+            "",
             "## Criterios de aceptacion",
             "",
             *acceptance_lines,
@@ -323,6 +338,7 @@ def command_spec_review(
     high_priority.extend(str(error) for error in analysis["target_errors"])
     high_priority.extend(str(error) for error in analysis["test_errors"])
     high_priority.extend(spec_dependency_findings(analysis))
+    high_priority.extend(slice_governance_findings(analysis))
 
     description = str(frontmatter.get("description", "")).strip().lower()
     if not description or description.startswith("todo"):
@@ -530,34 +546,77 @@ def command_plan(
 
     target_index = require_routed_paths(analysis["targets"], "targets")
     repos = list(target_index)
+    plan_findings = slice_governance_findings(analysis)
+    if plan_findings:
+        joined = "\n".join(f"- {item}" for item in plan_findings)
+        raise SystemExit(f"La spec no cumple la gobernanza de slices:\n{joined}")
 
     slices: list[dict[str, object]] = []
-    for repo in repos:
-        short = repo_slice_prefix(repo)
-        owned_targets = [item["raw"] for item in target_index[repo]]
-        owned_patterns = [item["relative"] for item in target_index[repo]]
-        linked_tests = [item["raw"] for item in analysis["test_index"].get(repo, [])]
-        linked_test_patterns = [item["relative"] for item in analysis["test_index"].get(repo, [])]
-        slices.append(
-            {
-                "name": f"{short}-main",
-                "repo": repo,
-                "repo_path": str(repo_root(repo).resolve()),
-                "branch": f"feat/{slug}-{short}-main",
-                "worktree": str((worktree_root / f"{repo}-{slug}-{short}-main").resolve()),
-                "owned_targets": owned_targets,
-                "owned_patterns": owned_patterns,
-                "linked_tests": linked_tests,
-                "linked_test_patterns": linked_test_patterns,
-                "status": "slice-ready",
-            }
-        )
+    slice_breakdown = [item for item in analysis.get("slice_breakdown", []) if isinstance(item, dict)]
+    if slice_breakdown:
+        for slice_spec in slice_breakdown:
+            repo = str(slice_spec["repo"])
+            raw_name = str(slice_spec.get("name", "")).strip()
+            safe_name = "".join(ch.lower() if ch.isalnum() else "-" for ch in raw_name).strip("-") or "slice"
+            owned_targets = [str(target) for target in slice_spec.get("targets", [])]
+            owned_patterns = [
+                str(entry["relative"])
+                for entry in slice_spec.get("target_index", {}).get(repo, [])
+                if isinstance(entry, dict) and str(entry.get("relative", "")).strip()
+            ]
+            linked_tests = [item["raw"] for item in analysis["test_index"].get(repo, [])]
+            linked_test_patterns = [item["relative"] for item in analysis["test_index"].get(repo, [])]
+            slices.append(
+                {
+                    "name": raw_name,
+                    "repo": repo,
+                    "repo_path": str(repo_root(repo).resolve()),
+                    "branch": f"feat/{slug}-{safe_name}",
+                    "worktree": str((worktree_root / f"{repo}-{slug}-{safe_name}").resolve()),
+                    "owned_targets": owned_targets,
+                    "owned_patterns": owned_patterns,
+                    "linked_tests": linked_tests,
+                    "linked_test_patterns": linked_test_patterns,
+                    "hot_area": str(slice_spec.get("hot_area", "")).strip(),
+                    "depends_on": [str(item).strip() for item in slice_spec.get("depends_on", []) if str(item).strip()],
+                    "semantic_locks": [
+                        str(item).strip() for item in slice_spec.get("semantic_locks", []) if str(item).strip()
+                    ],
+                    "status": "slice-ready",
+                }
+            )
+    else:
+        for repo in repos:
+            short = repo_slice_prefix(repo)
+            owned_targets = [item["raw"] for item in target_index[repo]]
+            owned_patterns = [item["relative"] for item in target_index[repo]]
+            linked_tests = [item["raw"] for item in analysis["test_index"].get(repo, [])]
+            linked_test_patterns = [item["relative"] for item in analysis["test_index"].get(repo, [])]
+            slices.append(
+                {
+                    "name": f"{short}-main",
+                    "repo": repo,
+                    "repo_path": str(repo_root(repo).resolve()),
+                    "branch": f"feat/{slug}-{short}-main",
+                    "worktree": str((worktree_root / f"{repo}-{slug}-{short}-main").resolve()),
+                    "owned_targets": owned_targets,
+                    "owned_patterns": owned_patterns,
+                    "linked_tests": linked_tests,
+                    "linked_test_patterns": linked_test_patterns,
+                    "status": "slice-ready",
+                }
+            )
 
     plan_payload = {
         "feature": slug,
         "spec_path": rel(spec_path),
         "created_at": utc_now(),
         "worktree_root": str(worktree_root.resolve()),
+        "slice_governance": {
+            "single_slice_reason": str(analysis.get("single_slice_reason", "")).strip(),
+            "multi_domain": bool(analysis.get("multi_domain", False)),
+            "phases": [str(item).strip() for item in analysis.get("phases", []) if str(item).strip()],
+        },
         "slices": slices,
     }
 

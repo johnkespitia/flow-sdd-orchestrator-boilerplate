@@ -179,6 +179,28 @@ def _string_or_int_list_findings(value: Any, label: str) -> list[str]:
     return findings
 
 
+def _string_field(value: Any, label: str) -> tuple[str, list[str]]:
+    if value is None:
+        return "", []
+    if not isinstance(value, str):
+        return "", [f"`{label}` debe declararse como string."]
+    return value.strip(), []
+
+
+def _bool_field(value: Any, label: str) -> tuple[bool, list[str]]:
+    if value is None:
+        return False, []
+    if isinstance(value, bool):
+        return value, []
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "on", "1"}:
+            return True, []
+        if normalized in {"false", "no", "off", "0"}:
+            return False, []
+    return False, [f"`{label}` debe declararse como booleano."]
+
+
 def _schema_version(frontmatter: dict[str, object]) -> tuple[int, list[str]]:
     value = frontmatter.get("schema_version")
     if value is None:
@@ -364,6 +386,251 @@ def render_test_plan_hints(config: SpecConfig, repos: list[str]) -> str:
     return "\n".join(lines)
 
 
+def extract_markdown_section(text: str, heading: str) -> str:
+    lines = text.splitlines()
+    target = heading.strip().lower()
+    start_index: Optional[int] = None
+    for index, line in enumerate(lines):
+        if line.strip().lower() == f"## {target}":
+            start_index = index + 1
+            break
+    if start_index is None:
+        return ""
+
+    end_index = len(lines)
+    for index in range(start_index, len(lines)):
+        if lines[index].startswith("## "):
+            end_index = index
+            break
+    return "\n".join(lines[start_index:end_index]).strip()
+
+
+def parse_slice_breakdown(
+    text: str,
+    *,
+    config: SpecConfig,
+    declared_targets: list[str],
+) -> tuple[list[dict[str, object]], list[str], bool]:
+    section = extract_markdown_section(text, "Slice Breakdown")
+    if not section:
+        return [], ["Falta la seccion `## Slice Breakdown` con un bloque YAML."], False
+
+    block_match = re.search(r"```ya?ml\s*\n(?P<body>.*?)(?:\n```)", section, flags=re.DOTALL | re.IGNORECASE)
+    if block_match is None:
+        return [], ["La seccion `## Slice Breakdown` debe incluir un bloque ```yaml```."], True
+
+    body = block_match.group("body")
+    try:
+        payload = yaml.safe_load(body)
+    except yaml.YAMLError as exc:
+        return [], [f"El bloque YAML de `## Slice Breakdown` es invalido: {exc}"], True
+
+    if not isinstance(payload, list):
+        return [], ["`## Slice Breakdown` debe declarar una lista YAML de slices."], True
+
+    findings: list[str] = []
+    slices: list[dict[str, object]] = []
+    seen_names: set[str] = set()
+    declared_target_set = {item.strip() for item in declared_targets if item.strip()}
+
+    for index, raw_item in enumerate(payload, start=1):
+        if not isinstance(raw_item, dict):
+            findings.append(f"`Slice Breakdown` item #{index} debe ser un objeto YAML.")
+            continue
+
+        item = {str(key): value for key, value in raw_item.items()}
+        name, name_errors = _string_field(item.get("name"), f"slice_breakdown[{index}].name")
+        findings.extend(name_errors)
+        if not name:
+            findings.append(f"`slice_breakdown[{index}].name` no puede ser vacio.")
+            continue
+        if name in seen_names:
+            findings.append(f"El nombre de slice `{name}` esta duplicado en `Slice Breakdown`.")
+            continue
+        seen_names.add(name)
+
+        targets, target_errors = _string_list_field(item, "targets")
+        findings.extend(f"`slice {name}`: {error}" for error in target_errors)
+        if not targets:
+            findings.append(f"La slice `{name}` debe declarar al menos un target.")
+            continue
+
+        hot_area, hot_area_errors = _string_field(item.get("hot_area"), f"slice_breakdown[{index}].hot_area")
+        findings.extend(hot_area_errors)
+        if not hot_area:
+            findings.append(f"La slice `{name}` debe declarar `hot_area`.")
+
+        depends_on, depends_on_errors = _string_list_field(item, "depends_on")
+        findings.extend(f"`slice {name}`: {error}" for error in depends_on_errors)
+        semantic_locks, semantic_lock_errors = _string_list_field(item, "semantic_locks")
+        findings.extend(f"`slice {name}`: {error}" for error in semantic_lock_errors)
+
+        target_index, routing_errors = collect_routed_paths(targets, config=config)
+        findings.extend(f"La slice `{name}` tiene target invalido: {error}" for error in routing_errors)
+        if routing_errors:
+            continue
+        if len(target_index) != 1:
+            findings.append(f"La slice `{name}` debe pertenecer a un solo repo.")
+            continue
+
+        repo = next(iter(target_index))
+        if any(target not in declared_target_set for target in targets):
+            findings.append(f"La slice `{name}` solo puede usar targets declarados en el frontmatter principal.")
+            continue
+
+        slices.append(
+            {
+                "name": name,
+                "repo": repo,
+                "targets": targets,
+                "target_index": target_index,
+                "hot_area": hot_area,
+                "depends_on": depends_on,
+                "semantic_locks": semantic_locks,
+            }
+        )
+
+    valid_names = {str(item.get("name", "")).strip() for item in slices}
+    for item in slices:
+        for dependency in item.get("depends_on", []):
+            if dependency not in valid_names:
+                findings.append(
+                    f"La slice `{item['name']}` depende de `{dependency}`, pero esa slice no existe en `Slice Breakdown`."
+                )
+
+    return slices, findings, True
+
+
+def _analysis_target_roots(analysis: dict[str, object]) -> set[str]:
+    roots: set[str] = set()
+    for entries in analysis.get("target_index", {}).values():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            relative = str(entry.get("relative", "")).strip("/")
+            if not relative:
+                continue
+            roots.add(relative.split("/", 1)[0])
+    return roots
+
+
+def slice_governance_policy(analysis: dict[str, object]) -> dict[str, object]:
+    frontmatter = analysis.get("frontmatter", {})
+    schema_version = int(analysis.get("schema_version", 1) or 1)
+    applies = schema_version >= 3
+    single_slice_reason = str(analysis.get("single_slice_reason", "") or "").strip()
+    multi_domain = bool(analysis.get("multi_domain", False))
+    phases = [str(item).strip() for item in analysis.get("phases", []) if str(item).strip()]
+    repo_count = len(analysis.get("target_index", {}))
+    target_roots = _analysis_target_roots(analysis)
+    target_count = len([item for item in analysis.get("targets", []) if str(item).strip()])
+
+    min_slice_count = 1
+    reasons: list[str] = []
+    if applies:
+        min_slice_count = 2
+        reasons.append("`schema_version: 3` requiere multi-slice por defecto.")
+        if repo_count > min_slice_count:
+            min_slice_count = repo_count
+            reasons.append("La spec afecta multiples repos.")
+        if multi_domain:
+            min_slice_count = max(min_slice_count, 2)
+            reasons.append("`multi_domain: true` requiere al menos 2 slices.")
+        if phases:
+            min_slice_count = max(min_slice_count, 2 if len(phases) == 1 else 3)
+            reasons.append("La spec declara `phases`, por lo que no debe quedar en una sola slice.")
+        if len(target_roots) >= 3 or target_count >= 5:
+            min_slice_count = max(min_slice_count, 3)
+            reasons.append("El alcance toca varios target roots o demasiados targets.")
+
+    return {
+        "applies": applies,
+        "schema_version": schema_version,
+        "single_slice_reason": single_slice_reason,
+        "multi_domain": multi_domain,
+        "phases": phases,
+        "target_roots": sorted(target_roots),
+        "target_count": target_count,
+        "repo_count": repo_count,
+        "min_slice_count": min_slice_count,
+        "reasons": reasons,
+    }
+
+
+def slice_governance_findings(
+    analysis: dict[str, object],
+    *,
+    planned_slices: Optional[list[dict[str, object]]] = None,
+) -> list[str]:
+    policy = slice_governance_policy(analysis)
+    if not bool(policy["applies"]):
+        return []
+
+    findings: list[str] = []
+    findings.extend(str(item) for item in analysis.get("slice_breakdown_errors", []))
+
+    declared_slices = [
+        item for item in analysis.get("slice_breakdown", []) if isinstance(item, dict)
+    ]
+    candidate_slices = planned_slices if planned_slices is not None else declared_slices
+    candidate_slices = [item for item in candidate_slices if isinstance(item, dict)]
+    slice_count = len(candidate_slices)
+    single_slice_reason = str(policy["single_slice_reason"]).strip()
+
+    if slice_count == 0:
+        findings.append("La spec debe declarar slices operativas en `## Slice Breakdown`.")
+        return findings
+
+    if slice_count < int(policy["min_slice_count"]):
+        if slice_count == 1 and single_slice_reason:
+            pass
+        else:
+            reasons = "; ".join(str(item) for item in policy["reasons"]) or "politica multi-slice del workspace"
+            findings.append(
+                f"El plan/spec solo declara `{slice_count}` slice(s), pero la gobernanza exige al menos "
+                f"`{policy['min_slice_count']}`. Razones: {reasons}."
+            )
+
+    if slice_count == 1 and not single_slice_reason:
+        findings.append(
+            "Una spec `schema_version: 3` no puede quedar en una sola slice sin `single_slice_reason`."
+        )
+
+    if single_slice_reason and single_slice_reason.lower().startswith("todo"):
+        findings.append("`single_slice_reason` no puede quedar en placeholder.")
+
+    names = [str(item.get("name", "")).strip() for item in candidate_slices if str(item.get("name", "")).strip()]
+    if len(names) != len(set(names)):
+        findings.append("El plan tiene slices con nombres duplicados.")
+
+    repo_hot_areas: dict[tuple[str, str], list[str]] = {}
+    for item in candidate_slices:
+        repo = str(item.get("repo", "")).strip()
+        hot_area = str(item.get("hot_area", "")).strip()
+        name = str(item.get("name", "")).strip() or "<sin-nombre>"
+        if repo and hot_area:
+            repo_hot_areas.setdefault((repo, hot_area), []).append(name)
+        elif len(candidate_slices) > 1:
+            findings.append(f"La slice `{name}` debe declarar `hot_area` para permitir concurrencia gobernada.")
+
+    for (repo, hot_area), owners in sorted(repo_hot_areas.items()):
+        if len(owners) > 1:
+            findings.append(
+                f"Las slices `{', '.join(sorted(owners))}` comparten `hot_area={hot_area}` en `{repo}`; "
+                "deben separarse para evitar serializacion."
+            )
+
+    if declared_slices and planned_slices is not None:
+        declared_names = {str(item.get("name", "")).strip() for item in declared_slices if str(item.get("name", "")).strip()}
+        planned_names = {str(item.get("name", "")).strip() for item in candidate_slices if str(item.get("name", "")).strip()}
+        if declared_names != planned_names:
+            findings.append("El plan generado no coincide con las slices declaradas en `## Slice Breakdown`.")
+
+    return findings
+
+
 def analyze_spec(spec_path: Path, *, config: SpecConfig) -> dict[str, object]:
     text = spec_path.read_text(encoding="utf-8")
     frontmatter_errors: list[str] = []
@@ -380,6 +647,9 @@ def analyze_spec(spec_path: Path, *, config: SpecConfig) -> dict[str, object]:
     required_runtimes, required_runtimes_errors = _string_list_field(frontmatter, "required_runtimes")
     required_services, required_services_errors = _string_list_field(frontmatter, "required_services")
     required_capabilities, required_capabilities_errors = _string_list_field(frontmatter, "required_capabilities")
+    single_slice_reason, single_slice_reason_errors = _string_field(frontmatter.get("single_slice_reason"), "single_slice_reason")
+    phases, phases_errors = _string_list_field(frontmatter, "phases")
+    multi_domain, multi_domain_errors = _bool_field(frontmatter.get("multi_domain"), "multi_domain")
     stack_projects, stack_projects_errors = _object_list_field(frontmatter, "stack_projects")
     stack_services, stack_services_errors = _object_list_field(frontmatter, "stack_services")
     stack_capabilities, stack_capabilities_errors = _string_list_field(frontmatter, "stack_capabilities")
@@ -389,11 +659,19 @@ def analyze_spec(spec_path: Path, *, config: SpecConfig) -> dict[str, object]:
     frontmatter_errors.extend(required_runtimes_errors)
     frontmatter_errors.extend(required_services_errors)
     frontmatter_errors.extend(required_capabilities_errors)
+    frontmatter_errors.extend(single_slice_reason_errors)
+    frontmatter_errors.extend(phases_errors)
+    frontmatter_errors.extend(multi_domain_errors)
     frontmatter_errors.extend(stack_projects_errors)
     frontmatter_errors.extend(stack_services_errors)
     frontmatter_errors.extend(stack_capabilities_errors)
     frontmatter_errors.extend(infra_targets_errors)
     target_index, target_errors = collect_routed_paths(targets, config=config)
+    slice_breakdown, slice_breakdown_errors, has_slice_breakdown = parse_slice_breakdown(
+        text,
+        config=config,
+        declared_targets=targets,
+    )
     test_refs = extract_test_references(text, config=config)
     backticked_test_refs = extract_backticked_test_references(text)
     test_index, test_errors = collect_routed_paths(test_refs, config=config)
@@ -416,10 +694,16 @@ def analyze_spec(spec_path: Path, *, config: SpecConfig) -> dict[str, object]:
         "required_runtimes": required_runtimes,
         "required_services": required_services,
         "required_capabilities": required_capabilities,
+        "single_slice_reason": single_slice_reason,
+        "phases": phases,
+        "multi_domain": multi_domain,
         "stack_projects": stack_projects,
         "stack_services": stack_services,
         "stack_capabilities": stack_capabilities,
         "infra_targets": infra_targets,
+        "slice_breakdown": slice_breakdown,
+        "slice_breakdown_errors": slice_breakdown_errors,
+        "has_slice_breakdown": has_slice_breakdown,
         "todo_count": count_todos(text, config=config),
         "missing_frontmatter": missing_frontmatter,
     }
@@ -491,6 +775,7 @@ def ensure_spec_ready_for_approval(
             parse_frontmatter=parse_frontmatter,
         )
     )
+    blockers.extend(slice_governance_findings(analysis))
 
     description = str(frontmatter.get("description", "")).strip().lower()
     if not description or description.startswith("todo"):

@@ -1459,6 +1459,7 @@ def command_workflow_execute_feature(args: argparse.Namespace) -> int:
         workspace_config=WORKSPACE_CONFIG,
         resolve_spec=resolve_spec,
         spec_slug=spec_slug,
+        analyze_spec=analyze_spec,
         plan_root=PLAN_ROOT,
         workflow_report_root=WORKFLOW_REPORT_ROOT,
         plan_callable=command_plan,
