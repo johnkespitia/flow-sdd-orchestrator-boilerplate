@@ -33,6 +33,7 @@ Comando:
 
 ```bash
 python3 ./flow ops dashboard --json
+python3 ./flow ops dashboard --spec softos- --status failed --json
 ```
 
 Para cada `feature` muestra:
@@ -40,6 +41,15 @@ Para cada `feature` muestra:
 - `engine_status`: estado actual del motor (`completed|failed|paused|...`).
 - `updated_at`, `paused_at_stage`.
 - `stages`: lista de `{stage, status, attempt, failure_reason}`.
+- `repos`: repos detectados en el estado/plan.
+- `actor`: actor observado cuando el estado lo expone.
+
+Filtros soportados:
+
+- `--spec <fragment>`: filtra por slug de feature.
+- `--repo <fragment>`: filtra por repo detectado.
+- `--actor <fragment>`: filtra por actor cuando existe en el estado.
+- `--status <fragment>`: filtra por estado del engine.
 
 Uso recomendado:
 
@@ -47,6 +57,7 @@ Uso recomendado:
   - en fallo (`engine_status = failed`).
   - con muchos reintentos (`attempt` alto).
   - con etapas `skipped` en momentos inesperados.
+  - por spec/repo/actor/estado usando filtros CLI.
 
 ### 3. SLA por etapa y alertas persistidas
 
@@ -210,4 +221,3 @@ Uso recomendado:
 - Rechazos:
   - HTTP `429` con `detail.code = RATE_LIMIT_EXCEEDED`.
   - se persisten en `intake_failures` y `auth_audit`.
-

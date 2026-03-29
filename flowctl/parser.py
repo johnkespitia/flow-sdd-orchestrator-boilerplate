@@ -547,6 +547,10 @@ def build_parser(
     ops_metrics.add_argument("--json", action="store_true", help="Print metrics as JSON.")
     ops_metrics.set_defaults(func=commands["ops_metrics"])
     ops_dashboard = ops_subparsers.add_parser("dashboard", help="Print a runs dashboard with engine status and stages.")
+    ops_dashboard.add_argument("--spec", help="Filter runs by spec slug fragment.")
+    ops_dashboard.add_argument("--repo", help="Filter runs by repo fragment.")
+    ops_dashboard.add_argument("--actor", help="Filter runs by actor fragment.")
+    ops_dashboard.add_argument("--status", help="Filter runs by engine status fragment.")
     ops_dashboard.add_argument("--json", action="store_true", help="Print dashboard as JSON.")
     ops_dashboard.set_defaults(func=commands["ops_dashboard"])
 

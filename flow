@@ -164,7 +164,7 @@ from flowctl.testing import (
 )
 from flowctl.operations import (
     collect_workflow_metrics as flow_collect_workflow_metrics,
-    collect_runs_dashboard as flow_collect_runs_dashboard,
+    collect_runs_dashboard_filtered as flow_collect_runs_dashboard_filtered,
     collect_gateway_sqlite_task_metrics as flow_collect_gateway_sqlite_task_metrics,
     evaluate_gateway_task_processing_sla as flow_evaluate_gateway_task_processing_sla,
     evaluate_sla_alerts as flow_evaluate_sla_alerts,
@@ -1541,7 +1541,14 @@ def command_ops_metrics(args: argparse.Namespace) -> int:
 
 def command_ops_dashboard(args: argparse.Namespace) -> int:
     OPERATIONS_REPORT_ROOT.mkdir(parents=True, exist_ok=True)
-    payload = flow_collect_runs_dashboard(root=ROOT, utc_now=utc_now)
+    payload = flow_collect_runs_dashboard_filtered(
+        root=ROOT,
+        utc_now=utc_now,
+        spec=str(getattr(args, "spec", "") or ""),
+        repo=str(getattr(args, "repo", "") or ""),
+        actor=str(getattr(args, "actor", "") or ""),
+        status=str(getattr(args, "status", "") or ""),
+    )
     json_path = OPERATIONS_REPORT_ROOT / "runs-dashboard.json"
     json_path.write_text(json_dumps(payload) + "\n", encoding="utf-8")
     if wants_json(args):

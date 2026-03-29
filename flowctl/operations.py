@@ -108,11 +108,54 @@ def collect_workflow_metrics(*, root: Path, utc_now: Callable[[], str]) -> dict[
     }
 
 
-def collect_runs_dashboard(*, root: Path, utc_now: Callable[[], str]) -> dict[str, object]:
+def _normalize_filter(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
+def _run_matches_dashboard_filters(
+    *,
+    run_entry: dict[str, object],
+    filters: dict[str, str],
+) -> bool:
+    if filters.get("spec"):
+        if filters["spec"] not in _normalize_filter(run_entry.get("feature")):
+            return False
+    if filters.get("status"):
+        if filters["status"] not in _normalize_filter(run_entry.get("engine_status")):
+            return False
+    if filters.get("actor"):
+        actor_candidates = [
+            _normalize_filter(run_entry.get("actor")),
+            _normalize_filter(run_entry.get("owner")),
+            _normalize_filter(run_entry.get("assignee")),
+        ]
+        if not any(filters["actor"] in candidate for candidate in actor_candidates if candidate):
+            return False
+    if filters.get("repo"):
+        repo_candidates = [_normalize_filter(item) for item in run_entry.get("repos", []) or []]
+        if not any(filters["repo"] in candidate for candidate in repo_candidates if candidate):
+            return False
+    return True
+
+
+def collect_runs_dashboard_filtered(
+    *,
+    root: Path,
+    utc_now: Callable[[], str],
+    spec: str = "",
+    repo: str = "",
+    actor: str = "",
+    status: str = "",
+) -> dict[str, object]:
     flow_root = root / ".flow"
     state_root = flow_root / "state"
-    reports_root = flow_root / "reports"
-    workflows_root = reports_root / "workflows"
+
+    filters = {
+        "spec": _normalize_filter(spec),
+        "repo": _normalize_filter(repo),
+        "actor": _normalize_filter(actor),
+        "status": _normalize_filter(status),
+    }
 
     runs: list[dict[str, object]] = []
     for state_path in sorted(state_root.glob("*.json")):
@@ -129,8 +172,20 @@ def collect_runs_dashboard(*, root: Path, utc_now: Callable[[], str]) -> dict[st
         stages = engine.get("stages") or {}
         if not isinstance(stages, dict):
             stages = {}
-        locks = []
-        # Derive dashboard entry.
+
+        repos: list[str] = []
+        state_repos = state.get("repos", [])
+        if isinstance(state_repos, list):
+            repos.extend(str(item).strip() for item in state_repos if str(item).strip())
+        slice_results = state.get("slice_results", {})
+        if isinstance(slice_results, dict):
+            for item in slice_results.values():
+                if not isinstance(item, dict):
+                    continue
+                repo_name = str(item.get("repo", "")).strip()
+                if repo_name:
+                    repos.append(repo_name)
+
         stage_records = []
         for name, record in stages.items():
             if not isinstance(record, dict):
@@ -143,19 +198,34 @@ def collect_runs_dashboard(*, root: Path, utc_now: Callable[[], str]) -> dict[st
                     "failure_reason": record.get("failure_reason"),
                 }
             )
+        actor = str(
+            engine.get("actor", "")
+            or state.get("actor", "")
+            or state.get("owner", "")
+            or state.get("assignee", "")
+            or ""
+        ).strip()
         run_entry = {
             "feature": slug,
             "engine_status": str(engine.get("status", "")),
             "updated_at": engine.get("updated_at"),
             "paused_at_stage": engine.get("paused_at_stage"),
             "stages": stage_records,
+            "repos": sorted(set(repos)),
+            "actor": actor,
         }
-        runs.append(run_entry)
+        if _run_matches_dashboard_filters(run_entry=run_entry, filters=filters):
+            runs.append(run_entry)
 
     return {
         "generated_at": utc_now(),
+        "filters": filters,
         "runs": runs,
     }
+
+
+def collect_runs_dashboard(*, root: Path, utc_now: Callable[[], str]) -> dict[str, object]:
+    return collect_runs_dashboard_filtered(root=root, utc_now=utc_now)
 
 
 def evaluate_sla_alerts(
@@ -365,4 +435,3 @@ def read_decisions(*, root: Path, max_items: int = 100) -> list[dict[str, object
             if isinstance(payload, dict):
                 items.append(payload)
     return items[-max_items:]
-

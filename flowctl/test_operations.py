@@ -202,6 +202,49 @@ class OperationsDecisionLogTests(unittest.TestCase):
             self.assertEqual("alice", items[0]["actor"])
 
 
+class OperationsDashboardTests(unittest.TestCase):
+    def _now(self) -> str:
+        return "2026-01-01T00:00:00+00:00"
+
+    def _write_state(self, root: Path, slug: str, *, status: str, repos: list[str], actor: str = "") -> None:
+        state_root = root / ".flow" / "state"
+        state_root.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "feature": slug,
+            "repos": repos,
+            "workflow_engine": {
+                "status": status,
+                "updated_at": "2026-01-01T00:00:00+00:00",
+                "paused_at_stage": None,
+                "actor": actor,
+                "stages": {},
+            },
+            "slice_results": {
+                "root-main": {"repo": repos[0] if repos else "root"},
+            },
+        }
+        (state_root / f"{slug}.json").write_text(json.dumps(payload, ensure_ascii=True), encoding="utf-8")
+
+    def test_collect_runs_dashboard_supports_filters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_state(root, "alpha-feature", status="completed", repos=["root"], actor="alice")
+            self._write_state(root, "beta-feature", status="failed", repos=["backend"], actor="bob")
+
+            dashboard = operations.collect_runs_dashboard_filtered(
+                root=root,
+                utc_now=self._now,
+                spec="alpha",
+                repo="root",
+                actor="alice",
+                status="completed",
+            )
+            runs = dashboard["runs"]
+            self.assertEqual(1, len(runs))
+            self.assertEqual("alpha-feature", runs[0]["feature"])
+            self.assertEqual("alice", runs[0]["actor"])
+            self.assertEqual("alpha", dashboard["filters"]["spec"])
+
+
 if __name__ == "__main__":
     unittest.main()
-
