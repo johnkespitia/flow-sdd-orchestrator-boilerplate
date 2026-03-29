@@ -175,8 +175,10 @@ jobs:
   discover-repo-ci-matrix:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.discover.outputs.matrix }}
-      has_repos: ${{ steps.discover.outputs.has_repos }}
+      generic_matrix: ${{ steps.discover.outputs.generic_matrix }}
+      delegated_matrix: ${{ steps.discover.outputs.delegated_matrix }}
+      has_generic: ${{ steps.discover.outputs.has_generic }}
+      has_delegated: ${{ steps.discover.outputs.has_delegated }}
     steps:
       - name: Checkout workspace
         uses: actions/checkout@v4
@@ -190,108 +192,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY' > /tmp/repo_ci_matrix.out
-          import json
-          from pathlib import Path
-
-          workspace = json.loads(Path("workspace.config.json").read_text(encoding="utf-8"))
-          runtimes_registry = {}
-          runtimes_index = {}
-          runtimes_file = Path("workspace.runtimes.json")
-          if runtimes_file.exists():
-              try:
-                  runtimes_registry = json.loads(runtimes_file.read_text(encoding="utf-8")).get("runtimes", {})
-              except Exception:
-                  runtimes_registry = {}
-
-          def load_runtime_pack(runtime_name: str):
-              if not runtime_name:
-                  return {}
-              if runtime_name in runtimes_index:
-                  return runtimes_index[runtime_name]
-              source = ""
-              entry = runtimes_registry.get(runtime_name, {})
-              if isinstance(entry, dict):
-                  source = str(entry.get("source", "")).strip()
-              candidates = []
-              if source:
-                  candidates.append(Path(source))
-              candidates.append(Path("runtimes") / f"{runtime_name}.runtime.json")
-              for candidate in candidates:
-                  if not candidate.is_file():
-                      continue
-                  try:
-                      payload = json.loads(candidate.read_text(encoding="utf-8"))
-                      if isinstance(payload, dict):
-                          runtimes_index[runtime_name] = payload
-                          return payload
-                  except Exception:
-                      continue
-              runtimes_index[runtime_name] = {}
-              return {}
-
-          def infer_tools(runtime_name: str, repo_cfg: dict, runtime_pack: dict):
-              runner = str(repo_cfg.get("test_runner", runtime_pack.get("test_runner", ""))).strip().lower()
-              ci_cfg = repo_cfg.get("ci")
-              if not isinstance(ci_cfg, dict):
-                  ci_cfg = runtime_pack.get("ci", {})
-              tokens = []
-              if isinstance(ci_cfg, dict):
-                  for step in ("install", "lint", "test", "build"):
-                      cmd = ci_cfg.get(step)
-                      if isinstance(cmd, list):
-                          tokens.extend(str(part).strip().lower() for part in cmd if isinstance(part, str))
-              runtime_lower = runtime_name.lower()
-              token_set = set(tokens)
-              needs_node = (
-                  runner == "pnpm"
-                  or any(item in token_set for item in {"pnpm", "npm", "npx", "node"})
-                  or "node" in runtime_lower
-              )
-              needs_php = (
-                  runner == "php"
-                  or any(item in token_set for item in {"php", "composer", "phpunit", "artisan"})
-                  or "php" in runtime_lower
-              )
-              needs_go = (
-                  runner == "go"
-                  or "go" in token_set
-                  or runtime_lower.startswith("go")
-                  or runtime_lower.endswith("-go")
-              )
-              needs_python = (
-                  runner == "pytest"
-                  or any(item in token_set for item in {"python", "python3", "pip", "pip3", "pytest", "uv"})
-                  or "python" in runtime_lower
-              )
-              return needs_node, needs_php, needs_go, needs_python
-
-          include = []
-          repos = workspace.get("repos", {})
-          for repo_name in sorted(repos):
-              repo_cfg = repos.get(repo_name, {})
-              if not isinstance(repo_cfg, dict):
-                  continue
-              if str(repo_cfg.get("kind", "")).strip().lower() == "root":
-                  continue
-              runtime_name = str(repo_cfg.get("runtime", "")).strip()
-              runtime_pack = load_runtime_pack(runtime_name)
-              needs_node, needs_php, needs_go, needs_python = infer_tools(runtime_name, repo_cfg, runtime_pack)
-              include.append(
-                  {
-                      "repo": repo_name,
-                      "path": str(repo_cfg.get("path", repo_name)).strip() or repo_name,
-                      "runtime": runtime_name or "unknown",
-                      "needs_node": needs_node,
-                      "needs_php": needs_php,
-                      "needs_go": needs_go,
-                      "needs_python": needs_python,
-                  }
-              )
-
-          print("matrix=" + json.dumps({"include": include}, separators=(",", ":")))
-          print("has_repos=" + ("true" if include else "false"))
-          PY
+          python3 ./scripts/ci/discover_repo_ci_matrix.py > /tmp/repo_ci_matrix.out
           cat /tmp/repo_ci_matrix.out >> "$GITHUB_OUTPUT"
 
   repo-ci:
@@ -299,10 +200,10 @@ jobs:
     needs:
       - spec-governance
       - discover-repo-ci-matrix
-    if: needs.discover-repo-ci-matrix.outputs.has_repos == 'true'
+    if: needs.discover-repo-ci-matrix.outputs.has_generic == 'true'
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.discover-repo-ci-matrix.outputs.matrix) }}
+      matrix: ${{ fromJson(needs.discover-repo-ci-matrix.outputs.generic_matrix) }}
     steps:
       - name: Checkout workspace
         uses: actions/checkout@v4
@@ -431,13 +332,62 @@ jobs:
           name: flow-ci-reports-${{ matrix.repo }}
           path: .flow/reports/
 
+  repo-ci-delegated:
+    runs-on: ubuntu-latest
+    needs:
+      - spec-governance
+      - discover-repo-ci-matrix
+    if: needs.discover-repo-ci-matrix.outputs.has_delegated == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover-repo-ci-matrix.outputs.delegated_matrix) }}
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT || github.token }}
+          submodules: false
+          fetch-depth: 0
+
+      - name: Validate delegated workflow config
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${{ matrix.workflow }}" ]; then
+            echo "Repo '${{ matrix.repo }}' declares ci.mode=workflow-dispatch but no ci.workflow."
+            exit 1
+          fi
+          if [ "${{ matrix.trigger_mode }}" != "workflow_dispatch_only" ]; then
+            echo "Repo '${{ matrix.repo }}' must declare ci.trigger_mode=workflow_dispatch_only when delegated from root-ci."
+            exit 1
+          fi
+
+      - name: Dispatch project workflow
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+          TARGET_REF: ${{ github.head_ref || github.ref_name }}
+          TARGET_REPOSITORY: ${{ matrix.workflow_repository || github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          WORKFLOW_INPUTS_JSON: ${{ toJson(matrix.inputs) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./scripts/ci/run_project_workflow.sh
+          ./scripts/ci/run_project_workflow.sh \
+            "${{ matrix.workflow }}" \
+            "${TARGET_REPOSITORY}" \
+            "${TARGET_REF}" \
+            "${HEAD_SHA}" \
+            "${WORKFLOW_INPUTS_JSON}"
+
   integration-smoke:
     runs-on: ubuntu-latest
     needs:
       - spec-governance
       - discover-repo-ci-matrix
       - repo-ci
-    if: needs.spec-governance.result == 'success' && (needs.discover-repo-ci-matrix.outputs.has_repos != 'true' || needs.repo-ci.result == 'success')
+      - repo-ci-delegated
+    if: needs.spec-governance.result == 'success' && (needs.discover-repo-ci-matrix.outputs.has_generic != 'true' || needs.repo-ci.result == 'success') && (needs.discover-repo-ci-matrix.outputs.has_delegated != 'true' || needs.repo-ci-delegated.result == 'success')
     steps:
       - name: Checkout workspace
         uses: actions/checkout@v4

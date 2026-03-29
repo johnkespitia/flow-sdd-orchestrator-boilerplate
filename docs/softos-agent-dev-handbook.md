@@ -71,6 +71,23 @@ Valida contrato de specs: frontmatter, estado `approved|released`, `depends_on`,
 
 Valida por repo de implementación (instalación/lint/test/build según runtime).
 
+Si un repo trae su pipeline propio y quieres que solo lo ejecute el root CI de SoftOS, declara en
+`workspace.config.json`:
+
+```json
+"ci": {
+  "mode": "workflow-dispatch",
+  "workflow": "repo-ci.yml",
+  "trigger_mode": "workflow_dispatch_only"
+}
+```
+
+Notas:
+
+- el workflow hijo no debe tener `push`/`pull_request`; solo `workflow_dispatch`
+- `root-ci.yml` lo despacha desde SoftOS y espera su resultado
+- si el repo no declara `ci.mode=workflow-dispatch`, cae al `flow ci repo <repo>` genérico
+
 ## `flow ci integration --profile smoke`
 
 Valida salud del stack y smoke por servicio.
