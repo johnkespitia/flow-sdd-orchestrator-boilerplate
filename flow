@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from flowctl import features as flow_features
+from flowctl import locks as flow_locks
 from flowctl import skills_ops as flow_skills_ops
 from flowctl import specs as flow_specs
 from flowctl import stack_design as flow_stack_design
@@ -1497,6 +1498,7 @@ def command_workflow_run(args: argparse.Namespace) -> int:
         rel=rel,
         utc_now=utc_now,
         json_dumps=json_dumps,
+        lock_backend_factory=lambda: flow_locks.SQLiteGlobalLockBackend(flow_locks.default_global_lock_db_path(ROOT), utc_now_fn=utc_now),
     )
 
 

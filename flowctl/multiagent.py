@@ -4,7 +4,7 @@ import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Protocol
 
 
 @dataclass
@@ -14,6 +14,48 @@ class SchedulerConfig:
     per_hot_area_capacity: int
     lock_ttl_seconds: int
     max_retries_execution: int
+
+
+class LockBackend(Protocol):
+    def acquire(
+        self,
+        *,
+        lock_name: str,
+        scope: str,
+        repo: str,
+        owner_run_id: str,
+        owner_feature: str,
+        owner_slice: str,
+        ttl_seconds: int,
+        details: str = "",
+    ) -> dict[str, object]: ...
+
+    def heartbeat(
+        self,
+        *,
+        lock_name: str,
+        owner_run_id: str,
+        owner_feature: str,
+        owner_slice: str,
+        ttl_seconds: int,
+        details: str = "",
+    ) -> dict[str, object]: ...
+
+    def release(
+        self,
+        *,
+        lock_name: str,
+        owner_run_id: str,
+        owner_feature: str,
+        owner_slice: str,
+        details: str = "",
+    ) -> dict[str, object]: ...
+
+    def expire_stale(self) -> list[dict[str, object]]: ...
+
+    def list_locks(self) -> list[dict[str, object]]: ...
+
+    def list_events(self) -> list[dict[str, object]]: ...
 
 
 def _hot_areas(slice_payload: dict[str, object]) -> list[str]:
@@ -59,6 +101,23 @@ def _has_critical_overlap(a: dict[str, object], b: dict[str, object]) -> bool:
     return False
 
 
+def _global_lock_requests(job: dict[str, object]) -> list[dict[str, str]]:
+    repo = str(job.get("repo", "")).strip()
+    requests: list[dict[str, str]] = []
+    for lock_name in job.get("semantic_locks", []):
+        name = str(lock_name).strip()
+        if not name:
+            continue
+        requests.append({"lock_name": f"semantic:{name}", "scope": "semantic", "repo": repo})
+    hot_areas = [str(item).strip() for item in job.get("hot_areas", []) if str(item).strip()]
+    if hot_areas:
+        for hot_area in hot_areas:
+            requests.append({"lock_name": f"hot-area:{repo}:{hot_area}", "scope": "hot_area", "repo": repo})
+    else:
+        requests.append({"lock_name": f"repo:{repo}", "scope": "repo", "repo": repo})
+    return requests
+
+
 def run_slice_scheduler(
     *,
     feature_slug: str,
@@ -66,7 +125,10 @@ def run_slice_scheduler(
     start_slice_callable: Callable[[str], int],
     utc_now: Callable[[], str],
     config: SchedulerConfig,
+    lock_backend: LockBackend | None = None,
+    owner_run_id: str | None = None,
 ) -> dict[str, object]:
+    effective_run_id = str(owner_run_id or feature_slug).strip() or feature_slug
     slices = [item for item in plan_payload.get("slices", []) if isinstance(item, dict)]
     jobs: dict[str, dict[str, object]] = {}
     for payload in slices:
@@ -87,6 +149,7 @@ def run_slice_scheduler(
             "finished_at": None,
             "failure_reason": None,
             "wait_reasons": [],
+            "acquired_locks": [],
         }
     # preflight overlap graph
     overlap_pairs: set[tuple[str, str]] = set()
@@ -120,6 +183,48 @@ def run_slice_scheduler(
         )
 
     def _acquire_locks(job: dict[str, object], now_epoch: float) -> tuple[bool, str]:
+        if lock_backend is not None:
+            released: list[str] = []
+            for expired in lock_backend.expire_stale():
+                released.append(str(expired.get("lock_name", "")).strip())
+            for lock_name in released:
+                _lock_event("expire", lock_name, "expired-owner", "ttl-expired")
+            acquired_requests: list[dict[str, str]] = []
+            for request in _global_lock_requests(job):
+                result = lock_backend.acquire(
+                    lock_name=request["lock_name"],
+                    scope=request["scope"],
+                    repo=request["repo"],
+                    owner_run_id=effective_run_id,
+                    owner_feature=feature_slug,
+                    owner_slice=str(job["slice"]),
+                    ttl_seconds=config.lock_ttl_seconds,
+                    details="scheduler-acquire",
+                )
+                if bool(result.get("granted")):
+                    acquired_requests.append(request)
+                    _lock_event("acquire", request["lock_name"], str(job["slice"]), "global-lock")
+                    continue
+                owner = ":".join(
+                    [
+                        str(result.get("owner_run_id", "")).strip(),
+                        str(result.get("owner_feature", "")).strip(),
+                        str(result.get("owner_slice", "")).strip(),
+                    ]
+                ).strip(":")
+                _lock_event("denied", request["lock_name"], str(job["slice"]), f"owned-by:{owner or 'unknown'}")
+                for acquired in acquired_requests:
+                    lock_backend.release(
+                        lock_name=acquired["lock_name"],
+                        owner_run_id=effective_run_id,
+                        owner_feature=feature_slug,
+                        owner_slice=str(job["slice"]),
+                        details="rollback-partial-acquire",
+                    )
+                    _lock_event("release", acquired["lock_name"], str(job["slice"]), "rollback-partial-acquire")
+                return False, f"wait-global-lock:{request['lock_name']}"
+            job["acquired_locks"] = acquired_requests
+            return True, ""
         for lock_name, lock_payload in list(lock_table.items()):
             expires_at = float(lock_payload.get("expires_epoch", 0.0) or 0.0)
             if expires_at <= now_epoch:
@@ -145,12 +250,40 @@ def run_slice_scheduler(
         return True, ""
 
     def _release_locks(job: dict[str, object]) -> None:
+        if lock_backend is not None:
+            for request in list(job.get("acquired_locks", [])):
+                lock_backend.release(
+                    lock_name=str(request["lock_name"]),
+                    owner_run_id=effective_run_id,
+                    owner_feature=feature_slug,
+                    owner_slice=str(job["slice"]),
+                    details="slice-finished",
+                )
+                _lock_event("release", str(request["lock_name"]), str(job["slice"]), "global-lock")
+            job["acquired_locks"] = []
+            return
         for lock_name in list(lock_table):
             if str(lock_table[lock_name].get("owner")) == job["slice"]:
                 _lock_event("release", lock_name, str(job["slice"]), "slice-finished")
                 lock_table.pop(lock_name, None)
 
     def _heartbeat_running_locks(now_epoch: float) -> None:
+        if lock_backend is not None:
+            for job_name in list(running_jobs):
+                job = jobs.get(job_name)
+                if not isinstance(job, dict):
+                    continue
+                for request in job.get("acquired_locks", []):
+                    result = lock_backend.heartbeat(
+                        lock_name=str(request["lock_name"]),
+                        owner_run_id=effective_run_id,
+                        owner_feature=feature_slug,
+                        owner_slice=str(job["slice"]),
+                        ttl_seconds=config.lock_ttl_seconds,
+                        details="scheduler-heartbeat",
+                    )
+                    _lock_event("heartbeat", str(request["lock_name"]), str(job["slice"]), str(result.get("status", "heartbeat")))
+            return
         for lock_name, lock_payload in lock_table.items():
             owner = str(lock_payload.get("owner", "")).strip()
             if owner in running_jobs:
@@ -272,10 +405,43 @@ def run_slice_scheduler(
             time.sleep(0.01)
 
     finished_at = utc_now()
-    lock_report = [
-        {"lock": lock_name, "owner": payload["owner"], "reason": payload["reason"]}
-        for lock_name, payload in sorted(lock_table.items())
-    ]
+    if lock_backend is not None:
+        lock_report = [
+            {
+                "lock": str(item.get("lock_name", "")),
+                "owner": ":".join(
+                    [
+                        str(item.get("owner_run_id", "")).strip(),
+                        str(item.get("owner_feature", "")).strip(),
+                        str(item.get("owner_slice", "")).strip(),
+                    ]
+                ).strip(":"),
+                "reason": str(item.get("scope", "")),
+            }
+            for item in lock_backend.list_locks()
+        ]
+        event_report = [
+            {
+                "event": str(item.get("event_type", "")),
+                "lock": str(item.get("lock_name", "")),
+                "owner": ":".join(
+                    [
+                        str(item.get("actor_run_id", "")).strip(),
+                        str(item.get("feature_slug", "")).strip(),
+                        str(item.get("slice_name", "")).strip(),
+                    ]
+                ).strip(":"),
+                "reason": str(item.get("details", "")),
+                "at": str(item.get("timestamp", "")),
+            }
+            for item in lock_backend.list_events()
+        ]
+    else:
+        lock_report = [
+            {"lock": lock_name, "owner": payload["owner"], "reason": payload["reason"]}
+            for lock_name, payload in sorted(lock_table.items())
+        ]
+        event_report = lock_events
     return {
         "feature": feature_slug,
         "started_at": started_at,
@@ -290,7 +456,7 @@ def run_slice_scheduler(
         "jobs": [jobs[name] for name in sorted(jobs)],
         "waits": waits,
         "locks": lock_report,
-        "lock_events": lock_events,
+        "lock_events": event_report,
         "dlq": dlq,
         "traceability": [
             {"feature": feature_slug, "slice": job["slice"], "worker": job["worker"], "status": job["status"]}

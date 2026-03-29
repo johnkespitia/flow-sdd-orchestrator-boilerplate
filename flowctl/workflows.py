@@ -9,9 +9,11 @@ import textwrap
 import time
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Callable
 
+from .locks import SQLiteGlobalLockBackend
 from .multiagent import SchedulerConfig, run_slice_scheduler
 from .quality_gates import (
     build_traceability_matrix,
@@ -749,6 +751,23 @@ def _ensure_engine_state(state: dict[str, object], *, utc_now: Callable[[], str]
     return engine
 
 
+def _resolve_engine_run_id(
+    engine: dict[str, object],
+    *,
+    feature_slug: str,
+    utc_now: Callable[[], str],
+    reuse_existing: bool,
+) -> str:
+    existing = str(engine.get("run_id", "") or "").strip()
+    if reuse_existing and existing:
+        return existing
+    prefix = feature_slug.replace("/", "-").strip("-") or "workflow"
+    run_id = f"{prefix}-{uuid.uuid4().hex[:12]}"
+    engine["run_id"] = run_id
+    engine["run_started_at"] = utc_now()
+    return run_id
+
+
 def _stage_record(engine: dict[str, object], stage_name: str) -> dict[str, object]:
     stages = engine["stages"]
     assert isinstance(stages, dict)
@@ -1138,6 +1157,8 @@ def command_workflow_run(
     rel: Callable[[Path], str],
     utc_now: Callable[[], str],
     json_dumps: Callable[[object], str],
+    run_slice_scheduler_callable: Callable[..., dict[str, object]] = run_slice_scheduler,
+    lock_backend_factory: Callable[[], object] | None = None,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> int:
     require_dirs()
@@ -1194,6 +1215,16 @@ def command_workflow_run(
         except json.JSONDecodeError:
             pass
         return rc, {}
+
+    run_id = _resolve_engine_run_id(
+        engine,
+        feature_slug=slug,
+        utc_now=utc_now,
+        reuse_existing=bool(resume_from or retry_stage),
+    )
+    lock_backend = lock_backend_factory() if lock_backend_factory is not None else None
+    if isinstance(lock_backend, SQLiteGlobalLockBackend):
+        lock_backend.initialize()
 
     engine["status"] = "running"
     engine["paused_at_stage"] = pause_at or None
@@ -1280,7 +1311,7 @@ def command_workflow_run(
                     args_obj = type("SliceStartArgs", (), {"spec": slug, "slice": slice_name})()
                     return command_slice_start(args_obj)
 
-                scheduler_report = run_slice_scheduler(
+                scheduler_report = run_slice_scheduler_callable(
                     feature_slug=slug,
                     plan_payload=plan_payload,
                     start_slice_callable=_start_slice,
@@ -1292,6 +1323,8 @@ def command_workflow_run(
                         lock_ttl_seconds=max(5, int(os.environ.get("FLOW_SCHEDULER_LOCK_TTL_SECONDS", "120"))),
                         max_retries_execution=max(0, int(os.environ.get("FLOW_SCHEDULER_MAX_RETRIES_EXECUTION", "1"))),
                     ),
+                    lock_backend=lock_backend,
+                    owner_run_id=run_id,
                 )
                 scheduler_json = workflow_report_root / f"{slug}-scheduler.json"
                 scheduler_md = workflow_report_root / f"{slug}-scheduler.md"
@@ -1322,6 +1355,7 @@ def command_workflow_run(
                 )
                 rc = 0 if str(scheduler_report.get("status")) == "passed" else 1
                 output_ref = rel(scheduler_json)
+                scheduler_report_cache = scheduler_report
         else:
             rc, output_ref = _run_stage_callable(stage_name, slug, callables)
 
@@ -1407,7 +1441,7 @@ def command_workflow_run(
                         args_obj = type("SliceStartArgs", (), {"spec": slug, "slice": slice_name})()
                         return command_slice_start(args_obj)
 
-                    scheduler_report = run_slice_scheduler(
+                    scheduler_report = run_slice_scheduler_callable(
                         feature_slug=slug,
                         plan_payload=plan_payload,
                         start_slice_callable=_start_slice,
@@ -1419,6 +1453,8 @@ def command_workflow_run(
                             lock_ttl_seconds=max(5, int(os.environ.get("FLOW_SCHEDULER_LOCK_TTL_SECONDS", "120"))),
                             max_retries_execution=max(0, int(os.environ.get("FLOW_SCHEDULER_MAX_RETRIES_EXECUTION", "1"))),
                         ),
+                        lock_backend=lock_backend,
+                        owner_run_id=run_id,
                     )
                     scheduler_json = workflow_report_root / f"{slug}-scheduler.json"
                     scheduler_md = workflow_report_root / f"{slug}-scheduler.md"
@@ -1615,6 +1651,7 @@ def command_workflow_run(
 
     payload = {
         "feature": slug,
+        "run_id": run_id,
         "status": finalized_status,
         "engine_status": engine["status"],
         "stages": stage_reports,

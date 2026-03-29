@@ -566,6 +566,140 @@ class WorkflowEngineTests(unittest.TestCase):
         self.assertEqual([], rb["reverted_items"])
         self.assertEqual([], rb["pending_items"])
 
+    def test_workflow_run_generates_run_id_and_passes_it_to_scheduler(self) -> None:
+        slug = "softos-autonomous-sdlc-execution-engine"
+        plan_path = self.workflow_report_root / f"{slug}.json"
+        plan_path.write_text(json.dumps({"slices": []}, ensure_ascii=True), encoding="utf-8")
+        captured: dict[str, object] = {}
+
+        def _scheduler(**kwargs: object) -> dict[str, object]:
+            captured.update(kwargs)
+            return {
+                "status": "passed",
+                "queue_size": 0,
+                "capacity": {"max_workers": 1, "per_repo_capacity": 1, "per_hot_area_capacity": 1},
+                "jobs": [],
+                "waits": [],
+                "locks": [],
+                "lock_events": [],
+                "dlq": [],
+                "traceability": [],
+            }
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = workflows.command_workflow_run(
+                self._args(),
+                require_dirs=lambda: None,
+                workspace_config={"project": {"workflow": {"default_orchestrator": "bmad", "force_orchestrator": True}}},
+                resolve_spec=lambda value: Path(value),
+                spec_slug=lambda path: path.name,
+                read_state=self._read_state,
+                write_state=self._write_state,
+                command_plan=self._callable_ok(),
+                command_slice_start=self._callable_ok(),
+                command_ci_spec=self._callable_ok(),
+                command_ci_repo=self._callable_ok(),
+                command_ci_integration=self._callable_ok(),
+                command_release_promote=self._callable_ok(),
+                command_release_verify=self._callable_ok(),
+                command_infra_apply=self._callable_ok(),
+                command_workflow_execute_feature=self._callable_ok(),
+                command_drift_check=self._callable_ok(),
+                command_contract_verify=self._callable_ok(),
+                command_spec_generate_contracts=self._callable_ok(),
+                plan_root=self.workflow_report_root,
+                workflow_report_root=self.workflow_report_root,
+                rel=lambda path: str(path),
+                utc_now=self._now,
+                json_dumps=lambda obj: json.dumps(obj, ensure_ascii=True),
+                run_slice_scheduler_callable=_scheduler,
+                lock_backend_factory=lambda: object(),
+            )
+        self.assertEqual(0, rc)
+        payload = json.loads(out.getvalue().strip())
+        self.assertTrue(str(payload["run_id"]).strip())
+        self.assertEqual(payload["run_id"], self.state_store[slug]["workflow_engine"]["run_id"])
+        self.assertEqual(payload["run_id"], captured["owner_run_id"])
+        self.assertIsNotNone(captured["lock_backend"])
+
+    def test_retry_stage_reuses_existing_run_id(self) -> None:
+        slug = "softos-autonomous-sdlc-execution-engine"
+        existing_run_id = "softos-autonomous-sdlc-execution-engine-existing123"
+        self.state_store[slug] = {
+            "workflow_engine": {
+                "status": "failed",
+                "run_id": existing_run_id,
+                "run_started_at": self._now(),
+                "updated_at": self._now(),
+                "paused_at_stage": None,
+                "stages": {
+                    "plan": {
+                        "stage_name": "plan",
+                        "status": "passed",
+                        "attempt": 1,
+                        "started_at": self._now(),
+                        "finished_at": self._now(),
+                        "input_ref": "state",
+                        "output_ref": "plan",
+                        "failure_reason": None,
+                    }
+                },
+            }
+        }
+        captured: dict[str, object] = {}
+
+        def _scheduler(**kwargs: object) -> dict[str, object]:
+            captured.update(kwargs)
+            return {
+                "status": "passed",
+                "queue_size": 0,
+                "capacity": {"max_workers": 1, "per_repo_capacity": 1, "per_hot_area_capacity": 1},
+                "jobs": [],
+                "waits": [],
+                "locks": [],
+                "lock_events": [],
+                "dlq": [],
+                "traceability": [],
+            }
+
+        plan_path = self.workflow_report_root / f"{slug}.json"
+        plan_path.write_text(json.dumps({"slices": []}, ensure_ascii=True), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = workflows.command_workflow_run(
+                self._args(retry_stage="slice_start"),
+                require_dirs=lambda: None,
+                workspace_config={"project": {"workflow": {"default_orchestrator": "bmad", "force_orchestrator": True}}},
+                resolve_spec=lambda value: Path(value),
+                spec_slug=lambda path: path.name,
+                read_state=self._read_state,
+                write_state=self._write_state,
+                command_plan=self._callable_ok(),
+                command_slice_start=self._callable_ok(),
+                command_ci_spec=self._callable_ok(),
+                command_ci_repo=self._callable_ok(),
+                command_ci_integration=self._callable_ok(),
+                command_release_promote=self._callable_ok(),
+                command_release_verify=self._callable_ok(),
+                command_infra_apply=self._callable_ok(),
+                command_workflow_execute_feature=self._callable_ok(),
+                command_drift_check=self._callable_ok(),
+                command_contract_verify=self._callable_ok(),
+                command_spec_generate_contracts=self._callable_ok(),
+                plan_root=self.workflow_report_root,
+                workflow_report_root=self.workflow_report_root,
+                rel=lambda path: str(path),
+                utc_now=self._now,
+                json_dumps=lambda obj: json.dumps(obj, ensure_ascii=True),
+                run_slice_scheduler_callable=_scheduler,
+                lock_backend_factory=lambda: object(),
+            )
+        self.assertEqual(0, rc)
+        payload = json.loads(out.getvalue().strip())
+        self.assertEqual(existing_run_id, payload["run_id"])
+        self.assertEqual(existing_run_id, captured["owner_run_id"])
+
 
 
 if __name__ == "__main__":
