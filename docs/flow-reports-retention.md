@@ -21,3 +21,7 @@ FLOW_REPORTS_RETENTION_CONFIRM=1 FLOW_REPORTS_RETENTION_DAYS=30 ./scripts/flow_r
 ## Integración CI
 
 Opcional: job mensual con `FLOW_REPORTS_RETENTION_CONFIRM=1` en entorno controlado.
+
+## Evidencia de cierre
+
+- Prueba de regresión canónica: `python3 -m pytest -q gateway/tests/test_ola_d.py -k t23`

@@ -1,6 +1,7 @@
 """Ola D (T14–T25): métricas, UI ops, transforms, plantillas, lint, flow_command, idempotencia."""
 from __future__ import annotations
 
+import os
 import json
 import sqlite3
 import subprocess
@@ -166,6 +167,60 @@ def test_t25_onboarding_checklist_exists() -> None:
 def test_t23_retention_script_syntax(repo_root: Path) -> None:
     script = repo_root / "scripts" / "flow_reports_retention.sh"
     subprocess.run(["bash", "-n", str(script)], check=True)
+
+
+def test_t23_retention_script_enforces_dry_run_and_confirm(repo_root: Path, tmp_path: Path) -> None:
+    script = repo_root / "scripts" / "flow_reports_retention.sh"
+    reports_root = tmp_path / ".flow" / "reports" / "ci"
+    reports_root.mkdir(parents=True, exist_ok=True)
+    old_report = reports_root / "old.json"
+    recent_report = reports_root / "recent.json"
+    old_report.write_text("old", encoding="utf-8")
+    recent_report.write_text("recent", encoding="utf-8")
+    old_timestamp = 1_700_000_000
+    recent_timestamp = 1_800_000_000
+    os.utime(old_report, (old_timestamp, old_timestamp))
+    os.utime(recent_report, (recent_timestamp, recent_timestamp))
+
+    dry_run = subprocess.run(
+        [
+            "bash",
+            str(script),
+        ],
+        cwd=repo_root,
+        env={
+            **os.environ,
+            "FLOW_WORKSPACE_ROOT": str(tmp_path),
+            "FLOW_REPORTS_RETENTION_DAYS": "30",
+            "FLOW_REPORTS_RETENTION_CONFIRM": "0",
+        },
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Dry-run" in dry_run.stdout
+    assert old_report.exists()
+    assert recent_report.exists()
+
+    apply_run = subprocess.run(
+        [
+            "bash",
+            str(script),
+        ],
+        cwd=repo_root,
+        env={
+            **os.environ,
+            "FLOW_WORKSPACE_ROOT": str(tmp_path),
+            "FLOW_REPORTS_RETENTION_DAYS": "30",
+            "FLOW_REPORTS_RETENTION_CONFIRM": "1",
+        },
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Limpieza aplicada" in apply_run.stdout
+    assert not old_report.exists()
+    assert recent_report.exists()
 
 
 @pytest.fixture
