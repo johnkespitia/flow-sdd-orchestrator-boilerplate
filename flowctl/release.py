@@ -151,6 +151,38 @@ def _run_command(command: list[str], cwd: Path) -> tuple[int, str, str]:
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
+def _remote_tracking_refs_containing_sha(
+    *,
+    repo_path: Path,
+    repo_sha: str,
+    remote_name: str,
+    root: Path,
+) -> tuple[bool, str]:
+    refs_rc, refs_stdout, refs_stderr = _run_command(
+        ["git", "-C", str(repo_path), "for-each-ref", "--format=%(refname:short)", f"refs/remotes/{remote_name}"],
+        cwd=root,
+    )
+    if refs_rc != 0:
+        return False, refs_stderr or "no pude enumerar refs remotas"
+
+    refs = [line.strip() for line in refs_stdout.splitlines() if line.strip()]
+    if not refs:
+        return False, "sin refs de tracking local para el remote"
+
+    matching_refs: list[str] = []
+    for ref in refs:
+        contains_rc, _, _ = _run_command(
+            ["git", "-C", str(repo_path), "merge-base", "--is-ancestor", repo_sha, ref],
+            cwd=root,
+        )
+        if contains_rc == 0:
+            matching_refs.append(ref)
+
+    if matching_refs:
+        return True, ", ".join(sorted(matching_refs))
+    return False, "ninguna ref remota contiene el commit"
+
+
 def _github_repo_slug_from_remote(remote_url: str) -> str:
     url = remote_url.strip()
     if not url:
@@ -248,15 +280,18 @@ def _verify_release_from_manifest(
             continue
         repo_item["remote"] = remote_url
 
-        remote_sha_rc, remote_sha_stdout, remote_sha_stderr = _run_command(
-            ["git", "-C", str(repo_path), "ls-remote", "--exit-code", "origin", repo_sha],
-            cwd=root,
+        remote_sha_present, remote_sha_details = _remote_tracking_refs_containing_sha(
+            repo_path=repo_path,
+            repo_sha=repo_sha,
+            remote_name="origin",
+            root=root,
         )
-        repo_item["remote_sha_present"] = remote_sha_rc == 0 and bool(remote_sha_stdout)
+        repo_item["remote_sha_present"] = remote_sha_present
+        repo_item["remote_refs"] = remote_sha_details if remote_sha_present else None
         if not repo_item["remote_sha_present"]:
             repo_item["status"] = "failed"
             repo_item["finding"] = "El commit del manifest no existe en origin."
-            details = remote_sha_stderr or "ls-remote sin coincidencias"
+            details = remote_sha_details
             repo_findings.append(
                 f"`{repo_name}`: `{repo_sha}` no existe en origin ({details})."
             )
