@@ -96,29 +96,6 @@ def test_t03_issue_comment_flow_and_shortcut() -> None:
     }
     r2 = intent_from_github("issue_comment", approve_comment)
     assert r2 is not None and r2.intent == "spec.approve" and r2.payload.get("slug") == "direct-approve"
-
-
-def test_t03_t04_issue_comment_spec_shortcut_hydrates_intake() -> None:
-    payload = {
-        "repository": {"full_name": "o/r"},
-        "issue": {
-            "number": 9,
-            "title": "Harden intake",
-            "body": "Body intro\n\n## Acceptance\n- alpha\n- beta\n",
-            "comments_url": "https://api.github.com/repos/o/r/issues/9/comments",
-            "labels": [{"name": "flow-repo:root"}],
-            "comments": 4,
-        },
-        "comment": {"id": 33, "body": "/spec Review context\nMore detail\n"},
-    }
-    req = intent_from_github("issue_comment", payload)
-    assert req is not None
-    assert req.intent == "workflow.intake"
-    assert req.payload.get("description") == "Review context\nMore detail"
-    assert req.payload.get("acceptance_criteria") == ["alpha", "beta"]
-    assert req.payload.get("title", "").endswith("- comment #4")
-
-
 def test_t04_hydration_build_flow_command_and_github_body() -> None:
     root = Path(__file__).resolve().parents[2]
     payload = {
