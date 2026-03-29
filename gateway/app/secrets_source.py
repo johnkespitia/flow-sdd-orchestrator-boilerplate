@@ -41,19 +41,25 @@ class JsonFileSecretSource:
 def build_secret_source(*, workspace_root: Path) -> SecretSource:
     """
     Fuente central configurable:
-    - `SOFTOS_GATEWAY_SECRETS_FILE` apunta a un JSON con secrets (preferido para despliegue central).
+    - `SOFTOS_GATEWAY_SECRETS_FILE` apunta a un JSON con secrets (override explícito).
+    - `workspace.secrets.json` en la raíz del workspace es la fuente central por defecto.
+    - `gateway/data/secrets.json` se conserva como fallback legado.
     - Fallback: variables de entorno.
     """
     file_path = os.getenv("SOFTOS_GATEWAY_SECRETS_FILE", "").strip()
-    if not file_path:
-        # Default recomendado: un artefacto materializado por un secret manager / pipeline.
-        file_path = str(workspace_root / "gateway" / "data" / "secrets.json")
-    return _ChainedSecretSource(
-        sources=[
-            JsonFileSecretSource(Path(file_path).resolve()),
+    central_path = workspace_root / "workspace.secrets.json"
+    legacy_path = workspace_root / "gateway" / "data" / "secrets.json"
+    sources: list[SecretSource] = []
+    if file_path:
+        sources.append(JsonFileSecretSource(Path(file_path).resolve()))
+    sources.extend(
+        [
+            JsonFileSecretSource(central_path.resolve()),
+            JsonFileSecretSource(legacy_path.resolve()),
             EnvSecretSource(),
         ]
     )
+    return _ChainedSecretSource(sources=sources)
 
 
 @dataclass(frozen=True)
@@ -66,4 +72,3 @@ class _ChainedSecretSource:
             if value:
                 return value
         return None
-
