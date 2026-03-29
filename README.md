@@ -535,6 +535,7 @@ python3 ./flow bmad -- --help
 python3 ./flow ci spec --all
 python3 ./flow release cut --version 2026.03.14-1 --spec spec-driven-delivery-bootstrap
 python3 ./flow release verify --version 2026.03.14-1 --env preview --json
+python3 ./flow release publish --bump auto --dry-run --json
 python3 ./flow infra plan spec-driven-delivery-bootstrap --env preview
 make help
 ```

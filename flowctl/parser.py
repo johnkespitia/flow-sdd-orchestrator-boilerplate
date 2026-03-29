@@ -411,6 +411,37 @@ def build_parser(
     release_verify.add_argument("--json", action="store_true", help="Print the verification result as JSON.")
     release_verify.set_defaults(func=commands["release_verify"])
 
+    release_publish = release_subparsers.add_parser(
+        "publish",
+        help="Create a semver OSS release: update changelog, tag, push and optionally publish GitHub Release notes.",
+    )
+    release_publish.add_argument(
+        "--bump",
+        choices=["auto", "patch", "minor", "major"],
+        default="auto",
+        help="Semver bump. `auto` infers from conventional commits since the last semver tag.",
+    )
+    release_publish.add_argument(
+        "--version",
+        help="Explicit semver tag (for example `v0.1.3`). Overrides automatic version calculation.",
+    )
+    release_publish.add_argument(
+        "--since-tag",
+        help="Optional starting semver tag. Defaults to the latest semver tag found in git.",
+    )
+    release_publish.add_argument(
+        "--skip-github",
+        action="store_true",
+        help="Skip `gh release create` and only update changelog + git tag.",
+    )
+    release_publish.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview version, notes and changelog content without mutating git or files.",
+    )
+    release_publish.add_argument("--json", action="store_true", help="Print the publish plan/result as JSON.")
+    release_publish.set_defaults(func=commands["release_publish"])
+
     infra = subparsers.add_parser("infra", help="Plan and apply infrastructure governed by specs.")
     infra_subparsers = infra.add_subparsers(dest="infra_command", required=True)
     infra_plan = infra_subparsers.add_parser("plan", help="Create an infrastructure plan from a spec.")

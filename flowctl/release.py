@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,6 +9,24 @@ from typing import Callable
 from urllib.parse import urlparse
 
 from flowctl.specs import frontmatter_status_allows_execution
+
+SEMVER_TAG_PATTERN = re.compile(r"^v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
+CONVENTIONAL_COMMIT_PATTERN = re.compile(
+    r"^(?P<type>[a-z]+)(?:\([^)]+\))?(?P<breaking>!)?: (?P<description>.+)$"
+)
+
+CONVENTIONAL_SECTIONS = {
+    "feat": "Added",
+    "fix": "Fixed",
+    "perf": "Changed",
+    "refactor": "Changed",
+    "build": "Changed",
+    "ci": "Changed",
+    "chore": "Changed",
+    "docs": "Docs",
+    "test": "Tests",
+    "revert": "Changed",
+}
 
 def _repo_deploy_provider(repo_payload: dict[str, object], environment: str) -> str:
     deploy = repo_payload.get("deploy")
@@ -152,6 +171,17 @@ def _run_command(command: list[str], cwd: Path) -> tuple[int, str, str]:
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
+def _run_command_raw(command: list[str], cwd: Path) -> tuple[int, str, str]:
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode, result.stdout, result.stderr
+
+
 def _remote_tracking_refs_containing_sha(
     *,
     repo_path: Path,
@@ -199,6 +229,181 @@ def _github_repo_slug_from_remote(remote_url: str) -> str:
         slug = parsed.path.strip("/")
         return slug.removesuffix(".git")
     return ""
+
+
+def _is_semver_tag(value: str) -> bool:
+    return SEMVER_TAG_PATTERN.match(value.strip()) is not None
+
+
+def _semver_tuple(value: str) -> tuple[int, int, int]:
+    match = SEMVER_TAG_PATTERN.match(value.strip())
+    if not match:
+        raise ValueError(f"`{value}` no es un tag semver valido (`vX.Y.Z`).")
+    return (
+        int(match.group("major")),
+        int(match.group("minor")),
+        int(match.group("patch")),
+    )
+
+
+def _next_semver_version(current: str | None, bump: str) -> str:
+    if current is None:
+        base = (0, 0, 0)
+    else:
+        base = _semver_tuple(current)
+    major, minor, patch = base
+    if bump == "major":
+        major += 1
+        minor = 0
+        patch = 0
+    elif bump == "minor":
+        minor += 1
+        patch = 0
+    else:
+        patch += 1
+    return f"v{major}.{minor}.{patch}"
+
+
+def _latest_semver_tag(*, run_command, root: Path) -> str | None:
+    rc, stdout, stderr = run_command(["git", "-C", str(root), "tag", "--list", "v*"], root)
+    if rc != 0:
+        raise SystemExit(stderr or "No pude listar tags semver.")
+    tags = [line.strip() for line in stdout.splitlines() if _is_semver_tag(line.strip())]
+    if not tags:
+        return None
+    return max(tags, key=_semver_tuple)
+
+
+def _collect_commit_entries(*, run_command, root: Path, since_tag: str | None) -> list[dict[str, object]]:
+    command = ["git", "-C", str(root), "log", "--format=%H%x1f%s%x1f%b%x1e"]
+    if since_tag:
+        command.append(f"{since_tag}..HEAD")
+    rc, stdout, stderr = _run_command_raw(command, root)
+    if rc != 0:
+        raise SystemExit(stderr or "No pude leer commits para el release.")
+
+    commits: list[dict[str, object]] = []
+    for raw_entry in stdout.split("\x1e"):
+        entry = raw_entry.rstrip("\r\n")
+        if not entry:
+            continue
+        parts = entry.split("\x1f")
+        if len(parts) != 3:
+            continue
+        sha, subject, body = (part.strip() for part in parts)
+        parsed = _parse_conventional_commit(subject, body)
+        commits.append(
+            {
+                "sha": sha,
+                "subject": subject,
+                "body": body,
+                "type": parsed["type"],
+                "description": parsed["description"],
+                "breaking": parsed["breaking"],
+                "conventional": parsed["conventional"],
+            }
+        )
+    return commits
+
+
+def _parse_conventional_commit(subject: str, body: str) -> dict[str, object]:
+    match = CONVENTIONAL_COMMIT_PATTERN.match(subject.strip())
+    breaking = "BREAKING CHANGE" in body or "BREAKING-CHANGE" in body
+    if not match:
+        return {
+            "type": "",
+            "description": subject.strip(),
+            "breaking": breaking,
+            "conventional": False,
+        }
+    commit_type = str(match.group("type") or "").strip()
+    return {
+        "type": commit_type,
+        "description": str(match.group("description") or "").strip(),
+        "breaking": breaking or bool(match.group("breaking")),
+        "conventional": True,
+    }
+
+
+def _infer_semver_bump(commits: list[dict[str, object]]) -> str:
+    if any(bool(commit.get("breaking")) for commit in commits):
+        return "major"
+    if any(str(commit.get("type", "")).strip() == "feat" for commit in commits):
+        return "minor"
+    return "patch"
+
+
+def _render_release_sections(commits: list[dict[str, object]]) -> dict[str, list[str]]:
+    sections: dict[str, list[str]] = {
+        "Added": [],
+        "Changed": [],
+        "Fixed": [],
+        "Docs": [],
+        "Tests": [],
+    }
+    for commit in commits:
+        commit_type = str(commit.get("type", "")).strip()
+        description = str(commit.get("description", "")).strip() or str(commit.get("subject", "")).strip()
+        section = CONVENTIONAL_SECTIONS.get(commit_type, "Changed")
+        sections.setdefault(section, []).append(description)
+    return {name: items for name, items in sections.items() if items}
+
+
+def _render_release_notes(*, version: str, release_date: str, sections: dict[str, list[str]]) -> tuple[str, str]:
+    changelog_lines = [f"## {version} - {release_date}", ""]
+    release_lines = [f"{version}", ""]
+    for section_name in ["Added", "Changed", "Fixed", "Docs", "Tests"]:
+        items = sections.get(section_name, [])
+        if not items:
+            continue
+        changelog_lines.append(f"### {section_name}")
+        changelog_lines.append("")
+        release_lines.append(f"### {section_name}")
+        release_lines.append("")
+        for item in items:
+            changelog_lines.append(f"- {item}")
+            release_lines.append(f"- {item}")
+        changelog_lines.append("")
+        release_lines.append("")
+    return "\n".join(changelog_lines).rstrip() + "\n", "\n".join(release_lines).rstrip()
+
+
+def _prepend_changelog_entry(*, changelog_path: Path, entry: str) -> None:
+    current = changelog_path.read_text(encoding="utf-8")
+    first_release_header = current.find("\n## ")
+    if first_release_header == -1:
+        updated = current.rstrip() + "\n\n" + entry.strip() + "\n"
+    else:
+        insertion_point = first_release_header + 1
+        updated = current[:insertion_point] + entry.strip() + "\n\n" + current[insertion_point:]
+    changelog_path.write_text(updated, encoding="utf-8")
+
+
+def _require_clean_git_tree(*, run_command, root: Path) -> None:
+    rc, stdout, stderr = run_command(["git", "-C", str(root), "status", "--short"], root)
+    if rc != 0:
+        raise SystemExit(stderr or "No pude inspeccionar el estado de git.")
+    if stdout.strip():
+        raise SystemExit(
+            "El repo tiene cambios sin commit; deja el arbol limpio antes de `flow release publish`."
+        )
+
+
+def _require_tag_absent(*, run_command, root: Path, version: str) -> None:
+    rc, stdout, stderr = run_command(
+        ["git", "-C", str(root), "rev-parse", "-q", "--verify", f"refs/tags/{version}"],
+        root,
+    )
+    if rc == 0 and stdout.strip():
+        raise SystemExit(f"El tag `{version}` ya existe localmente.")
+    remote_rc, remote_stdout, remote_stderr = run_command(
+        ["git", "-C", str(root), "ls-remote", "--tags", "origin", f"refs/tags/{version}"],
+        root,
+    )
+    if remote_rc != 0:
+        raise SystemExit(remote_stderr or "No pude consultar tags remotos en origin.")
+    if remote_stdout.strip():
+        raise SystemExit(f"El tag `{version}` ya existe en origin.")
 
 
 def _verify_release_from_manifest(
@@ -789,4 +994,127 @@ def command_release_promote(
         print(json_dumps(promotion_payload))
         return 0
     print(promotion_path)
+    return 0
+
+
+def command_release_publish(
+    args,
+    *,
+    root: Path,
+    changelog_path: Path,
+    utc_now: Callable[[], str],
+    json_dumps: Callable[[object], str],
+    run_command: Callable[[list[str], Path], tuple[int, str, str]] = _run_command,
+) -> int:
+    _require_clean_git_tree(run_command=run_command, root=root)
+
+    if args.version:
+        version = str(args.version).strip()
+        if not _is_semver_tag(version):
+            raise SystemExit("`--version` debe usar semver con prefijo `v` (por ejemplo `v0.1.3`).")
+        since_tag = str(getattr(args, "since_tag", "") or "").strip() or _latest_semver_tag(
+            run_command=run_command,
+            root=root,
+        )
+        selected_bump = str(args.bump).strip()
+    else:
+        since_tag = str(getattr(args, "since_tag", "") or "").strip() or _latest_semver_tag(
+            run_command=run_command,
+            root=root,
+        )
+        commits_for_bump = _collect_commit_entries(run_command=run_command, root=root, since_tag=since_tag)
+        if not commits_for_bump:
+            raise SystemExit("No encontre commits nuevos para publicar desde el ultimo tag semver.")
+        selected_bump = _infer_semver_bump(commits_for_bump) if args.bump == "auto" else str(args.bump).strip()
+        version = _next_semver_version(since_tag, selected_bump)
+
+    _require_tag_absent(run_command=run_command, root=root, version=version)
+
+    commits = _collect_commit_entries(run_command=run_command, root=root, since_tag=since_tag)
+    if not commits:
+        raise SystemExit("No encontre commits nuevos para publicar.")
+
+    release_date = utc_now().split("T", 1)[0]
+    sections = _render_release_sections(commits)
+    changelog_entry, release_notes = _render_release_notes(
+        version=version,
+        release_date=release_date,
+        sections=sections,
+    )
+    payload = {
+        "version": version,
+        "since_tag": since_tag,
+        "bump": selected_bump,
+        "commit_count": len(commits),
+        "changelog": str(changelog_path),
+        "release_notes": release_notes,
+        "github_release": not bool(args.skip_github),
+        "dry_run": bool(args.dry_run),
+    }
+
+    if bool(args.dry_run):
+        if bool(getattr(args, "json", False)):
+            print(json_dumps(payload))
+            return 0
+        print(release_notes)
+        return 0
+
+    if not changelog_path.exists():
+        raise SystemExit(f"No existe changelog versionado en `{changelog_path}`.")
+
+    changelog_contents = changelog_path.read_text(encoding="utf-8")
+    if f"## {version} - " in changelog_contents:
+        raise SystemExit(f"El changelog ya contiene una entrada para `{version}`.")
+
+    _prepend_changelog_entry(changelog_path=changelog_path, entry=changelog_entry)
+
+    add_rc, _, add_stderr = run_command(["git", "-C", str(root), "add", str(changelog_path)], root)
+    if add_rc != 0:
+        raise SystemExit(add_stderr or "No pude hacer `git add` del changelog.")
+
+    commit_message = f"docs(changelog): add {version} release notes"
+    commit_rc, commit_stdout, commit_stderr = run_command(
+        ["git", "-C", str(root), "commit", "-m", commit_message],
+        root,
+    )
+    if commit_rc != 0:
+        raise SystemExit(commit_stderr or commit_stdout or "No pude crear el commit del changelog.")
+
+    tag_rc, _, tag_stderr = run_command(
+        ["git", "-C", str(root), "tag", "-a", version, "-m", version],
+        root,
+    )
+    if tag_rc != 0:
+        raise SystemExit(tag_stderr or f"No pude crear el tag `{version}`.")
+
+    push_main_rc, _, push_main_stderr = run_command(["git", "-C", str(root), "push", "origin", "main"], root)
+    if push_main_rc != 0:
+        raise SystemExit(push_main_stderr or "No pude empujar `main` a origin.")
+
+    push_tag_rc, _, push_tag_stderr = run_command(["git", "-C", str(root), "push", "origin", version], root)
+    if push_tag_rc != 0:
+        raise SystemExit(push_tag_stderr or f"No pude empujar el tag `{version}` a origin.")
+
+    release_url = ""
+    if not bool(args.skip_github):
+        if shutil.which("gh") is None:
+            raise SystemExit(
+                "No encontre `gh`; usa `--skip-github` o ejecuta el comando donde `gh` este disponible."
+            )
+        gh_rc, gh_stdout, gh_stderr = run_command(
+            ["gh", "release", "create", version, "--title", version, "--notes", release_notes],
+            root,
+        )
+        if gh_rc != 0:
+            raise SystemExit(gh_stderr or gh_stdout or f"No pude crear el GitHub Release `{version}`.")
+        release_url = (gh_stdout or "").strip()
+
+    payload["commit_message"] = commit_message
+    payload["release_url"] = release_url or None
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+        return 0
+    print(version)
+    if release_url:
+        print(release_url)
     return 0

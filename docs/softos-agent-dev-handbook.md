@@ -102,6 +102,7 @@ python3 ./flow release cut --version <v> --spec <slug>
 python3 ./flow release promote --version <v> --env <preview|staging|production>
 python3 ./flow release verify --version <v> --env <preview|staging|production> --json
 python3 ./flow release status --version <v> --json
+python3 ./flow release publish --bump <auto|patch|minor|major> [--skip-github] [--dry-run] --json
 ```
 
 Notas:
@@ -109,6 +110,8 @@ Notas:
 - `release promote` ejecuta verificación post-release por defecto.
 - `--require-pipelines` fuerza que checks de pipeline estén disponibles y pasando.
 - `--skip-verify` omite verificación automática (en `production` no marca la feature como `released`).
+- `release publish` es la capa de release OSS del repo: actualiza `CHANGELOG.md`, crea commit/tag semver y opcionalmente publica GitHub Release.
+- `release publish --bump auto` infiere el semver desde commits convencionales (`feat` -> minor, `fix` -> patch, `!`/`BREAKING CHANGE` -> major).
 
 Artefactos:
 

@@ -117,6 +117,7 @@ from flowctl.providers import (
 from flowctl.release import (
     command_release_cut as flow_command_release_cut,
     command_release_manifest as flow_command_release_manifest,
+    command_release_publish as flow_command_release_publish,
     command_release_promote as flow_command_release_promote,
     command_release_status as flow_command_release_status,
     command_release_verify as flow_command_release_verify,
@@ -199,6 +200,7 @@ SECRETS_CONFIG_FILE = ROOT / "workspace.secrets.json"
 RELEASE_ROOT = ROOT / "releases"
 RELEASE_MANIFEST_ROOT = RELEASE_ROOT / "manifests"
 RELEASE_PROMOTION_ROOT = RELEASE_ROOT / "promotions"
+CHANGELOG_FILE = ROOT / "CHANGELOG.md"
 CONTRACTS_ROOT = ROOT / "contracts"
 GENERATED_CONTRACT_ROOT = CONTRACTS_ROOT / "generated"
 
@@ -2392,6 +2394,16 @@ def command_release_verify(args: argparse.Namespace) -> int:
     )
 
 
+def command_release_publish(args: argparse.Namespace) -> int:
+    return flow_command_release_publish(
+        args,
+        root=ROOT,
+        changelog_path=CHANGELOG_FILE,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
+    )
+
+
 def command_infra_plan(args: argparse.Namespace) -> int:
     return flow_command_infra_plan(
         args,
@@ -2490,6 +2502,7 @@ def build_parser() -> argparse.ArgumentParser:
         "release_status": command_release_status,
         "release_promote": command_release_promote,
         "release_verify": command_release_verify,
+        "release_publish": command_release_publish,
         "infra_plan": command_infra_plan,
         "infra_apply": command_infra_apply,
         "infra_status": command_infra_status,
