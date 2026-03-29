@@ -29,6 +29,7 @@ Este documento resume el flujo operativo completo del workspace, el estado actua
 - `POST /webhooks/slack/commands`
 - `POST /v1/intents`
 - `GET /v1/tasks/{task_id}`
+- `POST /v1/tasks/{task_id}/comments`
 - `GET /v1/repos`
 
 ## Flujo Base (Spec-Driven)
@@ -95,6 +96,7 @@ Este documento resume el flujo operativo completo del workspace, el estado actua
 - Provider `github-comment` disponible por feedback provider.
 - Requiere token con permisos de comentar issues/PR.
 - Nota: aprobar por CLI local no dispara comentario a GitHub automáticamente; para eso debe ejecutarse vía gateway (`/v1/intents` o webhook).
+- Los comentarios persistidos en `POST /v1/tasks/{task_id}/comments` se emiten como evento `comment_added` hacia el provider externo cuando la tarea tiene `response_target`.
 
 ## Integración Slack (Estado Actual)
 

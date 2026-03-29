@@ -26,6 +26,7 @@ Eventos de ciclo de vida emitidos por el gateway (timeline + feedback):
 
 - `created`
 - `claimed`
+- `comment_added`
 - `review_requested`
 - `approved`
 - `execution_started`
@@ -38,6 +39,7 @@ Reglas operativas:
 - webhooks de Slack/Jira/GitHub solo aceptan mapeo a `workflow.intake`
 - si no existe correlacion valida, se registra `failed-intake` con causa auditable
 - `closed` se emite cuando `flow` confirma estado final (`closed|done|released`)
+- `comment_added` se emite cuando un comentario de tarea se persiste y se notifica al provider externo
 
 Payload JSON canonico de evento:
 

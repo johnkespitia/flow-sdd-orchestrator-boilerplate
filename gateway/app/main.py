@@ -275,6 +275,22 @@ async def add_task_comment(task_id: str, payload: TaskCommentRequest, request: R
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Task not found.") from exc
+    try:
+        send_feedback_event(
+            request.app.state.settings,
+            event="comment_added",
+            source=str(payload.source or "api"),
+            status=str(task.get("status") or "accepted"),
+            payload={
+                "task_id": task_id,
+                "actor": payload.actor,
+                "direction": payload.direction,
+                "message": payload.message,
+            },
+            response_target=task.get("response_target") if isinstance(task.get("response_target"), dict) else None,
+        )
+    except Exception:
+        pass
     return _view_payload(task)
 
 
