@@ -164,6 +164,29 @@ def test_t25_onboarding_checklist_exists() -> None:
     assert "[ ]" in text or "- [ ]" in text
 
 
+def test_program_closure_evidence_matrix_exists() -> None:
+    root = Path(__file__).resolve().parents[2]
+    p = root / "docs" / "program-closure-evidence-matrix.md"
+    assert p.is_file()
+    text = p.read_text(encoding="utf-8")
+    assert "| Txx | archivo | test/comando | resultado |" in text
+    for token in (
+        "T22",
+        "T23",
+        "T24",
+        "T25",
+        "docs/gateway-sla-incidents.md",
+        "docs/flow-reports-retention.md",
+        "docs/playbook-workflow-rollback.md",
+        "docs/onboarding-team-checklist.md",
+        "python3 ./flow ops sla --json",
+        "python3 -m pytest -q gateway/tests/test_ola_d.py -k t23",
+        "python3 -m pytest -q gateway/tests/test_ola_d.py -k t24",
+        "python3 -m pytest -q gateway/tests/test_ola_d.py -k t25",
+    ):
+        assert token in text
+
+
 def test_t23_retention_script_syntax(repo_root: Path) -> None:
     script = repo_root / "scripts" / "flow_reports_retention.sh"
     subprocess.run(["bash", "-n", str(script)], check=True)
