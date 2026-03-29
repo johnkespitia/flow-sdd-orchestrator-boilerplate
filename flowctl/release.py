@@ -389,13 +389,15 @@ def _require_clean_git_tree(*, run_command, root: Path) -> None:
         )
 
 
-def _require_tag_absent(*, run_command, root: Path, version: str) -> None:
+def _require_tag_absent(*, run_command, root: Path, version: str, check_remote: bool = True) -> None:
     rc, stdout, stderr = run_command(
         ["git", "-C", str(root), "rev-parse", "-q", "--verify", f"refs/tags/{version}"],
         root,
     )
     if rc == 0 and stdout.strip():
         raise SystemExit(f"El tag `{version}` ya existe localmente.")
+    if not check_remote:
+        return
     remote_rc, remote_stdout, remote_stderr = run_command(
         ["git", "-C", str(root), "ls-remote", "--tags", "origin", f"refs/tags/{version}"],
         root,
@@ -1028,7 +1030,12 @@ def command_release_publish(
         selected_bump = _infer_semver_bump(commits_for_bump) if args.bump == "auto" else str(args.bump).strip()
         version = _next_semver_version(since_tag, selected_bump)
 
-    _require_tag_absent(run_command=run_command, root=root, version=version)
+    _require_tag_absent(
+        run_command=run_command,
+        root=root,
+        version=version,
+        check_remote=not bool(args.dry_run),
+    )
 
     commits = _collect_commit_entries(run_command=run_command, root=root, since_tag=since_tag)
     if not commits:
