@@ -2,7 +2,7 @@
 schema_version: 2
 name: SoftOS Autonomous SDLC Execution Engine
 description: Ejecutar automáticamente el SDLC desde specs aprobadas con checkpoints, callbacks y estado consistente
-status: approved
+status: released
 owner: platform
 depends_on:
   - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
