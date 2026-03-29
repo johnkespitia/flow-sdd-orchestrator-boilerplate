@@ -2,7 +2,7 @@
 schema_version: 2
 name: SoftOS Quality Gates Traceability And Risk
 description: Endurecer gobernanza con checkpoints por etapa, matriz de trazabilidad completa y gates adaptativos por riesgo
-status: approved
+status: released
 owner: platform
 depends_on:
   - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
