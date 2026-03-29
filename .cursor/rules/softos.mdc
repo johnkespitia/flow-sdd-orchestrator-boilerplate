@@ -1,0 +1,23 @@
+---
+description: SoftOS workspace operating rules for Cursor
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# SoftOS Cursor Rules
+
+- Use root `specs/**` as canonical source of truth.
+- Treat `.flow/**` as operational state only.
+- Prefer `flow` commands for spec, workflow, CI, stack, and release lifecycle operations.
+- Do not re-plan or re-execute specs in `status: released`.
+- If a repo already provides its own CI workflow, let `root-ci.yml` dispatch it; do not duplicate logic in the root workflow.
+- Delegated project CI must use `workflow_dispatch` only, not `push` or `pull_request`.
+- If a repo already provides its own compose file, include it in the compose stack; do not duplicate the service in `.devcontainer/docker-compose.yml`.
+
+Use these local playbooks for more detail:
+
+- `.agents/skills/softos-agent-playbook/SKILL.md`
+- `.agents/skills/softos-repo-ci-delegation/SKILL.md`
+- `.agents/skills/softos-stack-compose-federation/SKILL.md`
+- `.agents/skills/softos-release-manager/SKILL.md`

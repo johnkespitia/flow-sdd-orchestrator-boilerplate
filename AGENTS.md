@@ -44,3 +44,29 @@ Usa el skill `workspace/skills-discover` cuando necesites buscar skills en tessl
 - When a root spec includes `targets` that point into a submodule, read the root spec first and then descend into the corresponding submodule `AGENTS.md` before editing code.
 - Treat `.flow/**` as operational state only. It helps with orchestration, but it never overrides `specs/**`.
 - Any new feature spec in `specs/features/**` must explicitly consider foundations (`specs/000-foundation/**`) and domains (`specs/domains/**`) through `depends_on` or a justified exclusion in the body.
+
+## SoftOS operating playbooks
+
+For any AI agent working in this workspace, the following local playbooks are the preferred source of operational guidance:
+
+- `.agents/skills/softos-agent-playbook/SKILL.md`
+- `.agents/skills/softos-repo-ci-delegation/SKILL.md`
+- `.agents/skills/softos-stack-compose-federation/SKILL.md`
+- `.agents/skills/softos-release-manager/SKILL.md`
+
+Apply them when the task touches:
+
+- spec lifecycle, workflow execution, or release state
+- repo CI delegated from `root-ci.yml`
+- project-owned `docker-compose.yml` files integrated into the workspace stack
+- semver/changelog/GitHub Release publication
+
+## Cross-agent compatibility
+
+If the coding assistant supports only Markdown policy files instead of `.agents/skills/**`, use:
+
+- `AGENTS.md` as the primary root contract
+- `OPENCODE.md` for OpenCode-style Markdown context loading
+- `.cursor/rules/softos.mdc` for Cursor native rules
+
+All three should be kept aligned with the playbooks above.
