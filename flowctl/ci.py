@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from flowctl.secret_scan import is_advisory_secret_finding
-from flowctl.specs import slice_governance_findings
+from flowctl.specs import frontmatter_status_allows_strict_ci, slice_governance_findings
 
 
 def load_ci_service_overrides_from_env() -> dict[str, dict[str, object]]:
@@ -119,9 +119,9 @@ def command_ci_spec(
         analysis = analyze_spec(spec_path)
         frontmatter = analysis["frontmatter"]
         status = str(frontmatter.get("status", "")).strip().lower()
-        if (bool(getattr(args, "all", False)) or bool(getattr(args, "changed", False))) and status != "approved":
+        if (bool(getattr(args, "all", False)) or bool(getattr(args, "changed", False))) and not frontmatter_status_allows_strict_ci(status):
             advisory = (
-                "Spec omitida en `ci spec` (modo `--all` o `--changed`) por estado no aprobado. "
+                "Spec omitida en `ci spec` (modo `--all` o `--changed`) por estado no listo para CI estricto. "
                 "Usa `flow spec review` + `flow spec approve` para incluirla en validacion estricta."
             )
             items.append(
@@ -154,11 +154,11 @@ def command_ci_spec(
         findings.extend(slice_governance_findings(analysis))
         if analysis["todo_count"]:
             findings.append("La spec contiene `TODO`.")
-        is_non_approved = status != "approved"
+        is_non_approved = not frontmatter_status_allows_strict_ci(status)
         non_blocking_draft = False
         if is_non_approved:
             message = (
-                "La spec debe estar en estado `approved` para pasar CI. "
+                "La spec debe estar en estado `approved` o `released` para pasar CI. "
                 "Si aun esta en `draft`, usa `flow spec review` para validarla y `flow spec approve` antes de correr este gate."
             )
             if non_blocking_draft:

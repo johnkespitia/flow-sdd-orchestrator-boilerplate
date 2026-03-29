@@ -7,6 +7,11 @@ from typing import Any, Callable, Optional
 
 import yaml
 
+EXECUTABLE_FRONTMATTER_STATUSES = {"approved"}
+STRICT_CI_FRONTMATTER_STATUSES = {"approved", "released"}
+DEPENDENCY_READY_FRONTMATTER_STATUSES = {"approved", "released"}
+TERMINAL_FRONTMATTER_STATUSES = {"released"}
+
 
 @dataclass(frozen=True)
 class SpecConfig:
@@ -53,6 +58,26 @@ def build_spec_config(
         test_ref_re=test_ref_re,
         todo_re=todo_re,
     )
+
+
+def normalize_frontmatter_status(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
+def frontmatter_status_allows_strict_ci(value: object) -> bool:
+    return normalize_frontmatter_status(value) in STRICT_CI_FRONTMATTER_STATUSES
+
+
+def frontmatter_status_allows_dependencies(value: object) -> bool:
+    return normalize_frontmatter_status(value) in DEPENDENCY_READY_FRONTMATTER_STATUSES
+
+
+def frontmatter_status_allows_execution(value: object) -> bool:
+    return normalize_frontmatter_status(value) in EXECUTABLE_FRONTMATTER_STATUSES
+
+
+def frontmatter_status_is_terminal(value: object) -> bool:
+    return normalize_frontmatter_status(value) in TERMINAL_FRONTMATTER_STATUSES
 
 
 def all_spec_paths(config: SpecConfig) -> list[Path]:
@@ -989,9 +1014,9 @@ def spec_dependency_findings(
             findings.append(f"La spec dependiente `{dependency}` tiene frontmatter invalido: {exc}")
             continue
         dependency_status = str(dependency_frontmatter.get("status", "")).strip() or "missing"
-        if dependency_status != "approved":
+        if not frontmatter_status_allows_dependencies(dependency_status):
             findings.append(
-                f"`depends_on` requiere specs aprobadas: `{dependency}` esta en `{dependency_status}`."
+                f"`depends_on` requiere specs listas (`approved` o `released`): `{dependency}` esta en `{dependency_status}`."
             )
         resolved_dependencies.append(dependency_path.resolve())
 

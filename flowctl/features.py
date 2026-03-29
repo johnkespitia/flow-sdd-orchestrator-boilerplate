@@ -10,7 +10,11 @@ import textwrap
 from pathlib import Path
 from typing import Callable, Optional
 
-from .specs import slice_governance_findings
+from .specs import (
+    frontmatter_status_allows_execution,
+    frontmatter_status_is_terminal,
+    slice_governance_findings,
+)
 
 
 def render_yaml_list(key: str, values: list[str]) -> list[str]:
@@ -537,7 +541,9 @@ def command_plan(
     slug = spec_slug(spec_path)
     analysis = analyze_spec(spec_path)
     frontmatter = analysis["frontmatter"]
-    if frontmatter.get("status") != "approved":
+    if frontmatter_status_is_terminal(frontmatter.get("status")):
+        raise SystemExit(f"La spec '{slug}' ya esta en estado `released`; no se debe planear de nuevo.")
+    if not frontmatter_status_allows_execution(frontmatter.get("status")):
         raise SystemExit(f"La spec '{slug}' debe estar en estado `approved` antes de planearla.")
 
     if analysis["target_errors"]:
@@ -830,8 +836,10 @@ def command_slice_verify(
     findings: list[str] = []
     checks: list[tuple[str, str, str]] = []
 
-    if analysis["frontmatter"].get("status") == "approved":
+    if frontmatter_status_allows_execution(analysis["frontmatter"].get("status")):
         checks.append(("PASS", "Estado de spec", "La spec sigue aprobada."))
+    elif frontmatter_status_is_terminal(analysis["frontmatter"].get("status")):
+        checks.append(("PASS", "Estado de spec", "La spec ya esta liberada; la verificacion es historica."))
     else:
         findings.append("La spec ya no esta en estado `approved`.")
         checks.append(("FAIL", "Estado de spec", "La spec debe volver a aprobarse antes de verificar slices."))

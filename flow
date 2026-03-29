@@ -1072,7 +1072,7 @@ def releasable_feature_specs() -> list[Path]:
     selected: list[Path] = []
     for spec_path in sorted(FEATURE_SPECS.glob("*.spec.md")):
         analysis = analyze_spec(spec_path)
-        if analysis["frontmatter"].get("status") != "approved":
+        if not flow_specs.frontmatter_status_allows_execution(analysis["frontmatter"].get("status")):
             continue
         state = read_state(spec_slug(spec_path))
         if str(state.get("status", "")) == "released":
@@ -2373,6 +2373,7 @@ def command_release_promote(args: argparse.Namespace) -> int:
         write_json=write_json,
         read_state=read_state,
         write_state=write_state,
+        replace_frontmatter_status=replace_frontmatter_status,
         json_dumps=json_dumps,
     )
 

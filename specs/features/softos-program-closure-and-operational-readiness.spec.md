@@ -2,7 +2,7 @@
 schema_version: 2
 name: SoftOS Program Closure And Operational Readiness
 description: Cerrar de forma verificable todos los pendientes activos del backlog operativo para dejar el programa listo para escala de equipo
-status: approved
+status: released
 owner: platform
 depends_on:
   - ../../specs/000-foundation/spec-as-source-operating-model.spec.md

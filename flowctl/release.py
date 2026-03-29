@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
+from flowctl.specs import frontmatter_status_allows_execution
 
 def _repo_deploy_provider(repo_payload: dict[str, object], environment: str) -> str:
     deploy = repo_payload.get("deploy")
@@ -445,7 +446,7 @@ def command_release_cut(
 
     for spec_path in spec_paths:
         analysis = ensure_spec_ready_for_approval(spec_path)
-        if analysis["frontmatter"].get("status") != "approved":
+        if not frontmatter_status_allows_execution(analysis["frontmatter"].get("status")):
             raise SystemExit(f"La spec `{rel(spec_path)}` debe estar en `approved` para entrar en un release.")
         repos = sorted(analysis["target_index"])
         repos_involved.update(repos)
@@ -663,6 +664,7 @@ def command_release_promote(
     write_json,
     read_state,
     write_state,
+    replace_frontmatter_status: Callable[[Path, str], None],
     json_dumps: Callable[[object], str],
 ) -> int:
     manifest = load_release_manifest(args.version)
@@ -762,6 +764,13 @@ def command_release_promote(
             state["status"] = "released"
             state["released_in"] = args.version
             write_state(slug, state)
+            spec_path_text = str(feature.get("spec_path", "")).strip() or str(state.get("spec_path", "")).strip()
+            if spec_path_text:
+                spec_path = Path(spec_path_text)
+                if not spec_path.is_absolute():
+                    spec_path = (root / spec_path).resolve()
+                if spec_path.exists():
+                    replace_frontmatter_status(spec_path, "released")
 
     if should_verify and not verification_passed:
         raise SystemExit(

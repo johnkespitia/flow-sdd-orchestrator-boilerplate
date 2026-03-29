@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Callable
 
+from flowctl.specs import frontmatter_status_allows_execution, frontmatter_status_is_terminal
+
 
 def command_infra_plan(
     args,
@@ -28,7 +30,10 @@ def command_infra_plan(
     spec_path = resolve_spec(args.spec)
     slug = spec_slug(spec_path)
     analysis = analyze_spec(spec_path)
-    if analysis["frontmatter"].get("status") != "approved":
+    status = analysis["frontmatter"].get("status")
+    if frontmatter_status_is_terminal(status):
+        raise SystemExit(f"La spec `{rel(spec_path)}` ya esta en `released`; no se debe replanear infraestructura.")
+    if not frontmatter_status_allows_execution(status):
         raise SystemExit(f"La spec `{rel(spec_path)}` debe estar en `approved` antes de planear infraestructura.")
     infra_targets = frontmatter_list(analysis["frontmatter"], "infra_targets")
     if not infra_targets:

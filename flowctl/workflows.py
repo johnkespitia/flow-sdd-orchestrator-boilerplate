@@ -23,7 +23,7 @@ from .quality_gates import (
     risk_thresholds_by_level,
     slice_confidence_score,
 )
-from .specs import slice_governance_findings
+from .specs import frontmatter_status_allows_execution, frontmatter_status_is_terminal, slice_governance_findings
 
 
 def workflow_assets(root: Path) -> dict[str, Path]:
@@ -407,7 +407,7 @@ def command_workflow_next_step(
     if not isinstance(slice_results, dict):
         slice_results = {}
 
-    if str(frontmatter.get("status", "draft")).strip() == "approved":
+    if frontmatter_status_allows_execution(frontmatter.get("status", "draft")):
         governance_findings = slice_governance_findings(
             analysis,
             planned_slices=plan_payload.get("slices", []) if isinstance(plan_payload, dict) else None,
@@ -431,7 +431,18 @@ def command_workflow_next_step(
     }
     subagents: list[dict[str, object]] = []
 
-    if str(frontmatter.get("status", "draft")).strip() == "approved":
+    if frontmatter_status_is_terminal(frontmatter.get("status", "draft")) or str(state.get("status", "")).strip() == "released":
+        stage = "release-complete"
+        summary = "La feature ya fue liberada; no corresponde relanzar planning ni ejecucion."
+        next_commands = [
+            flow_shell_command(["release", "status", "--version", str(state.get("released_in", "<version>"))]),
+        ]
+        bmad_recommendation = {
+            "name": "none",
+            "path": "",
+            "why": "La feature ya llego a estado terminal `released`.",
+        }
+    elif frontmatter_status_allows_execution(frontmatter.get("status", "draft")):
         if plan_payload is None:
             stage = "planning"
             summary = "La spec ya esta aprobada; el siguiente paso es derivar slices y worktrees."
@@ -604,6 +615,8 @@ def command_workflow_execute_feature(
     spec_path = resolve_spec(args.spec)
     slug = spec_slug(spec_path)
     analysis = analyze_spec(spec_path)
+    if frontmatter_status_is_terminal(analysis["frontmatter"].get("status")):
+        raise SystemExit(f"La feature `{slug}` ya esta en `released`; no se debe ejecutar de nuevo.")
     assets = workflow_assets(root)
     plan_path = plan_root / f"{slug}.json"
     if bool(getattr(args, "refresh_plan", False)) or not plan_path.exists():

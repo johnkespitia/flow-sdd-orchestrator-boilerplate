@@ -65,7 +65,7 @@ python3 ./flow contract verify --all --json
 
 ## `flow ci spec`
 
-Valida contrato de specs: frontmatter, estado `approved`, `depends_on`, `[@test]` y consistencia estructural.
+Valida contrato de specs: frontmatter, estado `approved|released`, `depends_on`, `[@test]` y consistencia estructural.
 
 ## `flow ci repo`
 
@@ -190,4 +190,3 @@ Si falla submódulo en CI:
 - `docs/process-and-integrations-runbook.md`
 - `specs/000-foundation/spec-as-source-operating-model.spec.md`
 - `specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md`
-

@@ -69,6 +69,12 @@ Los estados canónicos actuales de una feature son:
 | `merged` | La implementación quedó integrada | release cut |
 | `released` | La feature fue promovida al entorno objetivo | cierre del SDLC |
 
+Notas operativas:
+
+- `approved` es el último estado ejecutable del frontmatter.
+- `released` es el estado terminal versionado de una spec ya liberada.
+- Una spec en `released` sigue siendo válida para trazabilidad y CI estricto, pero no debe replanearse ni reejecutarse.
+
 ## Flujo completo
 
 ```text

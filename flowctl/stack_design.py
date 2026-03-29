@@ -8,6 +8,12 @@ from typing import Any, Callable, Optional
 
 import yaml
 
+from flowctl.specs import (
+    frontmatter_status_allows_execution,
+    frontmatter_status_is_terminal,
+    normalize_frontmatter_status,
+)
+
 
 STACK_CONFIG_FILENAME = "workspace.stack.json"
 CAPABILITIES_CONFIG_FILENAME = "workspace.capabilities.json"
@@ -686,7 +692,9 @@ def design_stack_from_spec(
     if not isinstance(frontmatter, dict):
         raise StackDesignError(f"La spec `{spec_path}` no tiene frontmatter valido.")
     frontmatter_status = str(frontmatter.get("status", "")).strip() or "draft"
-    if require_approved and frontmatter_status != "approved":
+    if require_approved and frontmatter_status_is_terminal(frontmatter_status):
+        raise StackDesignError(f"La spec `{spec_path}` ya esta en `released`; no se debe rematerializar stack.")
+    if require_approved and not frontmatter_status_allows_execution(frontmatter_status):
         raise StackDesignError(f"La spec `{spec_path}` debe estar en `approved` para materializar stack.")
 
     raw_projects = analysis.get("stack_projects", [])
@@ -827,7 +835,7 @@ def design_stack_from_spec(
 
     notes = [
         "V2 deriva el stack desde una spec aprobada."
-        if frontmatter_status == "approved"
+        if normalize_frontmatter_status(frontmatter_status) == "approved"
         else "V2 permite previsualizar el stack desde una spec lista para aprobar.",
         "workspace.stack.json queda como artefacto materializado, no como fuente primaria.",
     ]
@@ -1044,10 +1052,14 @@ def resolve_stack_manifest(
     manifest["designed_at"] = utc_now()
     manifest["source_spec"] = rel(spec_path)
     persisted = False
-    if persist and spec_status == "approved":
+    if persist and frontmatter_status_allows_execution(spec_status):
         write_stack_manifest(stack_config_file, manifest)
         persisted = True
-    elif persist and spec_status != "approved":
+    elif persist and frontmatter_status_is_terminal(spec_status):
+        manifest["notes"] = list(manifest.get("notes", [])) + [
+            "No se persistio workspace.stack.json porque la spec ya esta en released."
+        ]
+    elif persist and not frontmatter_status_allows_execution(spec_status):
         manifest["notes"] = list(manifest.get("notes", [])) + [
             "No se persistio workspace.stack.json porque la spec sigue en draft."
         ]
