@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_FILE = ROOT / "workspace.config.json"
-TEXT_EXTENSIONS = {".md", ".json", ".yml", ".yaml", ".txt"}
+TEXT_EXTENSIONS = {".md", ".mdc", ".json", ".yml", ".yaml", ".txt"}
 BOOTSTRAP_PROFILES = ("master", "slave")
 
 
@@ -202,11 +202,15 @@ def rewrite_project_texts(
     }
 
     for relative_root in [
+        "AGENTS.md",
+        "OPENCODE.md",
         "README.md",
         "flow",
         "templates",
         "specs",
         "docs",
+        ".agents",
+        ".cursor",
         ".tessl",
         ".github",
         "scripts",
@@ -223,6 +227,8 @@ def rewrite_project_texts(
         "Makefile",
     ]:
         target = destination / relative_root
+        if not target.exists():
+            continue
         if target.is_file():
             rewrite_text_file(target, replacements)
             continue
