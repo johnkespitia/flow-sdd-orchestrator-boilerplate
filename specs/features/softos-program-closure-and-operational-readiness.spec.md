@@ -60,7 +60,13 @@ Los cierres operativos ya materializados para esta spec deben quedar reflejados 
 - T24: rollback operativo versionado en `docs/playbook-workflow-rollback.md` y validado con `python3 -m pytest -q gateway/tests/test_ola_d.py -k t24`.
 - T25: onboarding operativo versionado en `docs/onboarding-team-checklist.md` y validado con `python3 -m pytest -q gateway/tests/test_ola_d.py -k t25`.
 - El contrato JSON de `python3 ./flow ci integration --profile smoke:ci-clean --auto-up --json` fija `ci_clean_profile`, `strict_preflight`, `preflight_relaxed`, `bootstrap_runtime` y `service_overrides_keys` para trazabilidad de T07-T11.
-- La matriz consolidada `docs/program-closure-evidence-matrix.md` es el artefacto de referencia para `T22..T25` mientras el resto del backlog de cierre siga abierto.
+- La suite `gateway/tests/test_intents_ola_a.py` cubre T01-T04; `gateway/tests/test_ola_b.py` cubre T05, T06, T12 y T13; `flowctl/test_ci_integration_ola_c.py` cubre T07-T11; `gateway/tests/test_ola_d.py` cubre T14-T25.
+- La matriz consolidada `docs/program-closure-evidence-matrix.md` ya referencia `T01..T25` con archivo, comando y resultado reproducible.
+- Evidencia global de cierre disponible:
+  - `uv run python -m pytest -q gateway/tests` → `70 passed, 1 skipped`
+  - `python3 ./flow ci spec --all --json` → passed
+  - `python3 ./flow ci repo --all --json` → passed
+  - `python3 ./flow ci integration --profile smoke:ci-clean --auto-up --json` → passed
 
 ## Precondiciones de entorno
 
