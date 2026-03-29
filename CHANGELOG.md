@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.0 - 2026-03-29
+
+### Added
+
+- propagate agent context to derived workspaces
+- add SoftOS release manager skill
+- add SoftOS operating playbooks
+- delegate repo pipelines from root workflow
+- include project compose files in workspace stack
+- automate changelog and repo publishing
+
+### Fixed
+
+- allow dry-run without remote tag check
+
+### Docs
+
+- add Cursor and OpenCode SoftOS context
+- add v0.1.2 release notes
+
 ## v0.1.2 - 2026-03-29
 
 Release focused on operational closure, release-state consistency, and stronger orchestration governance.
