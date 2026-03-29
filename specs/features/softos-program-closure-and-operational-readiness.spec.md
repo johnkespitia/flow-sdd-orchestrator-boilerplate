@@ -51,6 +51,16 @@ No aplica spec de dominio (`specs/domains/**`) porque el alcance es plataforma/o
 Este spec toma como backlog fuente los ítems abiertos del archivo de pendientes operativo en la fecha de aprobación del spec.
 Todo ítem agregado después de la aprobación de este spec queda fuera de alcance y deberá ir en un spec nuevo.
 
+## Estado de implementación acumulado
+
+Los cierres operativos ya materializados para esta spec deben quedar reflejados también aquí para mantener alineado el gate de drift sobre superficies estables.
+
+- T22: SLA e incidentes publicados en `docs/gateway-sla-incidents.md`, verificables con `python3 ./flow ops sla --json`.
+- T23: retención de `.flow/reports/**` fijada en `docs/flow-reports-retention.md` y validada con `python3 -m pytest -q gateway/tests/test_ola_d.py -k t23`.
+- T24: rollback operativo versionado en `docs/playbook-workflow-rollback.md` y validado con `python3 -m pytest -q gateway/tests/test_ola_d.py -k t24`.
+- T25: onboarding operativo versionado en `docs/onboarding-team-checklist.md` y validado con `python3 -m pytest -q gateway/tests/test_ola_d.py -k t25`.
+- La matriz consolidada `docs/program-closure-evidence-matrix.md` es el artefacto de referencia para `T22..T25` mientras el resto del backlog de cierre siga abierto.
+
 ## Precondiciones de entorno
 
 - Python 3.11+ para ejecutar `gateway/tests` completos.
@@ -229,6 +239,7 @@ Adjuntar:
 - diffs del archivo de pendientes operativo mostrando cierre real T01..T25
 - reportes en `.flow/reports/**`
 - tabla `Txx -> archivo -> test/comando -> resultado`
+- matriz versionada en `docs/program-closure-evidence-matrix.md` para ítems ya cerrados
 - evidencia de root CI con smoke obligatorio
 - evidencia de runbook de despliegue central gateway
 
