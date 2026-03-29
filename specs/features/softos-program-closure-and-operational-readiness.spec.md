@@ -59,6 +59,7 @@ Los cierres operativos ya materializados para esta spec deben quedar reflejados 
 - T23: retención de `.flow/reports/**` fijada en `docs/flow-reports-retention.md` y validada con `python3 -m pytest -q gateway/tests/test_ola_d.py -k t23`.
 - T24: rollback operativo versionado en `docs/playbook-workflow-rollback.md` y validado con `python3 -m pytest -q gateway/tests/test_ola_d.py -k t24`.
 - T25: onboarding operativo versionado en `docs/onboarding-team-checklist.md` y validado con `python3 -m pytest -q gateway/tests/test_ola_d.py -k t25`.
+- El contrato JSON de `python3 ./flow ci integration --profile smoke:ci-clean --auto-up --json` fija `ci_clean_profile`, `strict_preflight`, `preflight_relaxed`, `bootstrap_runtime` y `service_overrides_keys` para trazabilidad de T07-T11.
 - La matriz consolidada `docs/program-closure-evidence-matrix.md` es el artefacto de referencia para `T22..T25` mientras el resto del backlog de cierre siga abierto.
 
 ## Precondiciones de entorno
