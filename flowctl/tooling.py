@@ -7,13 +7,22 @@ from typing import Callable, Optional
 
 
 def capture_command(command: list[str], cwd: Path) -> dict[str, object]:
-    result = subprocess.run(
-        command,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        executable = command[0] if command else "<empty>"
+        return {
+            "command": command,
+            "cwd": str(cwd),
+            "returncode": 127,
+            "output_tail": f"No encontre el ejecutable `{executable}`: {exc}",
+        }
     combined = (result.stdout + "\n" + result.stderr).strip()
     tail = "\n".join(combined.splitlines()[-40:]) if combined else ""
     return {
