@@ -1,0 +1,87 @@
+name: Deploy on PR merge
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - staging
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: deploy-${{ github.event.pull_request.base.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-promote:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.pull_request.base.ref == (vars.SOFTOS_PRODUCTION_BRANCH || 'main') && 'production' || 'staging' }}
+    steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Resolve deploy context
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.pull_request.base.ref }}" == "${{ vars.SOFTOS_PRODUCTION_BRANCH || 'main' }}" ]]; then
+            {
+              echo "FLOW_DEPLOY_ENV=production"
+              echo "FLOW_DEPLOY_TARGET_PATH=${{ vars.SOFTOS_PROD_TARGET_PATH }}"
+            } >> "$GITHUB_ENV"
+          else
+            {
+              echo "FLOW_DEPLOY_ENV=staging"
+              echo "FLOW_DEPLOY_TARGET_PATH=${{ vars.SOFTOS_STAGING_TARGET_PATH }}"
+            } >> "$GITHUB_ENV"
+          fi
+          {
+            echo "FLOW_DEPLOY_BASE_PREFIX=${{ vars.SOFTOS_DEPLOY_BASE_PREFIX || '/' }}"
+            echo "FLOW_DEPLOY_STAGING_PATH=${{ vars.SOFTOS_STAGING_TARGET_PATH }}"
+            echo "FLOW_DEPLOY_PRODUCTION_PATH=${{ vars.SOFTOS_PROD_TARGET_PATH }}"
+            echo "FLOW_DEPLOY_STAGING_SUFFIX=${{ vars.SOFTOS_STAGING_SUFFIX }}"
+            echo "FLOW_DEPLOY_PRODUCTION_SUFFIX=${{ vars.SOFTOS_PRODUCTION_SUFFIX }}"
+            echo "FLOW_DEPLOY_STAGING_FORBIDDEN_FRAGMENT=${{ vars.SOFTOS_STAGING_FORBIDDEN_FRAGMENT || '/public_html/' }}"
+            echo "FLOW_DEPLOY_PRODUCTION_FORBIDDEN_FRAGMENT=${{ vars.SOFTOS_PRODUCTION_FORBIDDEN_FRAGMENT }}"
+            echo "MERGE_SHA=${{ github.event.pull_request.merge_commit_sha }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate production approval evidence
+        if: github.event.pull_request.base.ref == (vars.SOFTOS_PRODUCTION_BRANCH || 'main')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          approved_count="$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json reviews --jq '.reviews | map(select(.state == "APPROVED")) | length')"
+          if [[ "${approved_count}" -lt 1 ]]; then
+            echo "Production merge requires at least one approved review." >&2
+            exit 1
+          fi
+
+      - name: Validate deploy guardrails
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/release/hosting_path_guardrails.sh
+
+      - name: Deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Implement your deploy here"
+          echo "Environment: ${FLOW_DEPLOY_ENV}"
+          echo "Target path: ${FLOW_DEPLOY_TARGET_PATH}"
+
+      - name: Verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Implement your post-deploy verification here"

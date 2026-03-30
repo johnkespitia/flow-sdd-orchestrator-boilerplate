@@ -328,6 +328,9 @@ Deploy transparente por repo:
 - `flow release verify` permite reintentar/verificar manualmente y deja evidencia en
   `releases/promotions/<version>-<env>-verification.json`.
 - Si un release toca varios repos con providers distintos, usa `--deploy-repo <repo>` o `--provider`.
+- El provider `github-actions` tambien puede disparar un workflow reusable de PR-promotion con
+  `FLOW_DEPLOY_GITHUB_WORKFLOW`, `FLOW_DEPLOY_GITHUB_REPO`, `FLOW_DEPLOY_GITHUB_REF`,
+  `FLOW_DEPLOY_SOURCE_REF` y `FLOW_DEPLOY_REQUESTED_BY`.
 
 Contrato recomendado en `workspace.config.json` por repo:
 
@@ -358,6 +361,14 @@ Contrato recomendado en `workspace.config.json` por repo:
 
 `ftp-bridge` delega el deploy legacy a un workflow de GitHub del repo de implementacion (`gh workflow run`),
 manteniendo el gate y la auditoria dentro de SoftOS.
+
+Si tu estrategia de deploy es promotion-by-PR, usa las plantillas canónicas:
+
+- `templates/github-workflows/promotion-pr.yml`
+- `templates/github-workflows/deploy-on-pr-merge.yml`
+- `templates/github-workflows/promotion-pr-ci.yml`
+- `scripts/release/hosting_path_guardrails.sh`
+- `docs/pr-promotion-deploy-runbook.md`
 
 Si exportas `SOFTOS_SLACK_WEBHOOK_URL`, los hooks locales publican un resumen final del delivery:
 fallo en `release promote`, `infra plan` o `infra apply`, y `change ready` cuando `infra apply`

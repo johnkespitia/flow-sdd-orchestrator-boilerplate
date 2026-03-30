@@ -1,0 +1,103 @@
+name: Promotion PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Promotion target environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      source_ref:
+        description: Source branch to promote
+        required: false
+        type: string
+      version:
+        description: Release version label
+        required: false
+        type: string
+      requested_by:
+        description: Operator identifier
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  create-promotion-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve promotion branches
+        id: resolve
+        shell: bash
+        env:
+          STAGING_BRANCH: ${{ vars.SOFTOS_STAGING_BRANCH || 'staging' }}
+          PRODUCTION_BRANCH: ${{ vars.SOFTOS_PRODUCTION_BRANCH || 'main' }}
+          STAGING_SOURCE_DEFAULT: ${{ vars.SOFTOS_STAGING_SOURCE_DEFAULT || 'main' }}
+          PRODUCTION_SOURCE_DEFAULT: ${{ vars.SOFTOS_PRODUCTION_SOURCE_DEFAULT || 'staging' }}
+        run: |
+          set -euo pipefail
+          env_name="${{ inputs.environment }}"
+          source_input="${{ inputs.source_ref }}"
+          case "${env_name}" in
+            staging)
+              base_ref="${STAGING_BRANCH}"
+              default_source="${STAGING_SOURCE_DEFAULT}"
+              ;;
+            production)
+              base_ref="${PRODUCTION_BRANCH}"
+              default_source="${PRODUCTION_SOURCE_DEFAULT}"
+              ;;
+            *)
+              echo "Unsupported environment: ${env_name}" >&2
+              exit 1
+              ;;
+          esac
+          source_ref="${source_input:-${default_source}}"
+          if [[ "${source_ref}" == "${base_ref}" ]]; then
+            echo "source_ref and base_ref cannot be the same (${base_ref})" >&2
+            exit 1
+          fi
+          echo "base_ref=${base_ref}" >> "$GITHUB_OUTPUT"
+          echo "source_ref=${source_ref}" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure source branch exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${{ github.repository }}/branches/${{ steps.resolve.outputs.source_ref }}" >/dev/null
+
+      - name: Create or reuse promotion PR
+        id: create-pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_ref="${{ steps.resolve.outputs.source_ref }}"
+          base_ref="${{ steps.resolve.outputs.base_ref }}"
+          env_name="${{ inputs.environment }}"
+          version="${{ inputs.version }}"
+          requester="${{ inputs.requested_by }}"
+
+          existing_url="$(gh pr list --repo "${{ github.repository }}" --head "${head_ref}" --base "${base_ref}" --state open --json url --jq '.[0].url')"
+          if [[ -n "${existing_url}" ]]; then
+            echo "Promotion PR already exists: ${existing_url}"
+            echo "pr_url=${existing_url}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          title="promote(${env_name}): ${head_ref} -> ${base_ref}"
+          body="## Promotion Request\n- Environment: ${env_name}\n- Source: ${head_ref}\n- Target: ${base_ref}\n- Version: ${version:-n/a}\n- Requested by: ${requester:-automation}\n"
+          pr_url="$(gh pr create --repo "${{ github.repository }}" --head "${head_ref}" --base "${base_ref}" --title "${title}" --body "${body}")"
+          echo "pr_url=${pr_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Promotion PR summary
+        run: |
+          echo "Promotion PR URL: ${{ steps.create-pr.outputs.pr_url }}"

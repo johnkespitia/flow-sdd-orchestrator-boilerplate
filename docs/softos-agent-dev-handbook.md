@@ -129,6 +129,9 @@ Notas:
 - `--skip-verify` omite verificación automática (en `production` no marca la feature como `released`).
 - `release publish` es la capa de release OSS del repo: actualiza `CHANGELOG.md`, crea commit/tag semver y opcionalmente publica GitHub Release.
 - `release publish --bump auto` infiere el semver desde commits convencionales (`feat` -> minor, `fix` -> patch, `!`/`BREAKING CHANGE` -> major).
+- `github-actions` puede despachar promotion PR reusables en repos derivados con
+  `FLOW_DEPLOY_GITHUB_WORKFLOW`, `FLOW_DEPLOY_GITHUB_REPO`, `FLOW_DEPLOY_GITHUB_REF`,
+  `FLOW_DEPLOY_SOURCE_REF` y `FLOW_DEPLOY_REQUESTED_BY`.
 
 Artefactos:
 
@@ -208,5 +211,6 @@ Si falla submódulo en CI:
 - `docs/spec-driven-orchestration.md`
 - `docs/spec-driven-sdlc-map.md`
 - `docs/process-and-integrations-runbook.md`
+- `docs/pr-promotion-deploy-runbook.md`
 - `specs/000-foundation/spec-as-source-operating-model.spec.md`
 - `specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md`

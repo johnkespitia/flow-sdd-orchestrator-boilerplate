@@ -1,0 +1,36 @@
+name: PR Promotion CI
+
+on:
+  pull_request:
+    branches:
+      - staging
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  release-quality-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Install your runtime/toolchain here"
+
+      - name: Critical gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Run the critical release gates for this repo"
+          echo "Examples: tests, migrations dry-run, build, health contract, static analysis"
+
+      - name: Summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "PR Promotion CI / release-quality-gates passed"

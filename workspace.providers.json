@@ -14,7 +14,8 @@
           "gh"
         ],
         "env": {
-          "FLOW_GITHUB_RELEASE_WORKFLOW": "release-promote.yml"
+          "FLOW_GITHUB_RELEASE_WORKFLOW": "release-promote.yml",
+          "FLOW_DEPLOY_GITHUB_REF": "main"
         }
       },
       "ftp-bridge": {
