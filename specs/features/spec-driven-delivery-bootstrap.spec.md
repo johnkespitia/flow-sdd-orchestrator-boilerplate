@@ -18,12 +18,14 @@ targets:
   - ../../docs/spec-driven-orchestration.md
   - ../../docs/sdd-implementation-guide.md
   - ../../docs/process-and-integrations-runbook.md
+  - ../../docs/pr-promotion-deploy-runbook.md
   - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
   - ../../specs/features/spec-driven-delivery-bootstrap.spec.md
   - ../../scripts/release/**
   - ../../scripts/providers/release/**
   - ../../scripts/infra/**
   - ../../scripts/preflight_env.sh
+  - ../../templates/github-workflows/**
 infra_targets:
   - ../../.devcontainer/**
   - ../../scripts/infra/**
@@ -68,6 +70,7 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - `python3 ./flow release promote --version <v> --env <env>` puede resolver automaticamente el provider de deploy desde `workspace.config.json` (`repos.<repo>.deploy`) sin `--provider`
 - cuando un release incluye repos con providers de deploy distintos, `python3 ./flow release promote --version <v> --env <env> --deploy-repo <repo>` permite resolver la ambiguedad de forma explicita
 - existe un provider de bridge para legado FTP (`ftp-bridge`) en `workspace.providers.json` para delegar deploy externo sin bypass del control plane
+- existe un provider reusable `github-actions` capaz de disparar promotion PR workflows con `environment`, `version`, `source_ref` y `requested_by`
 - `python3 ./flow infra plan spec-driven-delivery-bootstrap --env preview` genera un plan registrable solo para specs aprobadas
 - `python3 ./flow infra apply spec-driven-delivery-bootstrap --env preview` ejecuta el hook por defecto y deja evidencia
 - `python3 ./flow add-project <repo> --runtime <runtime>` persiste la configuracion CI derivada del runtime y permite overrides por step en el alta
@@ -79,6 +82,7 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - las foundation specs generadas por capabilities nacen en `draft`, no en `approved`
 - `python3 ./flow release cut --spec <slug>` falla si el plan no existe o si alguna slice planeada no paso verificacion
 - `scripts/preflight_env.sh --build` valida salud base del workspace y falla si hay servicios sin readiness operativo
+- el boilerplate publica templates reusables de `promotion-pr`, `deploy-on-pr-merge` y `promotion-pr-ci`, mas un guardrail canónico de path/aislamiento para despliegues promotion-by-PR
 
 ## Contratos derivados
 
@@ -115,13 +119,21 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
     "flowctl/release.py",
     "flowctl/parser.py",
     "workspace.providers.json",
-    "scripts/providers/release/ftp_bridge.sh"
+    "scripts/providers/release/ftp_bridge.sh",
+    "scripts/providers/release/github_actions.sh",
+    "scripts/release/hosting_path_guardrails.sh",
+    "templates/github-workflows/promotion-pr.yml",
+    "templates/github-workflows/deploy-on-pr-merge.yml",
+    "templates/github-workflows/promotion-pr-ci.yml"
   ],
   "contains": [
     "_resolve_release_provider_from_workspace",
     "--deploy-repo",
     "ftp-bridge",
-    "FLOW_DEPLOY_GITHUB_REPO"
+    "FLOW_DEPLOY_GITHUB_REPO",
+    "FLOW_DEPLOY_SOURCE_REF",
+    "requested_by",
+    "hosting_path_guardrails.sh"
   ],
   "schema": {
     "type": "object"
