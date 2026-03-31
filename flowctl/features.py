@@ -83,6 +83,20 @@ def matches_any_pattern(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(normalized, pattern) for pattern in patterns)
 
 
+def resolve_slice_inspection_path(*, repo_path: Path, planned_worktree: Path, root: Path) -> Path:
+    if not planned_worktree.exists():
+        return repo_path
+    try:
+        repo_relative_path = repo_path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return planned_worktree
+
+    candidate = planned_worktree / repo_relative_path
+    if candidate.exists():
+        return candidate
+    return planned_worktree
+
+
 def command_spec_create(
     args,
     *,
@@ -824,14 +838,11 @@ def command_slice_verify(
 
     repo_path = runtime_path(Path(str(selected["repo_path"])))
     planned_worktree = runtime_path(Path(str(selected["worktree"])))
-    if planned_worktree.exists():
-        try:
-            repo_relative_path = repo_path.resolve().relative_to(root.resolve())
-            inspection_path = planned_worktree / repo_relative_path
-        except ValueError:
-            inspection_path = planned_worktree
-    else:
-        inspection_path = repo_path
+    inspection_path = resolve_slice_inspection_path(
+        repo_path=repo_path,
+        planned_worktree=planned_worktree,
+        root=root,
+    )
 
     findings: list[str] = []
     checks: list[tuple[str, str, str]] = []
