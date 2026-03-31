@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.3.0 - 2026-03-31
+
+### Added
+
+- add reusable PR-promotion deployment patterns
+
+### Fixed
+
+- resolve worktree root inspection path
+
+### Docs
+
+- cover reusable PR promotion templates
+
 ## v0.2.0 - 2026-03-29
 
 ### Added
