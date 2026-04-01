@@ -11,6 +11,7 @@ target_repo="${FLOW_DEPLOY_GITHUB_REPO:-}"
 target_ref="${FLOW_DEPLOY_GITHUB_REF:-main}"
 source_ref="${FLOW_DEPLOY_SOURCE_REF:-}"
 requested_by="${FLOW_DEPLOY_REQUESTED_BY:-${FLOW_RELEASE_APPROVER:-}}"
+run_migrations="${FLOW_DEPLOY_RUN_MIGRATIONS:-}"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI is required for provider github-actions." >&2
@@ -46,6 +47,10 @@ fi
 
 if [[ -n "${requested_by}" ]]; then
   args+=(-f "requested_by=${requested_by}")
+fi
+
+if [[ -n "${run_migrations}" ]]; then
+  args+=(-f "run_migrations=${run_migrations}")
 fi
 
 gh "${args[@]}"

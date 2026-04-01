@@ -18,7 +18,7 @@ targets:
   - ../../docs/spec-driven-orchestration.md
   - ../../docs/sdd-implementation-guide.md
   - ../../docs/process-and-integrations-runbook.md
-  - ../../docs/pr-promotion-deploy-runbook.md
+  - ../../docs/softos-pr-promotion-runbook.md
   - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
   - ../../specs/features/spec-driven-delivery-bootstrap.spec.md
   - ../../scripts/release/**

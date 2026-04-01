@@ -22,6 +22,14 @@ on:
         description: Operator identifier
         required: false
         type: string
+      run_migrations:
+        description: Whether staging deploy should run migrations on merge
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: read
@@ -85,6 +93,7 @@ jobs:
           env_name="${{ inputs.environment }}"
           version="${{ inputs.version }}"
           requester="${{ inputs.requested_by }}"
+          run_migrations="${{ inputs.run_migrations }}"
 
           existing_url="$(gh pr list --repo "${{ github.repository }}" --head "${head_ref}" --base "${base_ref}" --state open --json url --jq '.[0].url')"
           if [[ -n "${existing_url}" ]]; then
@@ -94,7 +103,7 @@ jobs:
           fi
 
           title="promote(${env_name}): ${head_ref} -> ${base_ref}"
-          body="## Promotion Request\n- Environment: ${env_name}\n- Source: ${head_ref}\n- Target: ${base_ref}\n- Version: ${version:-n/a}\n- Requested by: ${requester:-automation}\n"
+          body="## Promotion Request\n- Environment: ${env_name}\n- Source: ${head_ref}\n- Target: ${base_ref}\n- Version: ${version:-n/a}\n- Requested by: ${requester:-automation}\n- Run migrations: ${run_migrations}\n\n<!-- softos:run_migrations=${run_migrations} -->"
           pr_url="$(gh pr create --repo "${{ github.repository }}" --head "${head_ref}" --base "${base_ref}" --title "${title}" --body "${body}")"
           echo "pr_url=${pr_url}" >> "$GITHUB_OUTPUT"
 

@@ -1,4 +1,4 @@
-# PR Promotion & Deploy Runbook
+# SoftOS PR Promotion & Deploy Runbook
 
 Usa este patrón cuando un repo de implementación promueve cambios por Pull Request entre ramas de entorno
 (`main -> staging`, `staging -> production`, u otra política equivalente) y SoftOS debe disparar la promoción
@@ -45,6 +45,7 @@ Inputs soportados:
 - `FLOW_DEPLOY_GITHUB_REF`: rama/ref donde vive el workflow; por defecto `main`.
 - `FLOW_DEPLOY_SOURCE_REF`: rama fuente a promover.
 - `FLOW_DEPLOY_REQUESTED_BY`: operador que pide la promoción.
+- `FLOW_DEPLOY_RUN_MIGRATIONS`: si se envía, pasa el flag `run_migrations` al workflow de promoción.
 
 `flow release promote --env <env>` traduce `version` y `environment` al workflow hijo automáticamente.
 
@@ -57,7 +58,7 @@ Reglas:
 - usar solo `workflow_dispatch`
 - no dispararlo con `push` ni `pull_request`
 - crear o reusar el PR de promoción
-- registrar `environment`, `source_ref`, `version` y `requested_by`
+- registrar `environment`, `source_ref`, `version`, `requested_by` y `run_migrations`
 
 ## 4) Workflow hijo: Deploy on PR merge
 
@@ -70,6 +71,8 @@ Reglas:
 - filtrar por rama destino de entorno
 - verificar aprobaciones adicionales en producción
 - ejecutar guardrails antes del deploy real
+- emitir y verificar release marker
+- correr healthcheck post deploy
 
 ## 5) Guardrails canónicos
 
@@ -98,6 +101,7 @@ Gates mínimos:
 - tests críticos del repo
 - build o empaquetado release
 - smoke/lint específicos del deploy
+- dry-run o smoke de migraciones si aplica
 - cualquier chequeo de migración o contrato sensible
 
 ## 7) Branch protection recomendado
@@ -108,6 +112,7 @@ Para ramas de entorno (`staging`, `main`, o equivalentes):
 - exigir `PR Promotion CI / release-quality-gates`
 - exigir al menos un reviewer para producción
 - restringir bypass de branch protection
+- exigir checks verdes antes de merge en `staging` y `main`
 
 ## 8) Flujo operativo
 
@@ -119,3 +124,13 @@ Para ramas de entorno (`staging`, `main`, o equivalentes):
 6. `python3 ./flow release verify --version <v> --env staging --json`
 
 Para `production`, el patrón es el mismo, pero con reviewer adicional y guardrails más estrictos.
+
+## 9) Rollback
+
+Rollback mínimo recomendado:
+
+1. identificar el último release marker sano;
+2. restaurar el artefacto o ref previo;
+3. revalidar `.env`/`storage` isolation;
+4. correr healthcheck;
+5. ejecutar `python3 ./flow release verify --version <v> --env <env> --json` con evidencia del rollback.

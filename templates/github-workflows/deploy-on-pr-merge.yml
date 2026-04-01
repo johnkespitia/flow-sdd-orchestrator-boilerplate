@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   release-promote:
-    if: github.event.pull_request.merged == true
+    if: github.event.pull_request.merged == true && (github.event.pull_request.base.ref == (vars.SOFTOS_STAGING_BRANCH || 'staging') || github.event.pull_request.base.ref == (vars.SOFTOS_PRODUCTION_BRANCH || 'main'))
     runs-on: ubuntu-latest
     environment: ${{ github.event.pull_request.base.ref == (vars.SOFTOS_PRODUCTION_BRANCH || 'main') && 'production' || 'staging' }}
     steps:
@@ -28,6 +28,8 @@ jobs:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
 
       - name: Resolve deploy context
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         shell: bash
         run: |
           set -euo pipefail
@@ -42,6 +44,10 @@ jobs:
               echo "FLOW_DEPLOY_TARGET_PATH=${{ vars.SOFTOS_STAGING_TARGET_PATH }}"
             } >> "$GITHUB_ENV"
           fi
+          run_migrations="$(printf '%s\n' "${PR_BODY:-}" | sed -n 's/.*<!-- softos:run_migrations=\(true\|false\) -->.*/\1/p' | head -n1)"
+          if [[ -z "${run_migrations}" ]]; then
+            run_migrations="false"
+          fi
           {
             echo "FLOW_DEPLOY_BASE_PREFIX=${{ vars.SOFTOS_DEPLOY_BASE_PREFIX || '/' }}"
             echo "FLOW_DEPLOY_STAGING_PATH=${{ vars.SOFTOS_STAGING_TARGET_PATH }}"
@@ -50,7 +56,10 @@ jobs:
             echo "FLOW_DEPLOY_PRODUCTION_SUFFIX=${{ vars.SOFTOS_PRODUCTION_SUFFIX }}"
             echo "FLOW_DEPLOY_STAGING_FORBIDDEN_FRAGMENT=${{ vars.SOFTOS_STAGING_FORBIDDEN_FRAGMENT || '/public_html/' }}"
             echo "FLOW_DEPLOY_PRODUCTION_FORBIDDEN_FRAGMENT=${{ vars.SOFTOS_PRODUCTION_FORBIDDEN_FRAGMENT }}"
+            echo "FLOW_DEPLOY_HEALTHCHECK_URL=${{ github.event.pull_request.base.ref == (vars.SOFTOS_PRODUCTION_BRANCH || 'main') && vars.SOFTOS_PROD_HEALTHCHECK_URL || vars.SOFTOS_STAGING_HEALTHCHECK_URL }}"
+            echo "FLOW_DEPLOY_RELEASE_MARKER_PATH=${{ github.event.pull_request.base.ref == (vars.SOFTOS_PRODUCTION_BRANCH || 'main') && vars.SOFTOS_PROD_RELEASE_MARKER_PATH || vars.SOFTOS_STAGING_RELEASE_MARKER_PATH }}"
             echo "MERGE_SHA=${{ github.event.pull_request.merge_commit_sha }}"
+            echo "RUN_MIGRATIONS=${run_migrations}"
           } >> "$GITHUB_ENV"
 
       - name: Validate production approval evidence
@@ -76,12 +85,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Implement your deploy here"
+          echo "Implement your deploy here using FLOW_DEPLOY_TARGET_PATH and secrets/vars"
           echo "Environment: ${FLOW_DEPLOY_ENV}"
           echo "Target path: ${FLOW_DEPLOY_TARGET_PATH}"
+          if [[ "${RUN_MIGRATIONS}" == "true" && "${FLOW_DEPLOY_ENV}" == "staging" ]]; then
+            echo "Run staging migrations here"
+          fi
+          marker_path="${FLOW_DEPLOY_RELEASE_MARKER_PATH:-release-marker.json}"
+          marker_dir="$(dirname "${marker_path}")"
+          mkdir -p "${marker_dir}"
+          cat > "${marker_path}" <<EOF
+          {"commit":"${MERGE_SHA}","environment":"${FLOW_DEPLOY_ENV}"}
+          EOF
 
       - name: Verify
         shell: bash
         run: |
           set -euo pipefail
-          echo "Implement your post-deploy verification here"
+          marker_path="${FLOW_DEPLOY_RELEASE_MARKER_PATH:-release-marker.json}"
+          test -f "${marker_path}"
+          grep -q "${MERGE_SHA}" "${marker_path}"
+          if [[ -n "${FLOW_DEPLOY_HEALTHCHECK_URL:-}" ]]; then
+            curl --fail --silent --show-error --location "${FLOW_DEPLOY_HEALTHCHECK_URL}" >/dev/null
+          fi

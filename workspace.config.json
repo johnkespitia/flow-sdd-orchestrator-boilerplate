@@ -65,5 +65,32 @@
     "spec_inbound_lint": {
       "reject_on_error": false
     }
+  },
+  "examples": {
+    "project_release_deploy": {
+      "legacy-api": {
+        "deploy": {
+          "provider": "github-actions",
+          "providers_by_env": {
+            "staging": "github-actions",
+            "production": "github-actions"
+          },
+          "env": {
+            "FLOW_DEPLOY_GITHUB_REPO": "acme/legacy-api",
+            "FLOW_DEPLOY_GITHUB_WORKFLOW": "promotion-pr.yml",
+            "FLOW_DEPLOY_GITHUB_REF": "main"
+          },
+          "env_by_env": {
+            "staging": {
+              "FLOW_DEPLOY_SOURCE_REF": "main",
+              "FLOW_DEPLOY_RUN_MIGRATIONS": "true"
+            },
+            "production": {
+              "FLOW_DEPLOY_SOURCE_REF": "staging"
+            }
+          }
+        }
+      }
+    }
   }
 }

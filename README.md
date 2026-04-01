@@ -368,7 +368,7 @@ Si tu estrategia de deploy es promotion-by-PR, usa las plantillas canónicas:
 - `templates/github-workflows/deploy-on-pr-merge.yml`
 - `templates/github-workflows/promotion-pr-ci.yml`
 - `scripts/release/hosting_path_guardrails.sh`
-- `docs/pr-promotion-deploy-runbook.md`
+- `docs/softos-pr-promotion-runbook.md`
 
 Si exportas `SOFTOS_SLACK_WEBHOOK_URL`, los hooks locales publican un resumen final del delivery:
 fallo en `release promote`, `infra plan` o `infra apply`, y `change ready` cuando `infra apply`

@@ -211,6 +211,6 @@ Si falla submódulo en CI:
 - `docs/spec-driven-orchestration.md`
 - `docs/spec-driven-sdlc-map.md`
 - `docs/process-and-integrations-runbook.md`
-- `docs/pr-promotion-deploy-runbook.md`
+- `docs/softos-pr-promotion-runbook.md`
 - `specs/000-foundation/spec-as-source-operating-model.spec.md`
 - `specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md`
