@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.2 - 2026-04-03
+
+### Added
+
+- isolate repo runtime commands to slice worktrees
+
 ## v0.4.1 - 2026-04-03
 
 ### Added
