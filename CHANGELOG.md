@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.0 - 2026-04-03
+
+### Added
+
+- add canonical workspace exec entrypoint
+- add SoftOS spec definition playbook
+- add reusable PR promotion deploy patterns
+
 ## v0.3.0 - 2026-03-31
 
 ### Added
