@@ -35,6 +35,7 @@
     "public/index.php": "<?php\necho 'Hello from generic PHP runtime';\n"
   },
   "agent_skill_refs": [
+    "workspace/softos-spec-definition-playbook",
     "workspace/spec-driven-workspace",
     "workspace/php-core"
   ],

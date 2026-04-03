@@ -8,6 +8,7 @@
   "placeholder_dirs": [],
   "placeholder_files": {},
   "agent_skill_refs": [
+    "workspace/softos-spec-definition-playbook",
     "workspace/spec-driven-workspace"
   ],
   "compose": {

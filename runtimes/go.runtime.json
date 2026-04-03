@@ -34,6 +34,7 @@
     "cmd/api/main.go": "package main\n\nimport \"fmt\"\n\nfunc main() {\n    fmt.Println(\"{name} bootstrap\")\n}\n"
   },
   "agent_skill_refs": [
+    "workspace/softos-spec-definition-playbook",
     "workspace/spec-driven-workspace",
     "workspace/go-api-golang-pro"
   ],

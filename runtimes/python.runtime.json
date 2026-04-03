@@ -25,6 +25,7 @@
     "AGENTS.md": "# Python Agent Context\n\nEste repositorio es un microservicio en Python.\n"
   },
   "agent_skill_refs": [
+    "workspace/softos-spec-definition-playbook",
     "workspace/spec-driven-workspace",
     "workspace/python-core"
   ],

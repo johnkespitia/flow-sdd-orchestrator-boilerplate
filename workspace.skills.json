@@ -9,6 +9,16 @@
   },
   "entries": [
     {
+      "name": "workspace/softos-spec-definition-playbook",
+      "provider": "tessl",
+      "kind": "skill",
+      "source": ".agents/skills/softos-spec-definition-playbook",
+      "enabled": true,
+      "required": true,
+      "sync": false,
+      "notes": "Playbook local para crear, revisar y endurecer specs SoftOS listas para slicing y ejecucion."
+    },
+    {
       "name": "workspace/skills-discover",
       "provider": "tessl",
       "kind": "tile",

@@ -6,6 +6,8 @@ Use this file as the root operational contract when the assistant does not load 
 
 - Root `specs/**` is the source of truth.
 - `.flow/**` is operational state only.
+- Read the target spec and `workspace.config.json` before non-trivial edits.
+- Do not edit files outside the active spec `targets` unless the spec changes first.
 - Treat `status: released` as terminal:
   - valid for CI and traceability
   - not valid for re-planning or re-execution
@@ -37,6 +39,10 @@ Use this file as the root operational contract when the assistant does not load 
 ## Local playbooks
 
 - `.agents/skills/softos-agent-playbook/SKILL.md`
+- `.agents/skills/softos-spec-definition-playbook/SKILL.md`
 - `.agents/skills/softos-repo-ci-delegation/SKILL.md`
 - `.agents/skills/softos-stack-compose-federation/SKILL.md`
 - `.agents/skills/softos-release-manager/SKILL.md`
+- `CURSOR.md`
+- `.cursor/rules/softos.mdc`
+- `.cursor/rules/softos-enforcement.mdc`

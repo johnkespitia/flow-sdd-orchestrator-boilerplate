@@ -22,6 +22,7 @@
   ],
   "placeholder_files": {},
   "agent_skill_refs": [
+    "workspace/softos-spec-definition-playbook",
     "workspace/spec-driven-workspace",
     "workspace/skills-discover"
   ],

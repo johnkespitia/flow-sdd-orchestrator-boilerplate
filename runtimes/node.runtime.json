@@ -38,6 +38,7 @@
     "AGENTS.md": "# Node.js Agent Context\n\nEste repositorio es un proyecto en Node.js.\n"
   },
   "agent_skill_refs": [
+    "workspace/softos-spec-definition-playbook",
     "workspace/spec-driven-workspace",
     "workspace/node-core"
   ],

@@ -1,0 +1,54 @@
+---
+description: SoftOS enforcement guardrails for Cursor
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# SoftOS Enforcement Guardrails
+
+Treat these as blocking constraints, not suggestions.
+
+## Source of truth
+
+- Specs in `specs/**` govern system behavior.
+- `workspace.config.json` governs repo routing, runtimes, CI delegation, and compose/deploy metadata.
+- `.flow/**` is evidence and runtime state only.
+
+## When to stop and read first
+
+Before editing, Cursor must read more context if any of these are true:
+
+- the task touches `flow`, `flowctl/**`, `.github/**`, `scripts/**`, `docs/**`, `workspace.*.json`, or `specs/**`
+- the task touches more than one repo
+- the task changes CI, release, deploy, stack, or orchestration behavior
+
+In those cases, read:
+
+- `AGENTS.md`
+- the relevant spec
+- `workspace.config.json`
+
+## File-scope guardrail
+
+- Do not edit files outside the active spec `targets`.
+- If the required fix crosses repo or file boundaries not covered by the spec, update or create a spec first.
+
+## Lifecycle guardrail
+
+- Prefer `python3 ./flow spec review|approve`, `flow workflow ...`, `flow ci ...`, `flow release ...`, and `flow stack ...`.
+- Do not replace a `flow` lifecycle action with a custom shell sequence unless no `flow` command exists.
+
+## Completion guardrail
+
+Do not present work as complete if one of these still applies:
+
+- spec is still structurally invalid
+- spec governance has not been reviewed/approved when required
+- relevant CI gates were not run
+- release state and frontmatter are inconsistent
+
+## Anti-drift guardrail
+
+- If adding stable surfaces under `flowctl/**`, `scripts/**`, `docs/**`, `templates/**`, or `.github/**`, align the governing spec in the same change when required.
+- Do not “just add templates/docs/scripts” without checking drift/spec coverage.
