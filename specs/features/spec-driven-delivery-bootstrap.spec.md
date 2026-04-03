@@ -6,17 +6,24 @@ owner: platform
 depends_on:
   - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
 targets:
+  - ../../AGENTS.md
+  - ../../CURSOR.md
+  - ../../OPENCODE.md
   - ../../flow
   - ../../flowctl/**
   - ../../Makefile
   - ../../README.md
+  - ../../workspace.skills.json
   - ../../workspace.config.json
   - ../../workspace.providers.json
   - ../../runtimes/**
+  - ../../.agents/skills/**
+  - ../../.cursor/**
   - ../../.github/**
   - ../../docs/spec-driven-sdlc-map.md
   - ../../docs/spec-driven-orchestration.md
   - ../../docs/sdd-implementation-guide.md
+  - ../../docs/softos-full-workflow.md
   - ../../docs/process-and-integrations-runbook.md
   - ../../docs/softos-pr-promotion-runbook.md
   - ../../specs/000-foundation/spec-driven-delivery-and-infrastructure.spec.md
@@ -54,6 +61,9 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - documentación del SDLC resultante
 - runbook operativo de integraciones externas (Jira/GitHub/Slack)
 - configuración versionada de feedback providers (`workspace.providers.json`)
+- manifiesto versionado de skills del workspace (`workspace.skills.json`)
+- playbooks y archivos de compatibilidad para agentes (`.agents/skills/**`, `AGENTS.md`, `CURSOR.md`, `OPENCODE.md`, `.cursor/**`)
+- entrypoints canónicos para ejecutar toolchains del workspace desde el devcontainer
 - preflight de entorno agnóstico de runtime para validar readiness antes del primer spec
 
 ### Excluye
@@ -77,6 +87,10 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - `python3 ./flow spec approve <spec> --approver <id>` requiere una review previa lista para aprobar
 - `python3 ./flow spec create <slug> --runtime <pack> --service <pack> --capability <cap>` genera frontmatter declarativo con `schema_version: 2`
 - `python3 ./flow spec review <spec>` y `python3 ./flow ci spec <spec>` fallan si `depends_on`, runtimes, servicios o capabilities declarados no existen o no estan listos
+- `python3 ./flow workspace exec -- <cmd>` ejecuta el comando localmente cuando ya corre dentro del devcontainer y delega al servicio `workspace` cuando se invoca desde host
+- `scripts/workspace_exec.sh <cmd>` y `make workspace ARGS='<cmd>'` reutilizan el mismo entrypoint canónico del workspace para evitar ejecutar toolchains del proyecto directamente en el host
+- `workspace.skills.json` puede registrar skills locales versionados con `provider=tessl`, `kind=skill`, `source` relativo al workspace y `sync=false`
+- los runtime packs en `runtimes/*.runtime.json` pueden exponer esos playbooks locales via `agent_skill_refs`, y `python3 ./flow skills context --repo <repo> --json` resuelve los paths efectivos en `.agents/skills/**` o `.tessl/tiles/**`
 - `python3 ./flow stack design --spec <slug>`, `stack plan --spec <slug>` y `stack apply --spec <slug>` derivan `workspace.stack.json` desde una spec aprobada con `stack_projects`, `stack_services` y `stack_capabilities`
 - los runtime packs pueden declarar `bindings` por runtime de servicio para resolver `environment` y `depends_on` sin modificar el core
 - las foundation specs generadas por capabilities nacen en `draft`, no en `approved`

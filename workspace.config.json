@@ -15,8 +15,12 @@
       "compose_service": "workspace",
       "target_roots": [
         "AGENTS.md",
+        "CURSOR.md",
+        "OPENCODE.md",
         "README.md",
         "TODO.md",
+        ".agents",
+        ".cursor",
         "gateway",
         "flow",
         "templates",
