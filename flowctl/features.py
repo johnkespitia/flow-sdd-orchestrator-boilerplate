@@ -15,6 +15,7 @@ from .specs import (
     frontmatter_status_is_terminal,
     slice_execution_contract,
     slice_governance_findings,
+    verification_matrix_findings,
 )
 
 
@@ -291,6 +292,21 @@ def command_spec_create(
             "",
             *acceptance_lines,
             "",
+            "## Verification Matrix",
+            "",
+            "```yaml",
+            "- name: <verification-profile>",
+            "  level: integration",
+            "  command: scripts/workspace_exec.sh python3 ./flow ci integration --profile smoke --json",
+            "  blocking_on:",
+            "    - ci",
+            "    - release",
+            "  environments:",
+            "    - staging",
+            "    - production",
+            "  notes: <que comportamiento transversal valida>",
+            "```",
+            "",
             "## Test plan",
             "",
             render_test_plan_hints(repos),
@@ -358,6 +374,7 @@ def command_spec_review(
     high_priority.extend(str(error) for error in analysis["test_errors"])
     high_priority.extend(spec_dependency_findings(analysis))
     high_priority.extend(slice_governance_findings(analysis))
+    high_priority.extend(verification_matrix_findings(analysis))
 
     description = str(frontmatter.get("description", "")).strip().lower()
     if not description or description.startswith("todo"):
@@ -412,6 +429,7 @@ def command_spec_review(
         - Schema version: `{analysis['schema_version']}`
         - Targets declarados: `{len(analysis['targets'])}`
         - Referencias `[@test]`: `{len(analysis['test_refs'])}`
+        - Verification profiles: `{len(analysis['verification_matrix'])}`
         - `depends_on`: `{len(analysis['depends_on'])}`
         - `required_runtimes`: `{len(analysis['required_runtimes'])}`
         - `required_services`: `{len(analysis['required_services'])}`
@@ -433,6 +451,7 @@ def command_spec_review(
         "schema_version": analysis["schema_version"],
         "targets_declared": len(analysis["targets"]),
         "test_refs": len(analysis["test_refs"]),
+        "verification_profiles": list(analysis["verification_matrix"]),
         "depends_on": list(analysis["depends_on"]),
         "required_runtimes": list(analysis["required_runtimes"]),
         "required_services": list(analysis["required_services"]),

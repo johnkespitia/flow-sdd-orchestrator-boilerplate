@@ -66,6 +66,7 @@ python3 ./flow contract verify --all --json
 ## `flow ci spec`
 
 Valida contrato de specs: frontmatter, estado `approved|released`, `depends_on`, `[@test]` y consistencia estructural.
+Cuando una spec declare `## Verification Matrix`, `flow ci spec` valida tambien la estructura de esos perfiles transversales.
 
 ## `flow ci repo`
 
@@ -89,6 +90,8 @@ Notas:
 - si el repo no declara `ci.mode=workflow-dispatch`, cae al `flow ci repo <repo>` genérico
 
 ## `flow ci integration --profile smoke`
+
+Las pruebas transversales declaradas en `## Verification Matrix` deben usar comandos ejecutables desde el root del workspace, por ejemplo `scripts/workspace_exec.sh ...`, `python3 ./flow ci integration ...` o `python3 ./flow repo exec ...`.
 
 Valida salud del stack y smoke por servicio.
 

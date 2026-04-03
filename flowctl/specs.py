@@ -21,6 +21,17 @@ SLICE_MODES = {
 }
 NON_EXPANSION_SLICE_MODES = {"governance", "enforcement", "minimal-change", "verification-only"}
 SURFACE_POLICIES = {"required", "optional", "forbidden"}
+VERIFICATION_LEVELS = {
+    "integration",
+    "api-contract",
+    "e2e",
+    "smoke",
+    "migration",
+    "security",
+    "performance",
+    "custom",
+}
+VERIFICATION_BLOCKING_STAGES = {"review", "approval", "ci", "release"}
 
 
 @dataclass(frozen=True)
@@ -440,6 +451,88 @@ def extract_markdown_section(text: str, heading: str) -> str:
     return "\n".join(lines[start_index:end_index]).strip()
 
 
+def parse_verification_matrix(text: str) -> tuple[list[dict[str, object]], list[str], bool]:
+    section = extract_markdown_section(text, "Verification Matrix")
+    if not section:
+        return [], [], False
+
+    block_match = re.search(r"```ya?ml\s*\n(?P<body>.*?)(?:\n```)", section, flags=re.DOTALL | re.IGNORECASE)
+    if block_match is None:
+        return [], ["La seccion `## Verification Matrix` debe incluir un bloque ```yaml```."], True
+
+    body = block_match.group("body")
+    try:
+        payload = yaml.safe_load(body)
+    except yaml.YAMLError as exc:
+        return [], [f"El bloque YAML de `## Verification Matrix` es invalido: {exc}"], True
+
+    if not isinstance(payload, list):
+        return [], ["`## Verification Matrix` debe declarar una lista YAML de perfiles."], True
+
+    findings: list[str] = []
+    profiles: list[dict[str, object]] = []
+    seen_names: set[str] = set()
+
+    for index, raw_item in enumerate(payload, start=1):
+        if not isinstance(raw_item, dict):
+            findings.append(f"`Verification Matrix` item #{index} debe ser un objeto YAML.")
+            continue
+
+        item = {str(key): value for key, value in raw_item.items()}
+        name, name_errors = _string_field(item.get("name"), f"verification_matrix[{index}].name")
+        findings.extend(name_errors)
+        if not name:
+            findings.append(f"`verification_matrix[{index}].name` no puede ser vacio.")
+            continue
+        if name in seen_names:
+            findings.append(f"El perfil `{name}` esta duplicado en `Verification Matrix`.")
+            continue
+        seen_names.add(name)
+
+        level, level_errors = _string_field(item.get("level"), f"verification_matrix[{index}].level")
+        findings.extend(level_errors)
+        if not level:
+            findings.append(f"El perfil `{name}` debe declarar `level`.")
+        elif level not in VERIFICATION_LEVELS:
+            findings.append(
+                f"El perfil `{name}` usa `level={level}` invalido. Valores validos: {', '.join(sorted(VERIFICATION_LEVELS))}."
+            )
+
+        command, command_errors = _string_field(item.get("command"), f"verification_matrix[{index}].command")
+        findings.extend(command_errors)
+        if not command:
+            findings.append(f"El perfil `{name}` debe declarar `command`.")
+
+        blocking_on, blocking_on_errors = _string_list_field(item, "blocking_on")
+        findings.extend(f"`verification {name}`: {error}" for error in blocking_on_errors)
+        if not blocking_on:
+            findings.append(f"El perfil `{name}` debe declarar `blocking_on`.")
+        invalid_stages = [stage for stage in blocking_on if stage not in VERIFICATION_BLOCKING_STAGES]
+        if invalid_stages:
+            findings.append(
+                f"El perfil `{name}` usa `blocking_on` invalido: {', '.join(sorted(invalid_stages))}. "
+                f"Valores validos: {', '.join(sorted(VERIFICATION_BLOCKING_STAGES))}."
+            )
+
+        environments, environments_errors = _string_list_field(item, "environments")
+        findings.extend(f"`verification {name}`: {error}" for error in environments_errors)
+        notes, notes_errors = _string_field(item.get("notes"), f"verification_matrix[{index}].notes")
+        findings.extend(notes_errors)
+
+        profiles.append(
+            {
+                "name": name,
+                "level": level,
+                "command": command,
+                "blocking_on": blocking_on,
+                "environments": environments,
+                "notes": notes,
+            }
+        )
+
+    return profiles, findings, True
+
+
 def parse_slice_breakdown(
     text: str,
     *,
@@ -801,6 +894,7 @@ def analyze_spec(spec_path: Path, *, config: SpecConfig) -> dict[str, object]:
     test_refs = extract_test_references(text, config=config)
     backticked_test_refs = extract_backticked_test_references(text)
     test_index, test_errors = collect_routed_paths(test_refs, config=config)
+    verification_matrix, verification_matrix_errors, has_verification_matrix = parse_verification_matrix(text)
     missing_frontmatter = [field for field in config.required_frontmatter_fields if not frontmatter.get(field)]
 
     return {
@@ -816,6 +910,9 @@ def analyze_spec(spec_path: Path, *, config: SpecConfig) -> dict[str, object]:
         "backticked_test_refs": backticked_test_refs,
         "test_index": test_index,
         "test_errors": test_errors,
+        "verification_matrix": verification_matrix,
+        "verification_matrix_errors": verification_matrix_errors,
+        "has_verification_matrix": has_verification_matrix,
         "depends_on": depends_on,
         "required_runtimes": required_runtimes,
         "required_services": required_services,
@@ -855,6 +952,20 @@ def test_reference_findings(
     return findings
 
 
+def verification_matrix_findings(analysis: dict[str, object]) -> list[str]:
+    findings = [str(item) for item in analysis.get("verification_matrix_errors", [])]
+    target_index = analysis.get("target_index", {})
+    repo_count = len(target_index) if isinstance(target_index, dict) else 0
+    profiles = [item for item in analysis.get("verification_matrix", []) if isinstance(item, dict)]
+
+    if repo_count > 1 and not profiles:
+        findings.append(
+            "La spec afecta multiples repos y debe declarar `## Verification Matrix` con al menos un perfil transversal."
+        )
+
+    return findings
+
+
 def ensure_spec_ready_for_approval(
     spec_path: Path,
     *,
@@ -889,6 +1000,7 @@ def ensure_spec_ready_for_approval(
             validate_test_reference_patterns=validate_test_reference_patterns,
         )
     )
+    blockers.extend(verification_matrix_findings(analysis))
     blockers.extend(
         spec_dependency_findings(
             analysis,

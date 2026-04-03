@@ -60,6 +60,7 @@ Use this skill when the task is to create a new spec, rewrite a weak spec, or re
 - If current behavior must be preserved, describe the preserved behavior explicitly.
 - If current behavior is wrong, say whether to preserve, correct, or defer it.
 - If strict verification will matter, define the command or evidence expected for approval.
+- If the spec promises transversal behavior across repos, API layers, UI layers, or release environments, declare `## Verification Matrix` with executable profiles for smoke, integration, api-contract, e2e, or equivalent levels.
 - If a slice is governance, enforcement, minimal-change, or verification-only, declare the closeout contract explicitly:
   - `slice_mode`
   - `surface_policy`
@@ -96,6 +97,7 @@ Include when relevant:
 - slice or implementation breakdown
 - explicit stop conditions
 - explicit slice closeout contract when the work may end in tests, enforcement, or validated no-op
+- `Verification Matrix` when transversal verification must block CI or release
 
 ## Repo and runtime grounding
 

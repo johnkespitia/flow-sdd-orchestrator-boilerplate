@@ -152,6 +152,7 @@ Qué valida el sistema:
 - que la spec esté realmente lista antes de aprobar
 - que `workflow doctor` mantenga verde BMAD + Tessl como capa orquestadora por defecto
 - que haya `[@test]`
+- que `## Verification Matrix` sea válida cuando la spec declare pruebas transversales
 - que el plan solo ocurra después de `approved`
 - que `slice verify` respete estado, ownership y test links
 
@@ -167,6 +168,7 @@ Hoy esto verifica:
 
 - que `targets` resuelvan
 - que `[@test]` apunten a tests ejecutables por el runner del repo
+- que `Verification Matrix` tenga perfiles ejecutables y etapas bloqueantes válidas
 - superficies estructurales que el stack ya puede comprobar
 
 ### Contracts

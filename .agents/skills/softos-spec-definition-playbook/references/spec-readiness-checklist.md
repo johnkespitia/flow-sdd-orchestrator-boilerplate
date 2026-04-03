@@ -15,6 +15,7 @@ Ask:
 7. Can the agent identify when to stop because the work exceeds scope?
 8. Can the agent identify which foundations and domains the spec depends on?
 9. Can the agent identify whether a slice may close with enforcement, tests, or validated no-op instead of visible surface expansion?
+10. Can the agent identify which transversal verification profiles block CI or release?
 
 If any answer is "not from the spec alone", the spec is incomplete.
 
@@ -33,6 +34,7 @@ If any answer is "not from the spec alone", the spec is incomplete.
 - [ ] Stop conditions are explicit when scope could expand during implementation.
 - [ ] Slices with `surface_policy != required` define `minimum_valid_completion`, `validated_noop_allowed`, and `acceptable_evidence`.
 - [ ] Governance/enforcement/minimal-change/verification-only slices make the closeout mode explicit.
+- [ ] If the feature needs cross-repo, API, smoke, or e2e validation, `## Verification Matrix` declares executable profiles and blocking stages.
 
 ## Strong validation pattern
 

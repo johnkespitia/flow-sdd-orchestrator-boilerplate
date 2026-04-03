@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -441,6 +442,7 @@ def _verify_release_from_manifest(
     require_pipelines: bool,
 ) -> dict[str, object]:
     repos = manifest.get("repos", {})
+    features = manifest.get("features", [])
     payload: dict[str, object] = {
         "version": version,
         "environment": environment,
@@ -448,6 +450,7 @@ def _verify_release_from_manifest(
         "require_pipelines": require_pipelines,
         "status": "passed",
         "repos": [],
+        "features": [],
         "findings": [],
     }
     if not isinstance(repos, dict):
@@ -626,8 +629,88 @@ def _verify_release_from_manifest(
 
         payload["repos"].append(repo_item)
 
-    payload["findings"] = repo_findings
-    payload["status"] = "failed" if repo_findings else "passed"
+    feature_findings: list[str] = []
+    if isinstance(features, list):
+        for feature in features:
+            if not isinstance(feature, dict):
+                continue
+            slug = str(feature.get("slug", "")).strip() or "<sin-slug>"
+            profiles = feature.get("verification_matrix", [])
+            if not isinstance(profiles, list):
+                profiles = []
+            feature_item: dict[str, object] = {
+                "slug": slug,
+                "status": "passed",
+                "verification_profiles": [],
+            }
+            applicable_count = 0
+            for profile in profiles:
+                if not isinstance(profile, dict):
+                    continue
+                blocking_on = [
+                    str(item).strip()
+                    for item in profile.get("blocking_on", [])
+                    if str(item).strip()
+                ]
+                environments = [
+                    str(item).strip()
+                    for item in profile.get("environments", [])
+                    if str(item).strip()
+                ]
+                profile_name = str(profile.get("name", "")).strip() or "<sin-nombre>"
+                profile_item: dict[str, object] = {
+                    "name": profile_name,
+                    "level": str(profile.get("level", "")).strip(),
+                    "status": "skipped",
+                }
+                if "release" not in blocking_on:
+                    profile_item["reason"] = "not-blocking-on-release"
+                    feature_item["verification_profiles"].append(profile_item)
+                    continue
+                if environments and environment not in environments:
+                    profile_item["reason"] = "environment-not-applicable"
+                    feature_item["verification_profiles"].append(profile_item)
+                    continue
+
+                applicable_count += 1
+                command = str(profile.get("command", "")).strip()
+                if not command:
+                    profile_item["status"] = "failed"
+                    profile_item["reason"] = "missing-command"
+                    feature_item["verification_profiles"].append(profile_item)
+                    feature_item["status"] = "failed"
+                    feature_findings.append(
+                        f"`{slug}`: el perfil de verificacion `{profile_name}` no declara `command`."
+                    )
+                    continue
+
+                execution = subprocess.run(
+                    shlex.split(command),
+                    cwd=root,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                combined = (execution.stdout + "\n" + execution.stderr).strip()
+                profile_item["command"] = command
+                profile_item["output_tail"] = "\n".join(combined.splitlines()[-40:]) if combined else ""
+                if execution.returncode == 0:
+                    profile_item["status"] = "passed"
+                else:
+                    profile_item["status"] = "failed"
+                    profile_item["returncode"] = execution.returncode
+                    feature_item["status"] = "failed"
+                    feature_findings.append(
+                        f"`{slug}`: el perfil de verificacion `{profile_name}` fallo durante `release verify`."
+                    )
+                feature_item["verification_profiles"].append(profile_item)
+
+            if applicable_count == 0:
+                feature_item["status"] = "skipped"
+            payload["features"].append(feature_item)
+
+    payload["findings"] = repo_findings + feature_findings
+    payload["status"] = "failed" if payload["findings"] else "passed"
     return payload
 
 
@@ -700,6 +783,7 @@ def command_release_cut(
                 "repos": repos,
                 "targets": analysis["targets"],
                 "test_refs": analysis["test_refs"],
+                "verification_matrix": analysis["verification_matrix"],
             }
         )
 

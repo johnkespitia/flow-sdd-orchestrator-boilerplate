@@ -82,6 +82,30 @@ Prefer:
 - observable outputs
 - required evidence for approval and release
 - explicit slice closeout rules when a slice is governance, enforcement, minimal-change, or verification-only
+- `## Verification Matrix` when smoke, integration, api-contract, e2e, or release-blocking checks are part of the contract
+
+## Verification Matrix contract
+
+Use `## Verification Matrix` when the spec needs tests beyond repo-local `[@test]` references.
+
+Each profile should declare:
+
+- `name`
+- `level`
+- `command`
+- `blocking_on`
+
+Add when relevant:
+
+- `environments`
+- `notes`
+
+Rules:
+
+- `Verification Matrix` is for transversal or stage-blocking checks.
+- `[@test]` remains the contract for repo-local tests and linked test files.
+- Commands should be executable from the workspace root.
+- If a profile blocks release, its command must be stable enough to run from `flow release verify`.
 
 ## Slice Breakdown contract
 

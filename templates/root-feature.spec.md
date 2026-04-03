@@ -129,6 +129,21 @@ Describir el comportamiento observable que esta feature debe introducir en el si
 - <criterio>
 - <criterio>
 
+## Verification Matrix
+
+```yaml
+- name: <verification-profile>
+  level: integration
+  command: scripts/workspace_exec.sh python3 ./flow ci integration --profile smoke --json
+  blocking_on:
+    - ci
+    - release
+  environments:
+    - staging
+    - production
+  notes: <que comportamiento transversal valida>
+```
+
 ## Test plan
 
 - [@test] ../../<implementation-repo>/tests/...
