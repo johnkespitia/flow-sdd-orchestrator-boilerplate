@@ -13,6 +13,14 @@ source_ref="${FLOW_DEPLOY_SOURCE_REF:-}"
 requested_by="${FLOW_DEPLOY_REQUESTED_BY:-${FLOW_RELEASE_APPROVER:-}}"
 run_migrations="${FLOW_DEPLOY_RUN_MIGRATIONS:-}"
 
+if [[ -z "${GH_TOKEN:-}" && -n "${SOFTOS_GITHUB_TOKEN:-}" ]]; then
+  export GH_TOKEN="${SOFTOS_GITHUB_TOKEN}"
+fi
+
+if [[ -z "${GITHUB_TOKEN:-}" && -n "${SOFTOS_GITHUB_TOKEN:-}" ]]; then
+  export GITHUB_TOKEN="${SOFTOS_GITHUB_TOKEN}"
+fi
+
 if ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI is required for provider github-actions." >&2
   exit 1

@@ -1,7 +1,7 @@
 # SoftOS PR Promotion & Deploy Runbook
 
 Usa este patrón cuando un repo de implementación promueve cambios por Pull Request entre ramas de entorno
-(`main -> staging`, `staging -> production`, u otra política equivalente) y SoftOS debe disparar la promoción
+(`release|integration -> staging`, `staging -> main`, u otra política equivalente donde `main` sea terminal) y SoftOS debe disparar la promoción
 desde `flow release promote` usando el provider `github-actions`.
 
 ## 1) Contrato en `workspace.config.json`
@@ -24,6 +24,9 @@ Declara el repo con provider de deploy por entorno y variables del workflow hijo
           "FLOW_DEPLOY_GITHUB_REF": "main"
         },
         "env_by_env": {
+          "staging": {
+            "FLOW_DEPLOY_SOURCE_REF": "release"
+          },
           "production": {
             "FLOW_DEPLOY_SOURCE_REF": "staging"
           }
@@ -49,6 +52,13 @@ Inputs soportados:
 
 `flow release promote --env <env>` traduce `version` y `environment` al workflow hijo automáticamente.
 
+Política recomendada del boilerplate:
+
+- `main` es rama terminal de producción.
+- `staging` nunca debe promoverse desde `main`.
+- `production` debe promoverse exclusivamente desde `staging`.
+- para `staging`, define una rama fuente explícita (`release`, `integration`, `develop`, etc.) en `FLOW_DEPLOY_SOURCE_REF` o `SOFTOS_STAGING_SOURCE_DEFAULT`.
+
 ## 3) Workflow hijo: Promotion PR
 
 Copia y adapta [`templates/github-workflows/promotion-pr.yml`](/Users/john/Projects/Personal/softos-sdd-orchestrator/templates/github-workflows/promotion-pr.yml).
@@ -59,6 +69,8 @@ Reglas:
 - no dispararlo con `push` ni `pull_request`
 - crear o reusar el PR de promoción
 - registrar `environment`, `source_ref`, `version`, `requested_by` y `run_migrations`
+- rechazar `staging <- main`
+- rechazar `production` desde cualquier rama distinta de `staging`
 
 ## 4) Workflow hijo: Deploy on PR merge
 
@@ -123,7 +135,7 @@ Para ramas de entorno (`staging`, `main`, o equivalentes):
 5. Al mergear, `deploy-on-pr-merge.yml` ejecuta deploy + verify
 6. `python3 ./flow release verify --version <v> --env staging --json`
 
-Para `production`, el patrón es el mismo, pero con reviewer adicional y guardrails más estrictos.
+Para `production`, el patrón es `staging -> main`, con reviewer adicional y guardrails más estrictos.
 
 ## 9) Rollback
 

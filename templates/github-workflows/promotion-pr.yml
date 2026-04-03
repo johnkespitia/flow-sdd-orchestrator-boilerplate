@@ -45,7 +45,7 @@ jobs:
         env:
           STAGING_BRANCH: ${{ vars.SOFTOS_STAGING_BRANCH || 'staging' }}
           PRODUCTION_BRANCH: ${{ vars.SOFTOS_PRODUCTION_BRANCH || 'main' }}
-          STAGING_SOURCE_DEFAULT: ${{ vars.SOFTOS_STAGING_SOURCE_DEFAULT || 'main' }}
+          STAGING_SOURCE_DEFAULT: ${{ vars.SOFTOS_STAGING_SOURCE_DEFAULT }}
           PRODUCTION_SOURCE_DEFAULT: ${{ vars.SOFTOS_PRODUCTION_SOURCE_DEFAULT || 'staging' }}
         run: |
           set -euo pipefail
@@ -66,8 +66,24 @@ jobs:
               ;;
           esac
           source_ref="${source_input:-${default_source}}"
+          if [[ -z "${source_ref}" ]]; then
+            if [[ "${env_name}" == "staging" ]]; then
+              echo "staging promotion requires \`source_ref\` or \`SOFTOS_STAGING_SOURCE_DEFAULT\`; \`main\` is terminal and cannot be the default source for staging." >&2
+            else
+              echo "production promotion requires a source branch." >&2
+            fi
+            exit 1
+          fi
           if [[ "${source_ref}" == "${base_ref}" ]]; then
             echo "source_ref and base_ref cannot be the same (${base_ref})" >&2
+            exit 1
+          fi
+          if [[ "${env_name}" == "staging" && "${source_ref}" == "${PRODUCTION_BRANCH}" ]]; then
+            echo "staging promotion cannot use terminal branch ${PRODUCTION_BRANCH} as source." >&2
+            exit 1
+          fi
+          if [[ "${env_name}" == "production" && "${source_ref}" != "${STAGING_BRANCH}" ]]; then
+            echo "production promotion must come from ${STAGING_BRANCH}; got ${source_ref}." >&2
             exit 1
           fi
           echo "base_ref=${base_ref}" >> "$GITHUB_OUTPUT"

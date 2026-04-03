@@ -86,7 +86,7 @@
           },
           "env_by_env": {
             "staging": {
-              "FLOW_DEPLOY_SOURCE_REF": "main",
+              "FLOW_DEPLOY_SOURCE_REF": "release",
               "FLOW_DEPLOY_RUN_MIGRATIONS": "true"
             },
             "production": {

@@ -36,6 +36,7 @@ targets:
 Estandarizar en SoftOS un patrón reusable para:
 
 - promotion deploy basado en PR (`staging` / `main`);
+- `main` como rama terminal de producción;
 - deploy condicionado al merge del PR con guardrails operativos;
 - release provider `github-actions` parametrizable por repo y entorno;
 - runbook de branch protection y checks críticos;
@@ -73,6 +74,7 @@ Ese valor todavía no estaba modelado en SoftOS como una capacidad reusable y pa
 
 - SoftOS provee un patrón reusable de promotion deploy por PR sin acoplarse a un repositorio puntual.
 - Los derivados pueden configurar repo/ref/source_ref/run_migrations por entorno sin tocar el core.
+- El boilerplate no debe sugerir `main -> staging`; la promoción final debe cerrar `staging -> main`.
 - SoftOS publica un runbook genérico para branch protection, checks requeridos, promote/verify/rollback.
 - Las specs de schema-sync en derivados tienen un contrato estándar que evita planes ambiguos o incompletos.
 
@@ -80,8 +82,12 @@ Ese valor todavía no estaba modelado en SoftOS como una capacidad reusable y pa
 
 - El workflow `promotion-pr.yml` se dispara solo por `workflow_dispatch`.
 - El workflow `deploy-on-pr-merge.yml` se dispara solo en `pull_request.closed` y solo continúa si `merged == true`.
+- `main` es la rama terminal de producción en el patrón por defecto del boilerplate.
+- `staging` no puede usar `main` como rama fuente por defecto.
+- `production` solo puede promoverse desde `staging`.
 - `staging` y `production` usan guardrails de path y aislamiento antes del deploy.
 - El release provider `github-actions` traduce `environment`, `version`, `source_ref`, `requested_by` y `run_migrations` al workflow hijo.
+- `flow release promote` debe heredar autenticación GitHub hacia el provider reusable; si solo existe `SOFTOS_GITHUB_TOKEN`, el provider debe normalizarlo a `GH_TOKEN`.
 - El contrato de schema-sync exige exactamente una migración por `CREATE TABLE` del dump, excepto `migrations`.
 - La vista va separada del DDL de tablas.
 - Los tests de schema-sync deben cubrir paridad local y verificación estructural en MySQL CI usando `information_schema`.
@@ -142,10 +148,12 @@ Una spec derivada de schema-sync debe exigir como mínimo:
 ## Criterios de aceptación
 
 - existe `templates/github-workflows/promotion-pr.yml` con inputs `environment`, `source_ref`, `version`, `requested_by` y `run_migrations`;
+- el template rechaza `staging <- main` y obliga `production` desde `staging`;
 - existe `templates/github-workflows/deploy-on-pr-merge.yml` con guardrails, release marker y healthcheck;
 - `scripts/providers/release/github_actions.sh` soporta `FLOW_DEPLOY_GITHUB_REPO`, `FLOW_DEPLOY_GITHUB_REF`, `FLOW_DEPLOY_SOURCE_REF` y `FLOW_DEPLOY_RUN_MIGRATIONS`;
+- `release promote` y el provider `github-actions` aceptan `SOFTOS_GITHUB_TOKEN` como fuente de auth para `gh`;
 - existe el runbook `docs/softos-pr-promotion-runbook.md`;
-- `workspace.providers.json` y `workspace.config.json` incluyen un ejemplo versionado del patrón;
+- `workspace.providers.json` y `workspace.config.json` incluyen un ejemplo versionado del patrón con `main` terminal;
 - la spec documenta el contrato estándar de schema-sync por tabla.
 
 ## Test plan

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -27,6 +28,28 @@ CONVENTIONAL_SECTIONS = {
     "test": "Tests",
     "revert": "Changed",
 }
+
+
+def _provider_auth_env() -> dict[str, str]:
+    env: dict[str, str] = {}
+    gh_token = os.environ.get("GH_TOKEN", "").strip()
+    github_token = os.environ.get("GITHUB_TOKEN", "").strip()
+    softos_token = os.environ.get("SOFTOS_GITHUB_TOKEN", "").strip()
+
+    if gh_token:
+        env["GH_TOKEN"] = gh_token
+    elif softos_token:
+        env["GH_TOKEN"] = softos_token
+
+    if github_token:
+        env["GITHUB_TOKEN"] = github_token
+    elif softos_token:
+        env["GITHUB_TOKEN"] = softos_token
+
+    if softos_token:
+        env["SOFTOS_GITHUB_TOKEN"] = softos_token
+
+    return env
 
 def _repo_deploy_provider(repo_payload: dict[str, object], environment: str) -> str:
     deploy = repo_payload.get("deploy")
@@ -908,6 +931,7 @@ def command_release_promote(
         provider_name,
         provider_config_payload,
         {
+            **_provider_auth_env(),
             "FLOW_RELEASE_VERSION": args.version,
             "FLOW_RELEASE_ENV": args.environment,
             "FLOW_RELEASE_MANIFEST": str(release_manifest_path(args.version).resolve()),
