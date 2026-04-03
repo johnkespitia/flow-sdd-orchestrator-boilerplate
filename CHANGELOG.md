@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.4 - 2026-04-03
+
+### Added
+
+- add transversal verification matrix
+
 ## v0.4.3 - 2026-04-03
 
 ### Fixed
