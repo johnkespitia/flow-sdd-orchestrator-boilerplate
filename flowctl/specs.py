@@ -11,6 +11,16 @@ EXECUTABLE_FRONTMATTER_STATUSES = {"approved"}
 STRICT_CI_FRONTMATTER_STATUSES = {"approved", "released"}
 DEPENDENCY_READY_FRONTMATTER_STATUSES = {"approved", "released"}
 TERMINAL_FRONTMATTER_STATUSES = {"released"}
+SLICE_MODES = {
+    "implementation-heavy",
+    "refactor",
+    "governance",
+    "enforcement",
+    "minimal-change",
+    "verification-only",
+}
+NON_EXPANSION_SLICE_MODES = {"governance", "enforcement", "minimal-change", "verification-only"}
+SURFACE_POLICIES = {"required", "optional", "forbidden"}
 
 
 @dataclass(frozen=True)
@@ -489,6 +499,8 @@ def parse_slice_breakdown(
         findings.extend(f"`slice {name}`: {error}" for error in depends_on_errors)
         semantic_locks, semantic_lock_errors = _string_list_field(item, "semantic_locks")
         findings.extend(f"`slice {name}`: {error}" for error in semantic_lock_errors)
+        execution_contract, execution_findings = _slice_execution_contract(item)
+        findings.extend(execution_findings)
 
         target_index, routing_errors = collect_routed_paths(targets, config=config)
         findings.extend(f"La slice `{name}` tiene target invalido: {error}" for error in routing_errors)
@@ -512,6 +524,7 @@ def parse_slice_breakdown(
                 "hot_area": hot_area,
                 "depends_on": depends_on,
                 "semantic_locks": semantic_locks,
+                **execution_contract,
             }
         )
 
@@ -539,6 +552,94 @@ def _analysis_target_roots(analysis: dict[str, object]) -> set[str]:
                 continue
             roots.add(relative.split("/", 1)[0])
     return roots
+
+
+def _slice_execution_contract(raw_item: dict[str, object]) -> tuple[dict[str, object], list[str]]:
+    findings: list[str] = []
+    name = str(raw_item.get("name", "")).strip() or "<sin-nombre>"
+
+    slice_mode, slice_mode_errors = _string_field(raw_item.get("slice_mode"), f"slice `{name}`.slice_mode")
+    findings.extend(slice_mode_errors)
+    slice_mode = slice_mode or "implementation-heavy"
+    if slice_mode not in SLICE_MODES:
+        findings.append(
+            f"La slice `{name}` usa `slice_mode={slice_mode}` invalido. Valores validos: {', '.join(sorted(SLICE_MODES))}."
+        )
+
+    surface_policy, surface_policy_errors = _string_field(
+        raw_item.get("surface_policy"),
+        f"slice `{name}`.surface_policy",
+    )
+    findings.extend(surface_policy_errors)
+    surface_policy = surface_policy or "required"
+    if surface_policy not in SURFACE_POLICIES:
+        findings.append(
+            f"La slice `{name}` usa `surface_policy={surface_policy}` invalido. Valores validos: "
+            f"{', '.join(sorted(SURFACE_POLICIES))}."
+        )
+
+    minimum_valid_completion, minimum_valid_completion_errors = _string_field(
+        raw_item.get("minimum_valid_completion"),
+        f"slice `{name}`.minimum_valid_completion",
+    )
+    findings.extend(minimum_valid_completion_errors)
+
+    validated_noop_declared = "validated_noop_allowed" in raw_item
+    validated_noop_allowed, validated_noop_errors = _bool_field(
+        raw_item.get("validated_noop_allowed"),
+        f"slice `{name}`.validated_noop_allowed",
+    )
+    findings.extend(validated_noop_errors)
+
+    acceptable_evidence, acceptable_evidence_errors = _string_list_field(raw_item, "acceptable_evidence")
+    findings.extend(f"`slice {name}`: {error}" for error in acceptable_evidence_errors)
+
+    requires_closeout_contract = slice_mode in NON_EXPANSION_SLICE_MODES or surface_policy != "required"
+    if requires_closeout_contract and not minimum_valid_completion:
+        findings.append(
+            f"La slice `{name}` debe declarar `minimum_valid_completion` cuando es `{slice_mode}` o no exige superficie nueva."
+        )
+    if requires_closeout_contract and not validated_noop_declared:
+        findings.append(
+            f"La slice `{name}` debe declarar `validated_noop_allowed` cuando es `{slice_mode}` o usa `surface_policy != required`."
+        )
+    if requires_closeout_contract and not acceptable_evidence:
+        findings.append(f"La slice `{name}` debe declarar `acceptable_evidence` para definir el cierre verificable.")
+    if slice_mode == "verification-only" and surface_policy == "required":
+        findings.append(
+            f"La slice `{name}` no puede usar `slice_mode=verification-only` junto a `surface_policy=required`."
+        )
+
+    executor_mode = (
+        "compliance-closeout"
+        if slice_mode in NON_EXPANSION_SLICE_MODES or surface_policy != "required" or validated_noop_allowed
+        else "implementation"
+    )
+    closeout_rule = (
+        "Tras una revision corta, si no aparece expansion funcional obligatoria, cerrar con el minimo entregable, "
+        "evidencia aceptable y diff minimo; solo reabrir alcance ante bloqueo tecnico real."
+        if executor_mode == "compliance-closeout"
+        else "Implementar el cambio visible requerido y validar con la evidencia declarada por la spec."
+    )
+
+    return (
+        {
+            "slice_mode": slice_mode,
+            "surface_policy": surface_policy,
+            "minimum_valid_completion": minimum_valid_completion,
+            "validated_noop_allowed": validated_noop_allowed,
+            "validated_noop_declared": validated_noop_declared,
+            "acceptable_evidence": acceptable_evidence,
+            "executor_mode": executor_mode,
+            "closeout_rule": closeout_rule,
+        },
+        findings,
+    )
+
+
+def slice_execution_contract(item: dict[str, object]) -> dict[str, object]:
+    contract, _ = _slice_execution_contract(item)
+    return contract
 
 
 def slice_governance_policy(analysis: dict[str, object]) -> dict[str, object]:

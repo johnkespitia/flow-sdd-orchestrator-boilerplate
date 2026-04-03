@@ -50,6 +50,17 @@ def repo_shell_command(repo: str, parts: list[str]) -> str:
     return "python3 ./flow repo exec " + shlex.quote(repo) + " -- " + " ".join(shlex.quote(part) for part in parts)
 
 
+def repo_shell_command_at_path(repo: str, workdir: str, parts: list[str]) -> str:
+    return (
+        "python3 ./flow repo exec "
+        + shlex.quote(repo)
+        + " --workdir "
+        + shlex.quote(workdir)
+        + " -- "
+        + " ".join(shlex.quote(part) for part in parts)
+    )
+
+
 def _truthy(value: object) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
@@ -661,7 +672,12 @@ def command_workflow_execute_feature(
                     "slice_start_output": [line for line in slice_stdout.getvalue().splitlines() if line.strip()],
                     "recommended_workflow": "quick-dev",
                     "workflow_path": rel(assets["bmad_quick_dev"]),
-                    "repo_exec_example": repo_shell_command(str(slice_payload.get("repo", "")), ["<cmd>"]),
+                    "repo_exec_example": repo_shell_command_at_path(
+                        str(slice_payload.get("repo", "")),
+                        str(slice_payload.get("worktree", "")),
+                        ["<cmd>"],
+                    ),
+                    "executor_mode": str(slice_payload.get("executor_mode", "implementation")),
                 }
             )
 
@@ -713,6 +729,7 @@ def command_workflow_execute_feature(
                 f"- `{item['slice']}` -> repo=`{item['repo']}`, branch=`{item['branch']}`, "
                 f"worktree=`{item['worktree']}`, handoff=`{item['handoff']}`"
             )
+            lines.append(f"  executor-mode=`{item['executor_mode']}`")
             lines.append(f"  repo-runtime=`{item['repo_exec_example']}`")
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

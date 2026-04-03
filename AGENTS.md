@@ -45,6 +45,9 @@ Usa el skill `workspace/skills-discover` cuando necesites buscar skills en tessl
 - Treat `.flow/**` as operational state only. It helps with orchestration, but it never overrides `specs/**`.
 - Run workspace-managed toolchains from the devcontainer by default. Use `python3 ./flow workspace exec -- <cmd>` or `scripts/workspace_exec.sh <cmd>` from host.
 - Run repo runtime commands in the repo service, not in `workspace`. Use `python3 ./flow repo exec <repo> -- <cmd>` for PHPUnit, Composer, pnpm, pytest, Go test, etc.
+- If the command validates a slice worktree, use `python3 ./flow repo exec <repo> --workdir <worktree> -- <cmd>` so module resolution, autoload, caches and relative paths come from the worktree under test.
+- If a slice is governance, enforcement, minimal-change, or verification-only, do not infer missing expansion work. Follow the spec's `surface_policy`, `minimum_valid_completion`, `validated_noop_allowed`, and `acceptable_evidence`.
+- If no mandatory surface expansion appears after a short review, close the slice with the declared minimum diff and evidence instead of staying in analysis.
 - Any new feature spec in `specs/features/**` must explicitly consider foundations (`specs/000-foundation/**`) and domains (`specs/domains/**`) through `depends_on` or a justified exclusion in the body.
 - Do not modify files outside active spec `targets` unless the spec is updated first.
 - Do not mark work complete without relevant `flow ci` evidence.

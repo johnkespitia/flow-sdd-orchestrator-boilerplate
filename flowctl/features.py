@@ -13,6 +13,7 @@ from typing import Callable, Optional
 from .specs import (
     frontmatter_status_allows_execution,
     frontmatter_status_is_terminal,
+    slice_execution_contract,
     slice_governance_findings,
 )
 
@@ -586,6 +587,7 @@ def command_plan(
             ]
             linked_tests = [item["raw"] for item in analysis["test_index"].get(repo, [])]
             linked_test_patterns = [item["relative"] for item in analysis["test_index"].get(repo, [])]
+            execution_contract = slice_execution_contract(slice_spec)
             slices.append(
                 {
                     "name": raw_name,
@@ -602,6 +604,7 @@ def command_plan(
                     "semantic_locks": [
                         str(item).strip() for item in slice_spec.get("semantic_locks", []) if str(item).strip()
                     ],
+                    **execution_contract,
                     "status": "slice-ready",
                 }
             )
@@ -740,6 +743,8 @@ def command_slice_start(
             raise SystemExit(f"No se pudo reparar la slice `{args.slice}` con rutas relativas:\n- {detail}")
 
     handoff_path = report_root / f"{slug}-{args.slice}-handoff.md"
+    acceptable_evidence = [str(item).strip() for item in selected.get("acceptable_evidence", []) if str(item).strip()]
+    minimum_valid_completion = str(selected.get("minimum_valid_completion", "")).strip() or "No declarado."
     handoff = textwrap.dedent(
         f"""\
         # Slice Handoff
@@ -758,6 +763,17 @@ def command_slice_start(
 
         {chr(10).join(f"- `{target}`" for target in selected.get('linked_tests', [])) or '- Ninguno declarado.'}
 
+        ## Execution contract
+
+        - Executor mode: `{selected.get('executor_mode', 'implementation')}`
+        - Slice mode: `{selected.get('slice_mode', 'implementation-heavy')}`
+        - Surface policy: `{selected.get('surface_policy', 'required')}`
+        - Minimum valid completion: {minimum_valid_completion}
+        - Validated no-op allowed: `{'yes' if bool(selected.get('validated_noop_allowed', False)) else 'no'}`
+        - Acceptable evidence:
+        {chr(10).join(f"- `{item}`" for item in acceptable_evidence) or '- Ninguna declarada.'}
+        - Closeout rule: {str(selected.get('closeout_rule', '')).strip() or 'Implementar y verificar segun la spec.'}
+
         ## Command
 
         ```bash
@@ -766,10 +782,10 @@ def command_slice_start(
 
         ## Repo Runtime Command
 
-        Para tests unitarios, linters o cualquier comando del runtime del repo, usa el servicio del repo:
+        Para tests unitarios, linters o cualquier comando del runtime del repo, usa el servicio del repo y el worktree de esta slice:
 
         ```bash
-        python3 ./flow repo exec {selected['repo']} -- <cmd>
+        python3 ./flow repo exec {selected['repo']} --workdir {worktree} -- <cmd>
         ```
         """
     )

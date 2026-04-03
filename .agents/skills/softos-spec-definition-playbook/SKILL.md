@@ -14,6 +14,7 @@ Use this skill when the task is to create a new spec, rewrite a weak spec, or re
 - `depends_on` reflects real foundation and domain dependencies, or the omission is justified in the body.
 - A downstream agent can determine scope, invariants, observable outputs, and stop conditions without reverse-engineering code.
 - The spec defines the evidence required to approve, implement, and verify the work.
+- Slices that only preserve or enforce a contract declare an explicit minimum valid closeout instead of leaving the executor to guess whether a no-op or tests-only result is acceptable.
 
 ## Default workflow
 
@@ -40,6 +41,8 @@ Use this skill when the task is to create a new spec, rewrite a weak spec, or re
    - observable behavior
    - side effects
    - evidence and gates
+   - for each slice, whether visible surface expansion is required, optional, or forbidden
+   - for narrow governance slices, the minimum valid completion and whether a validated no-op is acceptable
 7. Add anti-hallucination guardrails:
    - exact inclusions
    - exact exclusions
@@ -57,6 +60,12 @@ Use this skill when the task is to create a new spec, rewrite a weak spec, or re
 - If current behavior must be preserved, describe the preserved behavior explicitly.
 - If current behavior is wrong, say whether to preserve, correct, or defer it.
 - If strict verification will matter, define the command or evidence expected for approval.
+- If a slice is governance, enforcement, minimal-change, or verification-only, declare the closeout contract explicitly:
+  - `slice_mode`
+  - `surface_policy`
+  - `minimum_valid_completion`
+  - `validated_noop_allowed`
+  - `acceptable_evidence`
 
 ## Minimum contract for every strong spec
 
@@ -86,6 +95,7 @@ Include when relevant:
 - rollout or rollback expectations
 - slice or implementation breakdown
 - explicit stop conditions
+- explicit slice closeout contract when the work may end in tests, enforcement, or validated no-op
 
 ## Repo and runtime grounding
 
@@ -111,6 +121,7 @@ A spec is weak if an implementation agent still has to guess:
 - who can trigger the flow
 - what evidence proves the work is done
 - whether an API, command, or side effect is required, optional, or forbidden
+- whether a slice may close without new routes or UI surface because the valid outcome is enforcement, verification, or contract preservation
 - when the work must stop because it crosses scope
 
 If two competent agents could implement materially different behavior and both claim compliance, tighten the spec.

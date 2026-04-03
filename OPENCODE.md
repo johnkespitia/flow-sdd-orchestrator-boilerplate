@@ -9,6 +9,9 @@ Use this file as the root operational contract when the assistant does not load 
 - Read the target spec and `workspace.config.json` before non-trivial edits.
 - Run workspace-managed commands from the devcontainer by default with `python3 ./flow workspace exec -- <cmd>` or `scripts/workspace_exec.sh <cmd>`.
 - Run repo runtime commands in the repo service with `python3 ./flow repo exec <repo> -- <cmd>`. Reserve `workspace exec` for workspace-managed tooling.
+- If the command must validate a materialized slice, prefer `python3 ./flow repo exec <repo> --workdir <worktree> -- <cmd>` so runtime resolution happens against that worktree.
+- For governance/enforcement/minimal-change/verification-only slices, use the spec closeout contract instead of guessing whether more surface work is needed.
+- If the spec permits preservation-only closure, prefer the minimum valid diff plus evidence over continued analysis.
 - Do not edit files outside the active spec `targets` unless the spec changes first.
 - Treat `status: released` as terminal:
   - valid for CI and traceability

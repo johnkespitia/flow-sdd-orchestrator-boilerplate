@@ -14,6 +14,7 @@ Ask:
 6. Can the agent identify the evidence required to prove completion?
 7. Can the agent identify when to stop because the work exceeds scope?
 8. Can the agent identify which foundations and domains the spec depends on?
+9. Can the agent identify whether a slice may close with enforcement, tests, or validated no-op instead of visible surface expansion?
 
 If any answer is "not from the spec alone", the spec is incomplete.
 
@@ -30,6 +31,8 @@ If any answer is "not from the spec alone", the spec is incomplete.
 - [ ] Evidence for review or approval is explicit.
 - [ ] Acceptance criteria are testable.
 - [ ] Stop conditions are explicit when scope could expand during implementation.
+- [ ] Slices with `surface_policy != required` define `minimum_valid_completion`, `validated_noop_allowed`, and `acceptable_evidence`.
+- [ ] Governance/enforcement/minimal-change/verification-only slices make the closeout mode explicit.
 
 ## Strong validation pattern
 
@@ -49,3 +52,4 @@ When a spec is weak, do not add more generic prose. Add one of:
 - a command or transport contract
 - a parity-vs-bug decision table
 - explicit evidence requirements
+- explicit minimum valid completion for narrow compliance slices

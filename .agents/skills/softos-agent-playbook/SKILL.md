@@ -31,11 +31,17 @@ Use this skill as the default operating guide for any non-trivial task in this w
    - or commands that already delegate automatically such as `flow tessl`, `flow bmad`, `flow skills doctor|sync`, and `flow ci repo`
 5. When running repo runtime commands, use:
    - `python3 ./flow repo exec <repo> -- <cmd>`
+   - `python3 ./flow repo exec <repo> --workdir <slice-worktree> -- <cmd>` when the command must validate a materialized slice instead of the base checkout
    - not `workspace exec`, when the repo owns its own compose service
 6. Only edit files covered by spec `targets`.
 7. Treat `status: released` as terminal:
    - valid for strict CI and traceability
    - not valid for re-planning or re-execution
+8. When a slice is governance, enforcement, minimal-change, or verification-only, prefer a compliance closeout over speculative expansion:
+   - honor `surface_policy`
+   - close with `minimum_valid_completion`
+   - use `acceptable_evidence`
+   - only escalate when there is a real technical blocker, not merely narrow scope
 
 ## Rules
 
@@ -43,6 +49,7 @@ Use this skill as the default operating guide for any non-trivial task in this w
 - For implementation work, descend into the target repo only after reading the root spec.
 - Use multi-slice governance at spec/planning level; do not try to force parallelism in the scheduler.
 - When a repo already provides its own docker compose or CI pipeline, integrate it instead of duplicating it.
+- If the slice does not require new surface area, do not reopen scope. Produce the minimum valid diff, enforcement, tests, or validated no-op evidence declared by the spec.
 
 ## Key patterns
 

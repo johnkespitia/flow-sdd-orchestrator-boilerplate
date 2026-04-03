@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from flowctl.features import command_plan
+from flowctl.features import command_plan, command_slice_start, load_plan_and_slice
 from flowctl.specs import (
     SpecConfig,
     analyze_spec,
@@ -212,6 +212,160 @@ targets:
     assert [item["name"] for item in payload["slices"]] == ["api-controller", "api-service"]
     assert payload["slices"][0]["hot_area"] == "api/controllers"
     assert payload["slices"][1]["depends_on"] == ["api-controller"]
+
+
+def test_slice_governance_requires_closeout_contract_for_verification_only(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    spec_path = _write_spec(
+        tmp_path,
+        """---
+schema_version: 3
+name: demo
+description: demo
+status: approved
+owner: platform
+single_slice_reason: narrow verification slice
+multi_domain: false
+phases: []
+depends_on: []
+required_runtimes: []
+required_services: []
+required_capabilities: []
+stack_projects: []
+stack_services: []
+stack_capabilities: []
+targets:
+  - ../../api/tests/**
+---
+
+# demo
+
+## Slice Breakdown
+
+```yaml
+- name: verify-contract
+  targets:
+    - ../../api/tests/**
+  hot_area: api/tests
+  slice_mode: verification-only
+  surface_policy: forbidden
+  depends_on: []
+```
+""",
+    )
+
+    analysis = analyze_spec(spec_path, config=config)
+    findings = slice_governance_findings(analysis)
+
+    assert any("minimum_valid_completion" in item for item in findings)
+    assert any("validated_noop_allowed" in item for item in findings)
+    assert any("acceptable_evidence" in item for item in findings)
+
+
+def test_slice_start_handoff_includes_compliance_closeout_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = _config(tmp_path)
+    spec_path = _write_spec(
+        tmp_path,
+        """---
+schema_version: 3
+name: demo
+description: demo
+status: approved
+owner: platform
+single_slice_reason: narrow enforcement slice
+multi_domain: false
+phases: []
+depends_on: []
+required_runtimes: []
+required_services: []
+required_capabilities: []
+stack_projects: []
+stack_services: []
+stack_capabilities: []
+targets:
+  - ../../api/tests/**
+---
+
+# demo
+
+## Slice Breakdown
+
+```yaml
+- name: verify-contract
+  targets:
+    - ../../api/tests/**
+  hot_area: api/tests
+  slice_mode: enforcement
+  surface_policy: forbidden
+  minimum_valid_completion: Add contract checks without opening new endpoints.
+  validated_noop_allowed: true
+  acceptable_evidence:
+    - python3 ./flow slice verify demo verify-contract --json
+    - contract verification
+  depends_on: []
+```
+""",
+    )
+    (tmp_path / "api").mkdir(parents=True, exist_ok=True)
+    plan_root = tmp_path / ".flow" / "plans"
+    report_root = tmp_path / ".flow" / "reports"
+    worktree_root = tmp_path / ".worktrees"
+    state: dict[str, object] = {}
+
+    rc = command_plan(
+        argparse.Namespace(spec="demo"),
+        require_dirs=lambda: plan_root.mkdir(parents=True, exist_ok=True),
+        resolve_spec=lambda _spec: spec_path,
+        spec_slug=lambda _path: "demo",
+        analyze_spec=lambda path: analyze_spec(path, config=config),
+        require_routed_paths=lambda paths, label: require_routed_paths(paths, label, config=config),
+        repo_slice_prefix=lambda repo: repo,
+        repo_root=lambda repo: tmp_path / repo,
+        worktree_root=worktree_root,
+        plan_root=plan_root,
+        read_state=lambda _slug: state.copy(),
+        write_state=lambda _slug, payload: state.update(payload),
+        rel=lambda path: str(path),
+        utc_now=lambda: "2026-03-29T00:00:00+00:00",
+    )
+
+    assert rc == 0
+    payload = json.loads((plan_root / "demo.json").read_text(encoding="utf-8"))
+    assert payload["slices"][0]["executor_mode"] == "compliance-closeout"
+    assert payload["slices"][0]["surface_policy"] == "forbidden"
+
+    report_root.mkdir(parents=True, exist_ok=True)
+
+    class _Completed:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr("flowctl.features.subprocess.run", lambda *args, **kwargs: _Completed())
+
+    rc = command_slice_start(
+        argparse.Namespace(spec="demo", slice="verify-contract"),
+        slugify=lambda value: value,
+        load_plan_and_slice=lambda slug, slice_name: load_plan_and_slice(
+            slug,
+            slice_name,
+            plan_root=plan_root,
+            rel=lambda path: str(path),
+        ),
+        worktree_root=worktree_root,
+        report_root=report_root,
+        read_state=lambda _slug: state.copy(),
+        write_state=lambda _slug, payload: state.update(payload),
+        rel=lambda path: str(path),
+    )
+
+    assert rc == 0
+    handoff = (report_root / "demo-verify-contract-handoff.md").read_text(encoding="utf-8")
+    assert "Executor mode: `compliance-closeout`" in handoff
+    assert "Minimum valid completion: Add contract checks without opening new endpoints." in handoff
+    assert "Validated no-op allowed: `yes`" in handoff
+    assert "solo reabrir alcance ante bloqueo tecnico real" in handoff
+    assert f"python3 ./flow repo exec api --workdir {worktree_root / 'api-demo-verify-contract'} -- <cmd>" in handoff
 
 
 def test_workflow_next_step_blocks_invalid_slice_governance(tmp_path: Path) -> None:

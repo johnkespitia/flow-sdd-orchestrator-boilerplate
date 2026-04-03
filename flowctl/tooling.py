@@ -184,14 +184,18 @@ def command_repo_exec(
         raise SystemExit("Debes indicar un repo.")
 
     repo_path = repo_root(repo_name)
+    requested_workdir = str(getattr(args, "workdir", "") or "").strip()
+    execution_path = Path(requested_workdir).expanduser() if requested_workdir else repo_path
     service_name = repo_compose_service(repo_name).strip() or workspace_service
 
     if running_inside_workspace():
-        return run_local_tool_at_path(command, runtime_path(repo_path))
+        return run_local_tool_at_path(command, runtime_path(execution_path))
 
-    workdir = repo_container_workdir(repo_path)
+    workdir = repo_container_workdir(execution_path)
     if workdir is None:
-        raise SystemExit(f"No pude resolver el workdir del repo `{repo_name}` dentro del devcontainer.")
+        raise SystemExit(
+            f"No pude resolver el workdir de `{execution_path}` para el repo `{repo_name}` dentro del devcontainer."
+        )
 
     return run_compose(
         compose_exec_args(service_name, interactive=False, workdir=workdir) + command,

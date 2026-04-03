@@ -511,6 +511,10 @@ def build_parser(
         help="Execute a command in the repo service, or locally when already inside the devcontainer.",
     )
     repo_exec.add_argument("repo", choices=repo_names, help="Repo id from `workspace.config.json`.")
+    repo_exec.add_argument(
+        "--workdir",
+        help="Optional host/workspace path to execute from. Use this for slice worktrees to avoid mixing the base checkout with the worktree under test.",
+    )
     repo_exec.add_argument("command", nargs=argparse.REMAINDER, help="Command to execute after `--`.")
     repo_exec.set_defaults(func=commands["repo_exec"])
 

@@ -89,8 +89,14 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - `python3 ./flow spec review <spec>` y `python3 ./flow ci spec <spec>` fallan si `depends_on`, runtimes, servicios o capabilities declarados no existen o no estan listos
 - `python3 ./flow workspace exec -- <cmd>` ejecuta el comando localmente cuando ya corre dentro del devcontainer y delega al servicio `workspace` cuando se invoca desde host
 - `python3 ./flow repo exec <repo> -- <cmd>` ejecuta el comando en el `compose_service` del repo cuando existe, o localmente en el cwd del repo si ya corre dentro del devcontainer
+- `python3 ./flow repo exec <repo> --workdir <path> -- <cmd>` permite fijar explícitamente el worktree o subpath materializado para evitar mezclar artefactos, autoloaders, módulos o cachés del checkout base con la slice bajo verificación
 - `scripts/workspace_exec.sh <cmd>` y `make workspace ARGS='<cmd>'` reutilizan el mismo entrypoint canónico del workspace para evitar ejecutar toolchains del proyecto directamente en el host
+- la imagen `workspace` incluye `pytest` para que las regresiones Python del control plane puedan validarse dentro del devcontainer sin depender del host
 - los handoffs y reportes de ejecución deben sugerir `flow repo exec <repo> -- <cmd>` para comandos del runtime del repo, evitando inducir a subagentes a correr PHPUnit, Composer, pnpm, pytest o Go test en `workspace`
+- esos handoffs deben apuntar al `--workdir` del worktree de la slice cuando el flujo se ejecuta sobre materialización aislada
+- las specs y slices de enforcement, governance, minimal-change o verification-only deben declarar explícitamente si una nueva superficie es `required`, `optional` o `forbidden`
+- cuando una slice no exige expansión funcional, la spec debe declarar `minimum_valid_completion`, `validated_noop_allowed` y `acceptable_evidence`
+- `flow plan`, `workflow next-step` y `workflow execute-feature --start-slices` deben preservar ese contrato de cierre mínimo en el plan y en los handoffs para que el ejecutor pueda cerrar con enforcement/tests/verificación sin reabrir alcance
 - `workspace.skills.json` puede registrar skills locales versionados con `provider=tessl`, `kind=skill`, `source` relativo al workspace y `sync=false`
 - los runtime packs en `runtimes/*.runtime.json` pueden exponer esos playbooks locales via `agent_skill_refs`, y `python3 ./flow skills context --repo <repo> --json` resuelve los paths efectivos en `.agents/skills/**` o `.tessl/tiles/**`
 - `python3 ./flow stack design --spec <slug>`, `stack plan --spec <slug>` y `stack apply --spec <slug>` derivan `workspace.stack.json` desde una spec aprobada con `stack_projects`, `stack_services` y `stack_capabilities`
@@ -101,6 +107,21 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - el boilerplate publica templates reusables de `promotion-pr`, `deploy-on-pr-merge` y `promotion-pr-ci`, mas un guardrail canónico de path/aislamiento para despliegues promotion-by-PR
 
 ## Contratos derivados
+
+## Gobernanza de slices de cumplimiento
+
+Cuando una slice preserve contrato o solo endurezca enforcement, la spec debe declarar el cierre mínimo válido y no dejarlo a interpretación del ejecutor.
+
+### Reglas
+
+- `slice_mode` puede ser `implementation-heavy`, `refactor`, `governance`, `enforcement`, `minimal-change` o `verification-only`
+- `surface_policy` debe declarar si la superficie nueva es `required`, `optional` o `forbidden`
+- si `slice_mode` es `governance`, `enforcement`, `minimal-change` o `verification-only`, o si `surface_policy != required`, la slice debe declarar:
+  - `minimum_valid_completion`
+  - `validated_noop_allowed`
+  - `acceptable_evidence`
+- una slice `verification-only` no puede exigir superficie nueva
+- el handoff resultante debe instruir al ejecutor a cerrar con el mínimo entregable y la evidencia declarada cuando no exista expansión funcional obligatoria
 
 ```json contract
 {

@@ -81,6 +81,32 @@ Prefer:
 - side effects
 - observable outputs
 - required evidence for approval and release
+- explicit slice closeout rules when a slice is governance, enforcement, minimal-change, or verification-only
+
+## Slice Breakdown contract
+
+For `schema_version: 3` specs, every slice should be concrete enough for a downstream executor to act without reopening scope.
+
+Always include:
+
+- `name`
+- `targets`
+- `hot_area`
+- `depends_on`
+
+Add explicitly when relevant:
+
+- `slice_mode`: `implementation-heavy`, `refactor`, `governance`, `enforcement`, `minimal-change`, or `verification-only`
+- `surface_policy`: `required`, `optional`, or `forbidden`
+- `minimum_valid_completion`
+- `validated_noop_allowed`
+- `acceptable_evidence`
+
+Rules:
+
+- If `slice_mode` is `governance`, `enforcement`, `minimal-change`, or `verification-only`, do not leave closeout implicit.
+- If `surface_policy` is `optional` or `forbidden`, define the minimum acceptable outcome and the evidence required to close the slice.
+- If a slice can validly end without new endpoints, routes, or UI surface, say so explicitly.
 
 ### Hardening or reliability specs
 

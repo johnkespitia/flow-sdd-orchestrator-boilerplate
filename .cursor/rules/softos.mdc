@@ -12,6 +12,9 @@ alwaysApply: true
 - Before editing code for a feature, read the target spec and resolve repo/runtime context from `workspace.config.json`.
 - Run workspace-managed commands from the devcontainer by default with `python3 ./flow workspace exec -- <cmd>` or `scripts/workspace_exec.sh <cmd>`.
 - Run repo runtime commands with `python3 ./flow repo exec <repo> -- <cmd>`, not in `workspace`, when the repo owns its own compose service.
+- If a command must validate a materialized slice, use `python3 ./flow repo exec <repo> --workdir <worktree> -- <cmd>` so runtime resolution points at that worktree.
+- For governance, enforcement, minimal-change, or verification-only slices, follow the spec closeout contract before inventing extra implementation.
+- If no mandatory surface expansion appears after a short review, close with the declared minimum diff and evidence instead of staying in analysis mode.
 - Only edit files covered by the active spec `targets`.
 - Prefer `flow` commands for spec, workflow, CI, stack, and release lifecycle operations.
 - Do not re-plan or re-execute specs in `status: released`.

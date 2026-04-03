@@ -39,6 +39,7 @@ In those cases, read:
 - Prefer `python3 ./flow spec review|approve`, `flow workflow ...`, `flow ci ...`, `flow release ...`, and `flow stack ...`.
 - For workspace-managed toolchains from host, prefer `python3 ./flow workspace exec -- <cmd>` or `scripts/workspace_exec.sh <cmd>` over running runtime binaries directly on the host.
 - For repo runtime commands, prefer `python3 ./flow repo exec <repo> -- <cmd>` over `workspace exec` when the repo has a dedicated service.
+- For governance/enforcement/minimal-change/verification-only slices, do not keep revalidating scope when the spec already allows a preservation-only closeout.
 - Do not replace a `flow` lifecycle action with a custom shell sequence unless no `flow` command exists.
 
 ## Completion guardrail
