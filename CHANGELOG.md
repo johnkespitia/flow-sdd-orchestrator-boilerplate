@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.1 - 2026-04-03
+
+### Added
+
+- route repo runtime commands by service
+- fail fast on stable-surface drift
+
+### Fixed
+
+- align bootstrap governance surfaces
+
 ## v0.4.0 - 2026-04-03
 
 ### Added
