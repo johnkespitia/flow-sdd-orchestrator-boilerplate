@@ -1333,6 +1333,22 @@ def command_workspace_exec(args: argparse.Namespace) -> int:
     )
 
 
+def command_repo_exec(args: argparse.Namespace) -> int:
+    return flow_tooling.command_repo_exec(
+        args,
+        normalize_passthrough=normalize_passthrough,
+        repo_root=repo_root,
+        repo_compose_service=repo_compose_service,
+        workspace_service=WORKSPACE_SERVICE,
+        running_inside_workspace=running_inside_workspace,
+        runtime_path=runtime_path,
+        repo_container_workdir=repo_container_workdir,
+        run_local_tool_at_path=lambda tool_args, cwd: flow_tooling.run_local_tool_at_path(tool_args, cwd=cwd),
+        run_compose=run_compose,
+        compose_exec_args=compose_exec_args,
+    )
+
+
 def command_stack_design(args: argparse.Namespace) -> int:
     return flow_stack_design.command_stack_design(
         args,
@@ -2552,6 +2568,7 @@ def build_parser() -> argparse.ArgumentParser:
         "infra_apply": command_infra_apply,
         "infra_status": command_infra_status,
         "add_project": command_add_project,
+        "repo_exec": command_repo_exec,
         "spec_create": command_spec_create,
         "spec_review": command_spec_review,
         "spec_guard": command_spec_guard,

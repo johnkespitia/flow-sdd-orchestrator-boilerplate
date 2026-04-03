@@ -81,6 +81,13 @@ def run_local_tool(tool_args: list[str], *, root: Path) -> int:
         raise SystemExit(f"No encontre el ejecutable `{tool_args[0]}`.") from exc
 
 
+def run_local_tool_at_path(tool_args: list[str], *, cwd: Path) -> int:
+    try:
+        return subprocess.run(tool_args, cwd=cwd, check=False).returncode
+    except FileNotFoundError as exc:
+        raise SystemExit(f"No encontre el ejecutable `{tool_args[0]}`.") from exc
+
+
 def bmad_command_prefix(
     *,
     env_first: Callable[..., Optional[str]],
@@ -152,3 +159,41 @@ def command_workspace_exec(
         return run_local_tool(command)
 
     return run_workspace_tool(command)
+
+
+def command_repo_exec(
+    args,
+    *,
+    normalize_passthrough: Callable[[list[str]], list[str]],
+    repo_root: Callable[[str], Path],
+    repo_compose_service: Callable[[str], str],
+    workspace_service: str,
+    running_inside_workspace: Callable[[], bool],
+    runtime_path: Callable[[Path], Path],
+    repo_container_workdir: Callable[[Path], str | None],
+    run_local_tool_at_path: Callable[[list[str], Path], int],
+    run_compose: Callable[[list[str], Optional[bool]], int],
+    compose_exec_args: Callable[..., list[str]],
+) -> int:
+    command = normalize_passthrough(args.command)
+    if not command:
+        raise SystemExit("Debes indicar un comando despues de `--`. Ejemplo: `flow repo exec api -- vendor/bin/phpunit`.")
+
+    repo_name = str(args.repo).strip()
+    if not repo_name:
+        raise SystemExit("Debes indicar un repo.")
+
+    repo_path = repo_root(repo_name)
+    service_name = repo_compose_service(repo_name).strip() or workspace_service
+
+    if running_inside_workspace():
+        return run_local_tool_at_path(command, runtime_path(repo_path))
+
+    workdir = repo_container_workdir(repo_path)
+    if workdir is None:
+        raise SystemExit(f"No pude resolver el workdir del repo `{repo_name}` dentro del devcontainer.")
+
+    return run_compose(
+        compose_exec_args(service_name, interactive=False, workdir=workdir) + command,
+        interactive=False,
+    )

@@ -8,6 +8,7 @@ Use this file as the root operational contract when the assistant does not load 
 - `.flow/**` is operational state only.
 - Read the target spec and `workspace.config.json` before non-trivial edits.
 - Run workspace-managed commands from the devcontainer by default with `python3 ./flow workspace exec -- <cmd>` or `scripts/workspace_exec.sh <cmd>`.
+- Run repo runtime commands in the repo service with `python3 ./flow repo exec <repo> -- <cmd>`. Reserve `workspace exec` for workspace-managed tooling.
 - Do not edit files outside the active spec `targets` unless the spec changes first.
 - Treat `status: released` as terminal:
   - valid for CI and traceability

@@ -763,6 +763,14 @@ def command_slice_start(
         ```bash
         {command}
         ```
+
+        ## Repo Runtime Command
+
+        Para tests unitarios, linters o cualquier comando del runtime del repo, usa el servicio del repo:
+
+        ```bash
+        python3 ./flow repo exec {selected['repo']} -- <cmd>
+        ```
         """
     )
     handoff_path.write_text(handoff, encoding="utf-8")

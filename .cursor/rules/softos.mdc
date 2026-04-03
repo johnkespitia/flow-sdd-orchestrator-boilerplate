@@ -11,6 +11,7 @@ alwaysApply: true
 - `.flow/**` is operational state only and must never override specs.
 - Before editing code for a feature, read the target spec and resolve repo/runtime context from `workspace.config.json`.
 - Run workspace-managed commands from the devcontainer by default with `python3 ./flow workspace exec -- <cmd>` or `scripts/workspace_exec.sh <cmd>`.
+- Run repo runtime commands with `python3 ./flow repo exec <repo> -- <cmd>`, not in `workspace`, when the repo owns its own compose service.
 - Only edit files covered by the active spec `targets`.
 - Prefer `flow` commands for spec, workflow, CI, stack, and release lifecycle operations.
 - Do not re-plan or re-execute specs in `status: released`.

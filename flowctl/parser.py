@@ -504,6 +504,16 @@ def build_parser(
     )
     add_project.set_defaults(func=commands["add_project"])
 
+    repo = subparsers.add_parser("repo", help="Run commands against a repo using its canonical compose service/workdir.")
+    repo_subparsers = repo.add_subparsers(dest="repo_command", required=True)
+    repo_exec = repo_subparsers.add_parser(
+        "exec",
+        help="Execute a command in the repo service, or locally when already inside the devcontainer.",
+    )
+    repo_exec.add_argument("repo", choices=repo_names, help="Repo id from `workspace.config.json`.")
+    repo_exec.add_argument("command", nargs=argparse.REMAINDER, help="Command to execute after `--`.")
+    repo_exec.set_defaults(func=commands["repo_exec"])
+
     spec = subparsers.add_parser("spec", help="Manage canonical specs.")
     spec_subparsers = spec.add_subparsers(dest="spec_command", required=True)
     spec_create = spec_subparsers.add_parser("create", help="Create a root feature spec.")

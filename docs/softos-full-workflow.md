@@ -227,6 +227,7 @@ Si trabajas desde el shell host, `flow tessl`, `flow bmad`, `flow skills doctor`
 y `flow ci repo` delegan automaticamente al servicio `workspace` cuando el stack ya esta activo.
 Para comandos arbitrarios del workspace, usa `python3 ./flow workspace exec -- ...` o
 `scripts/workspace_exec.sh ...`.
+Para comandos del runtime de un repo, usa `python3 ./flow repo exec <repo> -- ...` para ejecutarlos en el contenedor del proyecto.
 
 ## Workflow 8: Repos y guardrails
 

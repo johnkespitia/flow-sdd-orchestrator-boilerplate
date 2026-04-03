@@ -29,8 +29,11 @@ Use this skill as the default operating guide for any non-trivial task in this w
    - `python3 ./flow workspace exec -- <cmd>`
    - `scripts/workspace_exec.sh <cmd>`
    - or commands that already delegate automatically such as `flow tessl`, `flow bmad`, `flow skills doctor|sync`, and `flow ci repo`
-5. Only edit files covered by spec `targets`.
-6. Treat `status: released` as terminal:
+5. When running repo runtime commands, use:
+   - `python3 ./flow repo exec <repo> -- <cmd>`
+   - not `workspace exec`, when the repo owns its own compose service
+6. Only edit files covered by spec `targets`.
+7. Treat `status: released` as terminal:
    - valid for strict CI and traceability
    - not valid for re-planning or re-execution
 
