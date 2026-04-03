@@ -156,10 +156,12 @@ jobs:
           fi
 
           if [ "$MODE" = "changed" ]; then
+            python3 ./flow spec guard --changed --base "$BASE_SHA" --head "$HEAD_SHA" --json
             python3 ./flow ci spec --changed --base "$BASE_SHA" --head "$HEAD_SHA"
             python3 ./flow drift check --changed --base "$BASE_SHA" --head "$HEAD_SHA" --json
             python3 ./flow contract verify --changed --base "$BASE_SHA" --head "$HEAD_SHA" --json
           else
+            python3 ./flow spec guard --all --json
             python3 ./flow ci spec --all
             python3 ./flow drift check --all --json
             python3 ./flow contract verify --all --json

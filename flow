@@ -35,6 +35,7 @@ from flowctl.contracts import (
 from flowctl.contracts_ops import (
     command_contract_verify as flow_command_contract_verify,
     command_drift_check as flow_command_drift_check,
+    command_spec_guard as flow_command_spec_guard,
     command_spec_generate_contracts as flow_command_spec_generate_contracts,
     render_contract_artifacts as flow_render_contract_artifacts,
     verify_contract_declaration as flow_verify_contract_declaration,
@@ -2169,6 +2170,26 @@ def command_spec_review(args: argparse.Namespace) -> int:
     )
 
 
+def command_spec_guard(args: argparse.Namespace) -> int:
+    return flow_command_spec_guard(
+        args,
+        require_dirs=require_dirs,
+        select_spec_paths=select_spec_paths,
+        root=ROOT,
+        root_repo=ROOT_REPO,
+        implementation_repos=implementation_repos,
+        repo_root=repo_root,
+        analyze_spec=analyze_spec,
+        git_diff_name_only=git_diff_name_only,
+        staged_repo_files_fn=lambda repo_path: flow_staged_repo_files(repo_path, git_output),
+        repo_paths_changed_under_roots=repo_paths_changed_under_roots,
+        matches_any_pattern=matches_any_pattern,
+        rel=rel,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
+    )
+
+
 def command_spec_approve(args: argparse.Namespace) -> int:
     return flow_features.command_spec_approve(
         args,
@@ -2533,6 +2554,7 @@ def build_parser() -> argparse.ArgumentParser:
         "add_project": command_add_project,
         "spec_create": command_spec_create,
         "spec_review": command_spec_review,
+        "spec_guard": command_spec_guard,
         "spec_approve": command_spec_approve,
         "spec_generate_contracts": command_spec_generate_contracts,
         "plan": command_plan,

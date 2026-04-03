@@ -550,6 +550,16 @@ def build_parser(
     spec_review.add_argument("--json", action="store_true", help="Print a structured review result.")
     spec_review.set_defaults(func=commands["spec_review"])
 
+    spec_guard = spec_subparsers.add_parser("guard", help="Fail fast when stable surfaces change without a governing spec.")
+    spec_guard.add_argument("spec", nargs="?", help="Optional spec path or slug.")
+    spec_guard.add_argument("--all", action="store_true", help="Check every spec under `specs/**`.")
+    spec_guard.add_argument("--changed", action="store_true", help="Check changed specs in git diff.")
+    spec_guard.add_argument("--staged", action="store_true", help="Check staged changes before commit.")
+    spec_guard.add_argument("--base", help="Base git ref for `--changed`.")
+    spec_guard.add_argument("--head", help="Head git ref for `--changed`.")
+    spec_guard.add_argument("--json", action="store_true", help="Print the guard report as JSON.")
+    spec_guard.set_defaults(func=commands["spec_guard"])
+
     spec_approve = spec_subparsers.add_parser("approve", help="Approve a canonical spec.")
     spec_approve.add_argument("spec", help="Spec path or slug.")
     spec_approve.add_argument("--approver", help="Identity recorded for the approval. Defaults to FLOW_APPROVER/USER.")

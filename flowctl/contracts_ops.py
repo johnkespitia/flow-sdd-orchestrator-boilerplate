@@ -36,6 +36,187 @@ def is_non_spec_drift_change(repo: str, root_repo: str, path: str) -> bool:
     return False
 
 
+def evaluate_stable_surface_guard(
+    args,
+    *,
+    select_spec_paths,
+    root: Path,
+    root_repo: str,
+    implementation_repos: Callable[[], list[str]],
+    repo_root: Callable[[str], Path],
+    analyze_spec,
+    git_diff_name_only: Callable[[Path, Optional[str], Optional[str]], tuple[list[str], Optional[str]]],
+    staged_repo_files_fn: Callable[[Path], tuple[list[str], Optional[str]]],
+    repo_paths_changed_under_roots: Callable[[str, list[str]], list[str]],
+    matches_any_pattern: Callable[[str, list[str]], bool],
+    rel: Callable[[Path], str],
+    utc_now: Callable[[], str],
+) -> dict[str, object]:
+    staged = bool(getattr(args, "staged", False))
+    changed = bool(getattr(args, "changed", False))
+
+    if staged and changed:
+        raise SystemExit("Usa `--staged` o `--changed`, no ambos.")
+
+    if staged:
+        root_spec_files, error = staged_repo_files_fn(root)
+        if error:
+            raise SystemExit(f"No pude resolver specs staged: {error}")
+        spec_paths = [
+            candidate.resolve()
+            for relative_path in root_spec_files
+            for candidate in [root / relative_path]
+            if relative_path.endswith(".spec.md")
+            and candidate.exists()
+            and "specs/" in relative_path.replace("\\", "/")
+        ]
+        spec_paths = sorted(dict.fromkeys(spec_paths))
+    else:
+        spec_paths = select_spec_paths(
+            args.spec,
+            all_specs=bool(getattr(args, "all", False)),
+            changed=changed,
+            base=getattr(args, "base", None),
+            head=getattr(args, "head", None),
+        )
+
+    changed_root_files: list[str] = []
+    changed_repo_files: dict[str, list[str]] = {}
+    if staged:
+        changed_root_files, error = staged_repo_files_fn(root)
+        if error:
+            raise SystemExit(f"No pude resolver cambios staged del root: {error}")
+        for repo in implementation_repos():
+            repo_changes, repo_error = staged_repo_files_fn(repo_root(repo))
+            if repo_error:
+                raise SystemExit(f"No pude resolver cambios staged de `{repo}`: {repo_error}")
+            changed_repo_files[repo] = repo_changes
+    elif changed:
+        changed_root_files, error = git_diff_name_only(root, base=getattr(args, "base", None), head=getattr(args, "head", None))
+        if error:
+            raise SystemExit(f"No pude resolver cambios del root: {error}")
+        for repo in implementation_repos():
+            repo_changes, repo_error = git_diff_name_only(repo_root(repo), base=getattr(args, "base", None), head=getattr(args, "head", None))
+            if repo_error:
+                raise SystemExit(f"No pude resolver cambios de `{repo}`: {repo_error}")
+            changed_repo_files[repo] = repo_changes
+
+    relevant_changed_root_files = [
+        path
+        for path in repo_paths_changed_under_roots(root_repo, changed_root_files)
+        if not is_non_spec_drift_change(root_repo, root_repo, path)
+    ]
+    relevant_changed_repo_files: dict[str, list[str]] = {}
+    for repo, paths in changed_repo_files.items():
+        relevant_changed_repo_files[repo] = [
+            path
+            for path in repo_paths_changed_under_roots(repo, paths)
+            if not is_non_spec_drift_change(repo, root_repo, path)
+        ]
+
+    sensitive_changes: list[str] = []
+    for repo, paths in relevant_changed_repo_files.items():
+        sensitive_changes.extend(f"{repo}:{path}" for path in paths)
+    sensitive_changes.extend(f"{root_repo}:{path}" for path in relevant_changed_root_files)
+
+    items: list[dict[str, object]] = []
+    findings: list[str] = []
+
+    for spec_path in spec_paths:
+        analysis = analyze_spec(spec_path)
+        spec_findings: list[str] = []
+        covered_changes: list[str] = []
+
+        for repo, paths in relevant_changed_repo_files.items():
+            covered_patterns = [item["relative"] for item in analysis["target_index"].get(repo, [])]
+            for path in paths:
+                if covered_patterns and matches_any_pattern(path, covered_patterns):
+                    covered_changes.append(f"{repo}:{path}")
+
+        root_patterns = [item["relative"] for item in analysis["target_index"].get(root_repo, [])]
+        for path in relevant_changed_root_files:
+            if root_patterns and matches_any_pattern(path, root_patterns):
+                covered_changes.append(f"{root_repo}:{path}")
+
+        if sensitive_changes and not covered_changes:
+            spec_findings.append("La spec seleccionada no cubre cambios detectados en superficies estables.")
+
+        items.append(
+            {
+                "spec": rel(spec_path),
+                "covered_changes": sorted(dict.fromkeys(covered_changes)),
+                "findings": spec_findings,
+                "status": "passed" if not spec_findings else "failed",
+            }
+        )
+        findings.extend(f"{rel(spec_path)}: {finding}" for finding in spec_findings)
+
+    if sensitive_changes and not spec_paths:
+        findings.append(
+            "Se detectaron cambios en superficies estables sin cambios de spec: " + ", ".join(sorted(sensitive_changes))
+        )
+
+    payload = {
+        "generated_at": utc_now(),
+        "scope": (
+            "staged"
+            if staged
+            else (args.spec or ("changed" if changed else ("all" if getattr(args, "all", False) else "default")))
+        ),
+        "sensitive_changes": sorted(sensitive_changes),
+        "items": items,
+        "findings": findings,
+    }
+    return payload
+
+
+def command_spec_guard(
+    args,
+    *,
+    require_dirs: Callable[[], None],
+    select_spec_paths,
+    root: Path,
+    root_repo: str,
+    implementation_repos: Callable[[], list[str]],
+    repo_root: Callable[[str], Path],
+    analyze_spec,
+    git_diff_name_only: Callable[[Path, Optional[str], Optional[str]], tuple[list[str], Optional[str]]],
+    staged_repo_files_fn: Callable[[Path], tuple[list[str], Optional[str]]],
+    repo_paths_changed_under_roots: Callable[[str, list[str]], list[str]],
+    matches_any_pattern: Callable[[str, list[str]], bool],
+    rel: Callable[[Path], str],
+    utc_now: Callable[[], str],
+    json_dumps: Callable[[object], str],
+) -> int:
+    require_dirs()
+    payload = evaluate_stable_surface_guard(
+        args,
+        select_spec_paths=select_spec_paths,
+        root=root,
+        root_repo=root_repo,
+        implementation_repos=implementation_repos,
+        repo_root=repo_root,
+        analyze_spec=analyze_spec,
+        git_diff_name_only=git_diff_name_only,
+        staged_repo_files_fn=staged_repo_files_fn,
+        repo_paths_changed_under_roots=repo_paths_changed_under_roots,
+        matches_any_pattern=matches_any_pattern,
+        rel=rel,
+        utc_now=utc_now,
+    )
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+        return 1 if payload["findings"] else 0
+
+    if not payload["findings"]:
+        print("Spec guard passed.")
+        return 0
+
+    for finding in payload["findings"]:
+        print(f"- {finding}")
+    return 1
+
+
 def render_contract_artifacts(
     slug: str,
     declarations: list[dict[str, object]],
