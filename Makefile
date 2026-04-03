@@ -83,7 +83,7 @@ nuke: ## Borra contenedores, volúmenes e imágenes del proyecto
 # ── Help ─────────────────────────────────────────────────────────────
 
 .PHONY: help
-.PHONY: flow flow-doctor flow-status stack tessl bmad skills providers submodule-doctor submodule-sync secrets drift ci release infra
+.PHONY: flow flow-doctor flow-status workspace stack tessl bmad skills providers submodule-doctor submodule-sync secrets drift ci release infra
 
 flow:
 	$(FLOW) $(ARGS)
@@ -96,6 +96,9 @@ flow-status:
 
 stack:
 	$(FLOW) stack $(ARGS)
+
+workspace:
+	$(FLOW) workspace exec -- $(ARGS)
 
 tessl:
 	$(FLOW) tessl -- $(ARGS)
@@ -166,6 +169,7 @@ help:
 	@echo "    make nuke            Detiene, elimina volúmenes e imágenes"
 	@echo ""
 	@echo "  Stack Control Plane:"
+	@echo "    make workspace ARGS='python3 ./flow ci spec --all' Ejecuta un comando arbitrario dentro del workspace"
 	@echo "    make stack ARGS='ps'            Ejecuta flow stack"
 	@echo "    make tessl ARGS='whoami'        Ejecuta Tessl via flow"
 	@echo "    make bmad ARGS='--help'         Ejecuta BMAD via flow"

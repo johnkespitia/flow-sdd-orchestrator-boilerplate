@@ -65,6 +65,15 @@ def build_parser(
     stack_exec.add_argument("command", nargs=argparse.REMAINDER, help="Command to execute.")
     stack_exec.set_defaults(func=commands["stack_exec"])
 
+    workspace = subparsers.add_parser("workspace", help="Run commands through the canonical workspace devcontainer.")
+    workspace_subparsers = workspace.add_subparsers(dest="workspace_command", required=True)
+    workspace_exec = workspace_subparsers.add_parser(
+        "exec",
+        help="Execute a command in the workspace service, or locally when already inside the devcontainer.",
+    )
+    workspace_exec.add_argument("command", nargs=argparse.REMAINDER, help="Command to execute after `--`.")
+    workspace_exec.set_defaults(func=commands["workspace_exec"])
+
     stack_design = stack_subparsers.add_parser("design", help="Draft a stack spec from a prompt or derive a stack manifest from an approved spec.")
     stack_design_source = stack_design.add_mutually_exclusive_group(required=True)
     stack_design_source.add_argument("--prompt", help="Natural-language description used to draft a stack spec.")

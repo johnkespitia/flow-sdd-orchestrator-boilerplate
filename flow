@@ -1322,6 +1322,16 @@ def command_stack_exec(args: argparse.Namespace) -> int:
     )
 
 
+def command_workspace_exec(args: argparse.Namespace) -> int:
+    return flow_tooling.command_workspace_exec(
+        args,
+        normalize_passthrough=normalize_passthrough,
+        running_inside_workspace=running_inside_workspace,
+        run_local_tool=run_local_tool,
+        run_workspace_tool=lambda tool_args: run_workspace_tool(tool_args, False, root_container_workdir()),
+    )
+
+
 def command_stack_design(args: argparse.Namespace) -> int:
     return flow_stack_design.command_stack_design(
         args,
@@ -2475,6 +2485,7 @@ def build_parser() -> argparse.ArgumentParser:
         "stack_logs": command_stack_logs,
         "stack_sh": command_stack_sh,
         "stack_exec": command_stack_exec,
+        "workspace_exec": command_workspace_exec,
         "stack_design": command_stack_design,
         "stack_plan": command_stack_plan,
         "stack_apply": command_stack_apply,

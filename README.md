@@ -184,7 +184,8 @@ hooks versionados (incluido `pre-push` para validar gitlinks de submodulos antes
 
 Desde tu shell host, una vez el servicio `workspace` este arriba, `flow tessl`, `flow bmad`,
 `flow skills doctor`, `flow skills sync` y `flow ci repo` delegan automaticamente al devcontainer.
-Para ejecutar algo arbitrario dentro del workspace desde host, usa `python3 ./flow stack exec workspace -- ...`.
+Para cualquier otro comando del toolchain del workspace, usa `python3 ./flow workspace exec -- ...`
+o el wrapper `scripts/workspace_exec.sh ...` en vez de probar primero en el host.
 
 Si necesitas un tercer proyecto de implementación, puedes registrarlo desde el control plane:
 
@@ -541,6 +542,8 @@ python3 ./flow stack apply --spec stack-from-spec --json
 python3 ./flow add-project mobile --runtime pnpm --port 4173
 python3 ./flow stack ps
 python3 ./flow stack exec workspace -- pwd
+python3 ./flow workspace exec -- python3 ./flow skills doctor
+scripts/workspace_exec.sh python3 ./flow ci spec --all
 python3 ./flow tessl -- --help
 python3 ./flow bmad -- --help
 python3 ./flow ci spec --all

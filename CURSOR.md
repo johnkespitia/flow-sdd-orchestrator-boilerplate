@@ -8,6 +8,7 @@ Use this file when Cursor CLI does not load `.cursor/rules/**` automatically.
 - `.flow/**` is operational state only; never treat it as canonical intent.
 - Read the active spec and `workspace.config.json` before non-trivial edits.
 - Resolve repo/runtime from spec `targets` and workspace routing.
+- Run workspace-managed commands from the devcontainer by default with `python3 ./flow workspace exec -- <cmd>` or `scripts/workspace_exec.sh <cmd>`.
 - Do not edit files outside the active spec `targets` unless the spec changes first.
 - Prefer `python3 ./flow ...` commands for lifecycle actions over ad hoc shell flows.
 - Treat `status: released` as terminal: valid for CI/traceability, not valid for re-planning or re-execution.

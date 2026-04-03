@@ -134,3 +134,21 @@ def command_bmad(
         return run_local_tool(full_command)
 
     return run_workspace_tool(full_command)
+
+
+def command_workspace_exec(
+    args,
+    *,
+    normalize_passthrough: Callable[[list[str]], list[str]],
+    running_inside_workspace: Callable[[], bool],
+    run_local_tool: Callable[[list[str]], int],
+    run_workspace_tool: Callable[[list[str]], int],
+) -> int:
+    command = normalize_passthrough(args.command)
+    if not command:
+        raise SystemExit("Debes indicar un comando despues de `--`. Ejemplo: `flow workspace exec -- python3 ./flow ci spec --all`.")
+
+    if running_inside_workspace():
+        return run_local_tool(command)
+
+    return run_workspace_tool(command)

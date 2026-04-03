@@ -225,6 +225,8 @@ Esto es la capa operativa del devcontainer y de los servicios del workspace.
 
 Si trabajas desde el shell host, `flow tessl`, `flow bmad`, `flow skills doctor`, `flow skills sync`
 y `flow ci repo` delegan automaticamente al servicio `workspace` cuando el stack ya esta activo.
+Para comandos arbitrarios del workspace, usa `python3 ./flow workspace exec -- ...` o
+`scripts/workspace_exec.sh ...`.
 
 ## Workflow 8: Repos y guardrails
 
