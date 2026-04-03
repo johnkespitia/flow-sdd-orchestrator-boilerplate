@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](#)
-[![CI](https://img.shields.io/badge/ci-root--ci-success-brightgreen.svg)](#)
+[![CI](https://img.shields.io/badge/ci-root--ci-brightgreen.svg)](#)
 [![Gateway](https://img.shields.io/badge/gateway-fastapi-009688.svg)](#)
 ![Views](https://komarev.com/ghpvc/?username=johnkespitia&label=views&color=0e75b6&style=flat)
 
