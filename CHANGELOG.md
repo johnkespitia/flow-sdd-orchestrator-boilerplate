@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.6 - 2026-04-04
+
+### Changed
+
+- Automate worktree cleanup lifecycle
+
 ## v0.4.5 - 2026-04-04
 
 ### Changed
