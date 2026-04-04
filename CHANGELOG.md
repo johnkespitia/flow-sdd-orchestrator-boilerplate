@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.5 - 2026-04-04
+
+### Changed
+
+- Harden release promotion contracts
+- Fix README CI badge
+- Add README views badge
+
 ## v0.4.4 - 2026-04-03
 
 ### Added
