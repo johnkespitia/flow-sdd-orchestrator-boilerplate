@@ -13,6 +13,124 @@ from flowctl.secret_scan import is_advisory_secret_finding
 from flowctl.specs import frontmatter_status_allows_strict_ci, slice_governance_findings, verification_matrix_findings
 
 
+def _normalize_relative_repo_paths(values: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for value in values:
+        candidate = str(value).strip().replace("\\", "/").lstrip("./")
+        if candidate:
+            normalized.append(candidate)
+    return normalized
+
+
+def _repo_install_contract(repo_payload: dict[str, object], repo_path: Path) -> dict[str, object]:
+    ci_payload = repo_payload.get("ci", {})
+    if not isinstance(ci_payload, dict):
+        ci_payload = {}
+    install_contract = ci_payload.get("install_contract", {})
+    if not isinstance(install_contract, dict):
+        install_contract = {}
+
+    test_runner = str(repo_payload.get("test_runner", "")).strip().lower()
+    manifest_files: list[str] = []
+    lock_files: list[str] = []
+    strict_required = False
+
+    if test_runner == "pnpm" or (repo_path / "package.json").exists():
+        manifest_files = ["package.json"]
+        lock_files = ["pnpm-lock.yaml", "package-lock.json", "yarn.lock"]
+        strict_required = True
+    elif test_runner == "php" or (repo_path / "composer.json").exists():
+        manifest_files = ["composer.json"]
+        lock_files = ["composer.lock"]
+        strict_required = True
+    elif test_runner == "go" or (repo_path / "go.mod").exists():
+        manifest_files = ["go.mod"]
+        lock_files = ["go.sum"]
+        strict_required = True
+    elif test_runner == "pytest" or (repo_path / "pyproject.toml").exists() or (repo_path / "requirements.txt").exists():
+        manifest_files = ["pyproject.toml", "requirements.txt"]
+        lock_files = ["poetry.lock", "uv.lock", "requirements.txt"]
+        strict_required = True
+
+    configured_manifests = install_contract.get("manifest_files")
+    if isinstance(configured_manifests, list):
+        manifest_files = [str(item) for item in configured_manifests if str(item).strip()]
+    configured_locks = install_contract.get("lock_files")
+    if isinstance(configured_locks, list):
+        lock_files = [str(item) for item in configured_locks if str(item).strip()]
+
+    mode = str(install_contract.get("mode", "")).strip().lower()
+    if not mode:
+        mode = "strict" if strict_required else "best_effort"
+
+    return {
+        "required": bool(manifest_files or lock_files),
+        "mode": mode,
+        "manifest_files": _normalize_relative_repo_paths(manifest_files),
+        "lock_files": _normalize_relative_repo_paths(lock_files),
+    }
+
+
+def _command_has_strict_install_signal(command: list[str]) -> bool:
+    joined = " ".join(str(part).strip().lower() for part in command if str(part).strip())
+    if not joined:
+        return False
+    return any(
+        token in joined
+        for token in (
+            "npm ci",
+            "--frozen-lockfile",
+            "composer install",
+            "go mod download",
+            "poetry install --sync",
+            "uv sync",
+            "pip-sync",
+        )
+    )
+
+
+def _reproducible_install_findings(
+    *,
+    repo_name: str,
+    repo_path: Path,
+    repo_payload: dict[str, object],
+    changed_files: list[str],
+    commands: list[tuple[str, list[str]]],
+) -> list[str]:
+    contract = _repo_install_contract(repo_payload, repo_path)
+    if not bool(contract.get("required")):
+        return []
+
+    manifest_files = [repo_path / item for item in contract.get("manifest_files", []) if isinstance(item, str)]
+    lock_files = [repo_path / item for item in contract.get("lock_files", []) if isinstance(item, str)]
+    manifest_exists = any(path.exists() for path in manifest_files)
+    existing_lock_paths = [path for path in lock_files if path.exists()]
+    mode = str(contract.get("mode", "best_effort")).strip().lower()
+
+    findings: list[str] = []
+    if manifest_exists and not existing_lock_paths:
+        findings.append(
+            f"`{repo_name}` declara install reproducible pero no tiene lockfile versionado ({', '.join(path.name for path in lock_files)})."
+        )
+
+    normalized_changed = _normalize_relative_repo_paths(changed_files)
+    manifest_changed = any(str(path.relative_to(repo_path)).replace("\\", "/") in normalized_changed for path in manifest_files if path.exists())
+    lock_changed = any(str(path.relative_to(repo_path)).replace("\\", "/") in normalized_changed for path in lock_files if path.exists())
+    if manifest_changed and existing_lock_paths and not lock_changed:
+        findings.append(
+            f"`{repo_name}` cambio manifest de dependencias sin actualizar lockfile."
+        )
+
+    if mode == "strict":
+        install_commands = [command for label, command in commands if label == "Install"]
+        if install_commands and not any(_command_has_strict_install_signal(command) for command in install_commands):
+            findings.append(
+                f"`{repo_name}` declara install reproducible estricto pero su comando de instalacion CI no es estricto."
+            )
+
+    return findings
+
+
 def load_ci_service_overrides_from_env() -> dict[str, dict[str, object]]:
     """JSON en FLOW_CI_SERVICE_OVERRIDES: { \"servicio\": { \"smoke_attempts\": 5, ... } }."""
     raw = os.environ.get("FLOW_CI_SERVICE_OVERRIDES", "").strip()
@@ -224,6 +342,7 @@ def command_ci_repo(
     resolve_spec,
     analyze_spec,
     repo_root,
+    repo_config,
     repo_ci_commands,
     git_diff_name_only,
     git_changed_files,
@@ -310,6 +429,7 @@ def command_ci_repo(
     for repo_name in repo_names:
         repo_path = planned_paths.get(repo_name, runtime_path(repo_root(repo_name)))
         commands = repo_ci_commands(repo_name, repo_path, skip_install=args.skip_install)
+        repo_payload = repo_config(repo_name)
 
         related_targets: list[str] = []
         if analysis is not None:
@@ -327,6 +447,16 @@ def command_ci_repo(
 
         if diff_error:
             findings.append(f"No pude resolver diff del repo: {diff_error}")
+
+        findings.extend(
+            _reproducible_install_findings(
+                repo_name=repo_name,
+                repo_path=repo_path,
+                repo_payload=repo_payload if isinstance(repo_payload, dict) else {},
+                changed_files=changed_files,
+                commands=commands,
+            )
+        )
 
         secret_scan_paths = list(changed_files)
         if not secret_scan_paths:

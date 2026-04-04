@@ -87,7 +87,11 @@ Ese valor todavía no estaba modelado en SoftOS como una capacidad reusable y pa
 - `production` solo puede promoverse desde `staging`.
 - `staging` y `production` usan guardrails de path y aislamiento antes del deploy.
 - El release provider `github-actions` traduce `environment`, `version`, `source_ref`, `requested_by` y `run_migrations` al workflow hijo.
+- El provider debe declarar explícitamente su contrato de promoción/verificación (`requires_source_ref`, `supports_pr_promotion`, `requires_post_deploy_verify`, `verify_mode`) en `workspace.providers.json`.
+- El repo debe declarar explícitamente su estrategia/capacidades de promoción (`promotion_strategy`, `deploy_requires_pr`, `deploy_requires_healthcheck`, `post_deploy_smoke_required`) en `workspace.config.json`.
 - `flow release promote` debe heredar autenticación GitHub hacia el provider reusable; si solo existe `SOFTOS_GITHUB_TOKEN`, el provider debe normalizarlo a `GH_TOKEN`.
+- `flow release promote` debe fallar en preflight si un provider PR-based requiere `source_ref`/`target_ref` y SoftOS no puede derivarlos de forma única desde config + manifest de release.
+- El manifest de release debe guardar `remote_ref_candidates`, `release_ref` y `promotion_strategy` por repo para evitar derivaciones implícitas durante `promote`.
 - El contrato de schema-sync exige exactamente una migración por `CREATE TABLE` del dump, excepto `migrations`.
 - La vista va separada del DDL de tablas.
 - Los tests de schema-sync deben cubrir paridad local y verificación estructural en MySQL CI usando `information_schema`.
@@ -152,8 +156,11 @@ Una spec derivada de schema-sync debe exigir como mínimo:
 - existe `templates/github-workflows/deploy-on-pr-merge.yml` con guardrails, release marker y healthcheck;
 - `scripts/providers/release/github_actions.sh` soporta `FLOW_DEPLOY_GITHUB_REPO`, `FLOW_DEPLOY_GITHUB_REF`, `FLOW_DEPLOY_SOURCE_REF` y `FLOW_DEPLOY_RUN_MIGRATIONS`;
 - `release promote` y el provider `github-actions` aceptan `SOFTOS_GITHUB_TOKEN` como fuente de auth para `gh`;
+- `workspace.providers.json` declara el contrato explícito del provider `github-actions` para promoción PR y verificación post-deploy;
 - existe el runbook `docs/softos-pr-promotion-runbook.md`;
 - `workspace.providers.json` y `workspace.config.json` incluyen un ejemplo versionado del patrón con `main` terminal;
+- `workspace.config.json` incluye un ejemplo versionado de `install_contract` reproducible para CI;
+- `flow ci repo` falla si el repo declara install reproducible y el manifest de dependencias cambió sin sincronizar el lockfile;
 - la spec documenta el contrato estándar de schema-sync por tabla.
 
 ## Test plan

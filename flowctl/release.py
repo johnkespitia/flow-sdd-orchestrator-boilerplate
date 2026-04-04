@@ -52,6 +52,88 @@ def _provider_auth_env() -> dict[str, str]:
 
     return env
 
+
+def _as_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if not text:
+        return default
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _provider_release_contract(provider_config: dict[str, object]) -> dict[str, object]:
+    contract = provider_config.get("contract", {})
+    if not isinstance(contract, dict):
+        contract = {}
+    verify_mode = str(contract.get("verify_mode", "")).strip().lower()
+    return {
+        "requires_source_ref": _as_bool(contract.get("requires_source_ref")),
+        "requires_target_ref": _as_bool(contract.get("requires_target_ref")),
+        "supports_pr_promotion": _as_bool(contract.get("supports_pr_promotion")),
+        "requires_post_deploy_verify": _as_bool(contract.get("requires_post_deploy_verify")),
+        "verify_mode": verify_mode,
+    }
+
+
+def _repo_deploy_contract(repo_payload: dict[str, object], environment: str) -> dict[str, object]:
+    deploy = repo_payload.get("deploy")
+    if not isinstance(deploy, dict):
+        return {
+            "promotion_mode": "direct",
+            "deploy_requires_pr": False,
+            "deploy_requires_healthcheck": False,
+            "post_deploy_smoke_required": False,
+            "healthcheck_retry": {},
+        }
+
+    contract = deploy.get("contract", {})
+    if not isinstance(contract, dict):
+        contract = {}
+    by_env = deploy.get("contract_by_env")
+    if isinstance(by_env, dict):
+        env_contract = by_env.get(environment, {})
+        if isinstance(env_contract, dict):
+            contract = {**contract, **env_contract}
+
+    promotion_strategy = deploy.get("promotion_strategy", {})
+    if not isinstance(promotion_strategy, dict):
+        promotion_strategy = {}
+    promotion_mode = str(
+        promotion_strategy.get("mode", contract.get("promotion_mode", ""))
+    ).strip().lower()
+    if not promotion_mode:
+        promotion_mode = "pull_request" if _as_bool(contract.get("deploy_requires_pr")) else "direct"
+
+    verify = deploy.get("verify", {})
+    if not isinstance(verify, dict):
+        verify = {}
+    verify_by_env = deploy.get("verify_by_env")
+    if isinstance(verify_by_env, dict):
+        env_verify = verify_by_env.get(environment, {})
+        if isinstance(env_verify, dict):
+            verify = {**verify, **env_verify}
+    retry = verify.get("retry", {})
+    if not isinstance(retry, dict):
+        retry = {}
+
+    return {
+        "promotion_mode": promotion_mode,
+        "deploy_requires_pr": _as_bool(contract.get("deploy_requires_pr"), promotion_mode == "pull_request"),
+        "deploy_requires_healthcheck": _as_bool(
+            contract.get("deploy_requires_healthcheck"),
+            str(verify.get("mode", "")).strip().lower() == "healthcheck",
+        ),
+        "post_deploy_smoke_required": _as_bool(contract.get("post_deploy_smoke_required")),
+        "healthcheck_retry": retry,
+    }
+
 def _repo_deploy_provider(repo_payload: dict[str, object], environment: str) -> str:
     deploy = repo_payload.get("deploy")
     if not isinstance(deploy, dict):
@@ -80,6 +162,11 @@ def _repo_deploy_env(repo_payload: dict[str, object], environment: str) -> dict[
         for key, value in raw_common.items():
             scoped[str(key)] = str(value)
     return scoped
+
+
+def _promotion_strategy_mode(repo_payload: dict[str, object], environment: str) -> str:
+    contract = _repo_deploy_contract(repo_payload, environment)
+    return str(contract.get("promotion_mode", "direct")).strip().lower() or "direct"
 
 
 def _resolve_release_provider_from_workspace(
@@ -206,6 +293,32 @@ def _run_command_raw(command: list[str], cwd: Path) -> tuple[int, str, str]:
     return result.returncode, result.stdout, result.stderr
 
 
+def _remote_tracking_refs_for_sha(
+    *,
+    repo_path: Path,
+    repo_sha: str,
+    remote_name: str,
+    root: Path,
+) -> list[str]:
+    refs_rc, refs_stdout, _refs_stderr = _run_command(
+        ["git", "-C", str(repo_path), "for-each-ref", "--format=%(refname:short)", f"refs/remotes/{remote_name}"],
+        cwd=root,
+    )
+    if refs_rc != 0:
+        return []
+
+    refs = [line.strip() for line in refs_stdout.splitlines() if line.strip()]
+    matching_refs: list[str] = []
+    for ref in refs:
+        contains_rc, _, _ = _run_command(
+            ["git", "-C", str(repo_path), "merge-base", "--is-ancestor", repo_sha, ref],
+            cwd=root,
+        )
+        if contains_rc == 0:
+            matching_refs.append(ref)
+    return sorted(matching_refs)
+
+
 def _remote_tracking_refs_containing_sha(
     *,
     repo_path: Path,
@@ -224,14 +337,12 @@ def _remote_tracking_refs_containing_sha(
     if not refs:
         return False, "sin refs de tracking local para el remote"
 
-    matching_refs: list[str] = []
-    for ref in refs:
-        contains_rc, _, _ = _run_command(
-            ["git", "-C", str(repo_path), "merge-base", "--is-ancestor", repo_sha, ref],
-            cwd=root,
-        )
-        if contains_rc == 0:
-            matching_refs.append(ref)
+    matching_refs = _remote_tracking_refs_for_sha(
+        repo_path=repo_path,
+        repo_sha=repo_sha,
+        remote_name=remote_name,
+        root=root,
+    )
 
     if matching_refs:
         return True, ", ".join(sorted(matching_refs))
@@ -253,6 +364,156 @@ def _github_repo_slug_from_remote(remote_url: str) -> str:
         slug = parsed.path.strip("/")
         return slug.removesuffix(".git")
     return ""
+
+
+def _branch_name_from_remote_ref(ref: str) -> str:
+    value = str(ref).strip()
+    if value.startswith("origin/"):
+        return value.removeprefix("origin/")
+    return value
+
+
+def _manifest_repo_source_ref(repo_payload: dict[str, object]) -> str:
+    raw_release_ref = repo_payload.get("release_ref", "")
+    release_ref = raw_release_ref.strip() if isinstance(raw_release_ref, str) else ""
+    if release_ref:
+        return release_ref
+    candidates = repo_payload.get("remote_ref_candidates", [])
+    if not isinstance(candidates, list):
+        return ""
+    normalized = [_branch_name_from_remote_ref(candidate) for candidate in candidates if str(candidate).strip()]
+    unique = sorted({item for item in normalized if item})
+    if len(unique) == 1:
+        return unique[0]
+    return ""
+
+
+def _release_blocking_verification_profiles(
+    manifest: dict[str, object],
+    environment: str,
+) -> list[dict[str, str]]:
+    matches: list[dict[str, str]] = []
+    features = manifest.get("features", [])
+    if not isinstance(features, list):
+        return matches
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        slug = str(feature.get("slug", "")).strip() or "<sin-slug>"
+        profiles = feature.get("verification_matrix", [])
+        if not isinstance(profiles, list):
+            continue
+        for profile in profiles:
+            if not isinstance(profile, dict):
+                continue
+            blocking_on = {str(item).strip() for item in profile.get("blocking_on", []) if str(item).strip()}
+            environments = {str(item).strip() for item in profile.get("environments", []) if str(item).strip()}
+            if "release" not in blocking_on:
+                continue
+            if environments and environment not in environments:
+                continue
+            matches.append(
+                {
+                    "slug": slug,
+                    "name": str(profile.get("name", "")).strip() or "<sin-nombre>",
+                }
+            )
+    return matches
+
+
+def _release_promote_preflight_findings(
+    *,
+    args,
+    manifest: dict[str, object],
+    workspace_config: dict[str, object],
+    provider_config: dict[str, object],
+    deploy_env: dict[str, str],
+    provider_repos: list[str],
+) -> list[str]:
+    findings: list[str] = []
+    provider_contract = _provider_release_contract(provider_config)
+    repos_section = workspace_config.get("repos", {})
+    if not isinstance(repos_section, dict):
+        repos_section = {}
+
+    target_repos = provider_repos or [
+        str(repo).strip()
+        for repo in manifest.get("repos", {})
+        if str(repo).strip()
+    ]
+    repo_contracts: list[tuple[str, dict[str, object]]] = []
+    for repo in target_repos:
+        repo_payload = repos_section.get(repo, {})
+        if not isinstance(repo_payload, dict):
+            continue
+        repo_contracts.append((repo, _repo_deploy_contract(repo_payload, args.environment)))
+
+    if any(contract.get("deploy_requires_pr") for _, contract in repo_contracts):
+        if not bool(provider_contract.get("supports_pr_promotion")):
+            findings.append("El repo declara `deploy_requires_pr`, pero el provider no soporta `pull_request` promotion.")
+
+    source_ref = str(deploy_env.get("FLOW_DEPLOY_SOURCE_REF", "")).strip()
+    if bool(provider_contract.get("requires_source_ref")) and not source_ref:
+        manifest_repos = manifest.get("repos", {})
+        if not isinstance(manifest_repos, dict):
+            manifest_repos = {}
+        derived_refs: set[str] = set()
+        unresolved: list[str] = []
+        for repo in target_repos:
+            repo_manifest = manifest_repos.get(repo, {})
+            if not isinstance(repo_manifest, dict):
+                unresolved.append(repo)
+                continue
+            derived_ref = _manifest_repo_source_ref(repo_manifest)
+            if not derived_ref:
+                unresolved.append(repo)
+                continue
+            derived_refs.add(derived_ref)
+        if unresolved:
+            findings.append(
+                "El provider requiere `source_ref` y SoftOS no pudo derivarlo de forma unica para: "
+                + ", ".join(f"`{repo}`" for repo in unresolved)
+                + "."
+            )
+        elif len(derived_refs) != 1:
+            findings.append(
+                "El provider requiere `source_ref` pero el manifest expone multiples refs candidatas: "
+                + ", ".join(f"`{ref}`" for ref in sorted(derived_refs))
+                + "."
+            )
+        else:
+            deploy_env["FLOW_DEPLOY_SOURCE_REF"] = next(iter(derived_refs))
+
+    target_ref = str(deploy_env.get("FLOW_DEPLOY_GITHUB_REF", "")).strip()
+    if bool(provider_contract.get("requires_target_ref")) and not target_ref:
+        findings.append("El provider requiere `target_ref` y no existe `FLOW_DEPLOY_GITHUB_REF` configurado.")
+
+    requires_post_deploy_verify = bool(provider_contract.get("requires_post_deploy_verify"))
+    if requires_post_deploy_verify and bool(getattr(args, "skip_verify", False)):
+        findings.append("El provider requiere verificacion post-deploy; `--skip-verify` no es valido.")
+
+    verify_mode = str(provider_contract.get("verify_mode", "")).strip().lower()
+    if verify_mode == "healthcheck":
+        for repo, contract in repo_contracts:
+            if not contract.get("deploy_requires_healthcheck"):
+                continue
+            retry = contract.get("healthcheck_retry", {})
+            if not isinstance(retry, dict):
+                retry = {}
+            attempts = int(retry.get("attempts", 0) or 0)
+            if attempts < 1:
+                findings.append(
+                    f"`{repo}` requiere healthcheck post-deploy pero no declara una estrategia de retry valida."
+                )
+
+    if any(contract.get("post_deploy_smoke_required") for _, contract in repo_contracts):
+        matching_profiles = _release_blocking_verification_profiles(manifest, args.environment)
+        if not matching_profiles:
+            findings.append(
+                "El repo exige `post_deploy_smoke_required`, pero el release no declara perfiles de verificacion bloqueantes sobre `release` para este entorno."
+            )
+
+    return findings
 
 
 def _is_semver_tag(value: str) -> bool:
@@ -728,6 +989,7 @@ def command_release_cut(
     read_state,
     root: Path,
     root_repo: str,
+    workspace_config: dict[str, object],
     plan_root: Path,
     git_changed_files: Callable[[Path], tuple[list[str], str | None]],
     repo_head_sha: Callable[[str], str],
@@ -802,17 +1064,43 @@ def command_release_cut(
         joined = "\n".join(f"- {finding}" for finding in dirty_repo_findings)
         raise SystemExit(f"No puedo cortar un release con cambios locales sin commit:\n{joined}")
 
+    repos_section = workspace_config.get("repos", {})
+    if not isinstance(repos_section, dict):
+        repos_section = {}
+
+    manifest_repos: dict[str, dict[str, object]] = {}
+    for repo in sorted(repos_involved):
+        repo_path = repo_root(repo)
+        repo_sha = repo_head_sha(repo)
+        remote_ref_candidates = _remote_tracking_refs_for_sha(
+            repo_path=repo_path,
+            repo_sha=repo_sha,
+            remote_name="origin",
+            root=root,
+        )
+        release_ref = ""
+        normalized_refs = sorted({_branch_name_from_remote_ref(ref) for ref in remote_ref_candidates if str(ref).strip()})
+        if len(normalized_refs) == 1:
+            release_ref = normalized_refs[0]
+        repo_workspace_payload = repos_section.get(repo, {})
+        promotion_strategy = {"mode": "direct"}
+        if isinstance(repo_workspace_payload, dict):
+            promotion_strategy = {
+                "mode": _promotion_strategy_mode(repo_workspace_payload, "production"),
+            }
+        manifest_repos[repo] = {
+            "path": str(repo_path),
+            "sha": repo_sha,
+            "remote_ref_candidates": remote_ref_candidates,
+            "release_ref": release_ref or None,
+            "promotion_strategy": promotion_strategy,
+        }
+
     manifest = {
         "version": version,
         "generated_at": utc_now(),
         "root_sha": repo_head_sha(root_repo),
-        "repos": {
-            repo: {
-                "path": str(repo_root(repo)),
-                "sha": repo_head_sha(repo),
-            }
-            for repo in sorted(repos_involved)
-        },
+        "repos": manifest_repos,
         "features": features,
         "promotions": [],
     }
@@ -994,6 +1282,17 @@ def command_release_promote(
     )
     explicit_provider = str(getattr(args, "provider", "") or "").strip() or inferred_provider or None
     provider_name, provider_config_payload = select_provider(providers_payload, "release", explicit=explicit_provider)
+    preflight_findings = _release_promote_preflight_findings(
+        args=args,
+        manifest=manifest,
+        workspace_config=workspace_config,
+        provider_config=provider_config_payload,
+        deploy_env=deploy_env,
+        provider_repos=provider_repos,
+    )
+    if preflight_findings:
+        joined = "\n".join(f"- {finding}" for finding in preflight_findings)
+        raise SystemExit(f"La promocion `{args.environment}` no paso preflight:\n{joined}")
     promotion_payload = {
         "version": args.version,
         "environment": args.environment,

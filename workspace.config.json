@@ -79,6 +79,21 @@
             "staging": "github-actions",
             "production": "github-actions"
           },
+          "promotion_strategy": {
+            "mode": "pull_request"
+          },
+          "contract": {
+            "deploy_requires_pr": true,
+            "deploy_requires_healthcheck": true,
+            "post_deploy_smoke_required": true
+          },
+          "verify": {
+            "mode": "healthcheck",
+            "retry": {
+              "attempts": 4,
+              "backoff_seconds": 5
+            }
+          },
           "env": {
             "FLOW_DEPLOY_GITHUB_REPO": "acme/legacy-api",
             "FLOW_DEPLOY_GITHUB_WORKFLOW": "promotion-pr.yml",
@@ -92,6 +107,17 @@
             "production": {
               "FLOW_DEPLOY_SOURCE_REF": "staging"
             }
+          }
+        },
+        "ci": {
+          "install_contract": {
+            "mode": "strict",
+            "manifest_files": [
+              "package.json"
+            ],
+            "lock_files": [
+              "pnpm-lock.yaml"
+            ]
           }
         }
       }
