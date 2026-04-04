@@ -24,6 +24,7 @@ Use this skill as the default operating guide for any non-trivial task in this w
    - `flow workflow next-step|execute-feature|run`
    - `flow ci spec|repo|integration`
    - `flow release cut|promote|verify|publish`
+   - `flow worktree list|clean`
    - `flow stack plan|apply`
 4. When running workspace-managed toolchains from host, use:
    - `python3 ./flow workspace exec -- <cmd>`
@@ -81,6 +82,14 @@ See:
 - Delegated project CI must be triggered only by SoftOS root CI, not directly by `push`/`pull_request`.
 
 Use the specialized skill `softos-repo-ci-delegation` when implementing or modifying that pattern.
+
+### Worktree hygiene model
+
+- Worktrees under `.worktrees/**` are temporary operational artifacts, not permanent state.
+- Preserve only active plan worktrees, worktrees with unintegrated changes, and worktrees explicitly retained for immediate reuse.
+- Prefer `flow worktree list --json` and `flow worktree clean --stale --dry-run --json` before manual `git worktree remove`.
+
+Use the specialized skill `softos-worktree-hygiene` when closing slices, cleaning `.worktrees/**`, or automating post-execution cleanup.
 
 ## Checks to prefer
 

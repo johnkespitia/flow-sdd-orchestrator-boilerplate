@@ -284,6 +284,26 @@ def build_parser(
     )
     worktree_create.add_argument("--json", action="store_true", help="Print the creation report as JSON.")
     worktree_create.set_defaults(func=commands["worktree_create"])
+    worktree_list = worktree_subparsers.add_parser(
+        "list",
+        help="List worktrees under `.worktrees/` and classify active vs cleanable entries.",
+    )
+    worktree_list.add_argument("--name", action="append", help="Filter by exact worktree directory name. Repeatable.")
+    worktree_list.add_argument("--feature", action="append", help="Filter by feature/spec slug. Repeatable.")
+    worktree_list.add_argument("--stale-only", action="store_true", help="Show only cleanable stale worktrees.")
+    worktree_list.add_argument("--json", action="store_true", help="Print the inventory as JSON.")
+    worktree_list.set_defaults(func=commands["worktree_list"])
+    worktree_clean = worktree_subparsers.add_parser(
+        "clean",
+        help="Remove stale worktrees safely and prune orphan metadata.",
+    )
+    worktree_clean.add_argument("name", nargs="?", help="Optional exact worktree directory name under `.worktrees/`.")
+    worktree_clean.add_argument("--feature", action="append", help="Clean worktrees associated with a feature/spec slug. Repeatable.")
+    worktree_clean.add_argument("--stale", action="store_true", help="Clean only orphan or closed clean worktrees. Default when no selector is provided.")
+    worktree_clean.add_argument("--force", action="store_true", help="Allow removing dirty or still-active worktrees.")
+    worktree_clean.add_argument("--dry-run", action="store_true", help="Preview cleanup actions without mutating git worktrees.")
+    worktree_clean.add_argument("--json", action="store_true", help="Print the cleanup report as JSON.")
+    worktree_clean.set_defaults(func=commands["worktree_clean"])
 
     secrets = subparsers.add_parser("secrets", help="Resolve secrets through provider adapters without storing them in Git.")
     secrets_subparsers = secrets.add_subparsers(dest="secrets_command", required=True)

@@ -90,10 +90,14 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - `python3 ./flow workspace exec -- <cmd>` ejecuta el comando localmente cuando ya corre dentro del devcontainer y delega al servicio `workspace` cuando se invoca desde host
 - `python3 ./flow repo exec <repo> -- <cmd>` ejecuta el comando en el `compose_service` del repo cuando existe, o localmente en el cwd del repo si ya corre dentro del devcontainer
 - `python3 ./flow repo exec <repo> --workdir <path> -- <cmd>` permite fijar explícitamente el worktree o subpath materializado para evitar mezclar artefactos, autoloaders, módulos o cachés del checkout base con la slice bajo verificación
+- `python3 ./flow worktree list --json` inventaría worktrees bajo `.worktrees/` y clasifica cuáles siguen activas, cuáles están cerradas y cuáles son huérfanas
+- `python3 ./flow worktree clean --stale --json` elimina de forma segura worktrees huérfanas o cerradas sin cambios pendientes y ejecuta `git worktree prune`
+- `python3 ./flow worktree clean --feature <slug> --dry-run --json` permite revisar el cleanup de una feature antes de mutar git
 - `scripts/workspace_exec.sh <cmd>` y `make workspace ARGS='<cmd>'` reutilizan el mismo entrypoint canónico del workspace para evitar ejecutar toolchains del proyecto directamente en el host
 - la imagen `workspace` incluye `pytest` para que las regresiones Python del control plane puedan validarse dentro del devcontainer sin depender del host
 - los handoffs y reportes de ejecución deben sugerir `flow repo exec <repo> -- <cmd>` para comandos del runtime del repo, evitando inducir a subagentes a correr PHPUnit, Composer, pnpm, pytest o Go test en `workspace`
 - esos handoffs deben apuntar al `--workdir` del worktree de la slice cuando el flujo se ejecuta sobre materialización aislada
+- la higiene de worktrees debe tratar `.worktrees/**` como artefactos operativos temporales y preservar solo worktrees activas, worktrees con cambios no integrados o worktrees explicitamente retenidas para la siguiente ola inmediata
 - las specs y slices de enforcement, governance, minimal-change o verification-only deben declarar explícitamente si una nueva superficie es `required`, `optional` o `forbidden`
 - cuando una slice no exige expansión funcional, la spec debe declarar `minimum_valid_completion`, `validated_noop_allowed` y `acceptable_evidence`
 - `flow plan`, `workflow next-step` y `workflow execute-feature --start-slices` deben preservar ese contrato de cierre mínimo en el plan y en los handoffs para que el ejecutor pueda cerrar con enforcement/tests/verificación sin reabrir alcance

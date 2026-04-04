@@ -394,6 +394,376 @@ def wait_for_worktree_path(path: Path, *, timeout_seconds: float = 5.0) -> bool:
     return path.exists() and (path / ".git").exists()
 
 
+WORKTREE_TERMINAL_FEATURE_STATUSES = {"released", "completed"}
+WORKTREE_ACTIVE_FEATURE_STATUSES = {
+    "planned",
+    "slice-started",
+    "approved-spec",
+    "in-review",
+    "reviewing-spec",
+    "draft-spec",
+}
+WORKTREE_ACTIVE_SLICE_STATUSES = {"started"}
+WORKTREE_CLOSED_SLICE_STATUSES = {"passed", "completed", "skipped"}
+
+
+def _safe_load_json(path: Path) -> dict[str, object] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _worktree_plan_index(
+    *,
+    plan_root: Path,
+    state_root: Path,
+) -> dict[str, list[dict[str, object]]]:
+    index: dict[str, list[dict[str, object]]] = {}
+    for plan_path in sorted(plan_root.glob("*.json")):
+        plan_payload = _safe_load_json(plan_path)
+        if not plan_payload:
+            continue
+        feature = str(plan_payload.get("feature", "")).strip() or plan_path.stem
+        state_payload = _safe_load_json(state_root / f"{feature}.json") or {}
+        feature_status = str(state_payload.get("status", "")).strip().lower()
+        slice_results = state_payload.get("slice_results", {})
+        if not isinstance(slice_results, dict):
+            slice_results = {}
+        for slice_payload in plan_payload.get("slices", []):
+            if not isinstance(slice_payload, dict):
+                continue
+            worktree_text = str(slice_payload.get("worktree", "")).strip()
+            if not worktree_text:
+                continue
+            slice_name = str(slice_payload.get("name", "")).strip()
+            slice_result = slice_results.get(slice_name, {})
+            if not isinstance(slice_result, dict):
+                slice_result = {}
+            item = {
+                "feature": feature,
+                "slice": slice_name,
+                "repo": str(slice_payload.get("repo", "")).strip(),
+                "branch": str(slice_payload.get("branch", "")).strip(),
+                "feature_status": feature_status,
+                "slice_status": str(slice_result.get("status", "")).strip().lower(),
+                "plan_path": str(plan_path),
+            }
+            key = str(Path(worktree_text).resolve())
+            index.setdefault(key, []).append(item)
+    return index
+
+
+def _infer_worktree_repo(name: str, repo_names: list[str], root_repo: str) -> str:
+    candidates = sorted(
+        [repo for repo in repo_names if name == repo or name.startswith(f"{repo}-")],
+        key=len,
+        reverse=True,
+    )
+    if candidates:
+        return candidates[0]
+    return root_repo
+
+
+def _classify_worktree_activity(plan_refs: list[dict[str, object]]) -> str:
+    if not plan_refs:
+        return "orphan"
+    for item in plan_refs:
+        feature_status = str(item.get("feature_status", "")).strip().lower()
+        slice_status = str(item.get("slice_status", "")).strip().lower()
+        if feature_status in WORKTREE_TERMINAL_FEATURE_STATUSES:
+            continue
+        if slice_status in WORKTREE_ACTIVE_SLICE_STATUSES:
+            return "active"
+        if slice_status and slice_status not in WORKTREE_CLOSED_SLICE_STATUSES:
+            return "active"
+        if feature_status in WORKTREE_ACTIVE_FEATURE_STATUSES and slice_status not in WORKTREE_CLOSED_SLICE_STATUSES:
+            return "active"
+    return "closed"
+
+
+def _inspect_worktree_git(path: Path, capture_command) -> tuple[str, bool | None, list[str]]:
+    branch_execution = capture_command(["git", "-C", str(path), "branch", "--show-current"], path)
+    branch = ""
+    if int(branch_execution["returncode"]) == 0:
+        tail = str(branch_execution.get("output_tail", "")).strip().splitlines()
+        branch = tail[-1].strip() if tail else ""
+
+    status_execution = capture_command(["git", "-C", str(path), "status", "--porcelain"], path)
+    if int(status_execution["returncode"]) != 0:
+        return branch, None, [str(status_execution.get("output_tail", "")).strip() or "No pude inspeccionar git status del worktree."]
+
+    tail = str(status_execution.get("output_tail", "")).strip()
+    dirty = bool(tail)
+    return branch, dirty, []
+
+
+def _build_worktree_inventory(
+    *,
+    repo_names: list[str],
+    root_repo: str,
+    worktree_root: Path,
+    plan_root: Path,
+    state_root: Path,
+    capture_command,
+) -> list[dict[str, object]]:
+    if not worktree_root.exists():
+        return []
+
+    plan_index = _worktree_plan_index(plan_root=plan_root, state_root=state_root)
+    items: list[dict[str, object]] = []
+    for candidate in sorted(worktree_root.iterdir()):
+        if not candidate.is_dir():
+            continue
+        path = candidate.resolve()
+        plan_refs = list(plan_index.get(str(path), []))
+        repo = str(plan_refs[0].get("repo", "")).strip() if len(plan_refs) == 1 else ""
+        if not repo:
+            repo = _infer_worktree_repo(candidate.name, repo_names, root_repo)
+        activity = _classify_worktree_activity(plan_refs)
+        branch, dirty, findings = _inspect_worktree_git(path, capture_command)
+        if not branch and plan_refs:
+            branch = str(plan_refs[0].get("branch", "")).strip()
+
+        eligible = False
+        reason = ""
+        if dirty is None:
+            reason = "git-unavailable"
+        elif dirty:
+            reason = "dirty"
+        elif activity == "active":
+            reason = "active-plan"
+        elif activity == "orphan":
+            eligible = True
+            reason = "orphan-clean"
+        else:
+            eligible = True
+            reason = "closed-clean"
+
+        items.append(
+            {
+                "name": candidate.name,
+                "path": str(path),
+                "repo": repo,
+                "branch": branch,
+                "activity": activity,
+                "dirty": dirty,
+                "plan_refs": plan_refs,
+                "cleanable": eligible,
+                "reason": reason,
+                "findings": findings,
+            }
+        )
+    return items
+
+
+def _worktree_matches_filters(item: dict[str, object], *, names: set[str], features: set[str], stale_only: bool) -> bool:
+    if names and str(item.get("name", "")) not in names:
+        return False
+    if features:
+        refs = item.get("plan_refs", [])
+        if not isinstance(refs, list):
+            refs = []
+        ref_features = {str(ref.get("feature", "")).strip() for ref in refs if isinstance(ref, dict)}
+        if not (ref_features & features):
+            return False
+    if stale_only and not bool(item.get("cleanable")):
+        return False
+    return True
+
+
+def _select_worktrees_for_cleanup(
+    inventory: list[dict[str, object]],
+    *,
+    names: set[str],
+    features: set[str],
+    stale_only: bool,
+    force: bool,
+) -> tuple[list[dict[str, object]], list[str]]:
+    selected: list[dict[str, object]] = []
+    findings: list[str] = []
+    for item in inventory:
+        if not _worktree_matches_filters(item, names=names, features=features, stale_only=False):
+            continue
+        if stale_only and not bool(item.get("cleanable")):
+            findings.append(
+                f"`{item['name']}` se preserva ({item.get('reason', 'not-cleanable')})."
+            )
+            continue
+        if item.get("dirty") is True and not force:
+            findings.append(f"`{item['name']}` tiene cambios locales; usa `--force` para removerlo.")
+            continue
+        if item.get("activity") == "active" and not force:
+            findings.append(f"`{item['name']}` sigue referenciado por un plan activo; usa `--force` para removerlo.")
+            continue
+        selected.append(item)
+    return selected, findings
+
+
+def command_worktree_list(
+    args,
+    *,
+    repo_names: list[str],
+    root_repo: str,
+    worktree_root: Path,
+    plan_root: Path,
+    state_root: Path,
+    capture_command,
+    json_dumps: Callable[[object], str],
+) -> int:
+    inventory = _build_worktree_inventory(
+        repo_names=repo_names,
+        root_repo=root_repo,
+        worktree_root=worktree_root,
+        plan_root=plan_root,
+        state_root=state_root,
+        capture_command=capture_command,
+    )
+    names = {str(item).strip() for item in getattr(args, "name", []) or [] if str(item).strip()}
+    features = {str(item).strip() for item in getattr(args, "feature", []) or [] if str(item).strip()}
+    stale_only = bool(getattr(args, "stale_only", False))
+    filtered = [
+        item
+        for item in inventory
+        if _worktree_matches_filters(item, names=names, features=features, stale_only=stale_only)
+    ]
+    payload = {
+        "worktree_root": str(worktree_root.resolve()),
+        "count": len(filtered),
+        "items": filtered,
+    }
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+        return 0
+
+    print("Worktree list")
+    print(f"- root: {worktree_root.resolve()}")
+    for item in filtered:
+        print(
+            f"- {item['name']}: repo={item['repo']}, branch={item['branch'] or 'unknown'}, "
+            f"activity={item['activity']}, dirty={'yes' if item['dirty'] else 'no' if item['dirty'] is not None else 'unknown'}, "
+            f"cleanable={'yes' if item['cleanable'] else 'no'} ({item['reason']})"
+        )
+    return 0
+
+
+def command_worktree_clean(
+    args,
+    *,
+    repo_names: list[str],
+    root_repo: str,
+    root: Path,
+    worktree_root: Path,
+    plan_root: Path,
+    state_root: Path,
+    repo_root: Callable[[str], Path],
+    capture_command,
+    utc_now: Callable[[], str],
+    json_dumps: Callable[[object], str],
+) -> int:
+    inventory = _build_worktree_inventory(
+        repo_names=repo_names,
+        root_repo=root_repo,
+        worktree_root=worktree_root,
+        plan_root=plan_root,
+        state_root=state_root,
+        capture_command=capture_command,
+    )
+    names = {str(item).strip() for item in ([getattr(args, "name", "")] if getattr(args, "name", "") else []) if str(item).strip()}
+    features = {str(item).strip() for item in getattr(args, "feature", []) or [] if str(item).strip()}
+    stale_only = bool(getattr(args, "stale", False) or (not names and not features))
+    force = bool(getattr(args, "force", False))
+    selected, findings = _select_worktrees_for_cleanup(
+        inventory,
+        names=names,
+        features=features,
+        stale_only=stale_only,
+        force=force,
+    )
+
+    executions: list[dict[str, object]] = []
+    pruned_roots: set[str] = set()
+    removed: list[str] = []
+
+    for item in selected:
+        owner_repo = str(item.get("repo", "")).strip() or root_repo
+        owner_root = repo_root(owner_repo) if owner_repo in repo_names else root
+        remove_command = ["git", "-C", str(owner_root), "worktree", "remove"]
+        if force:
+            remove_command.append("--force")
+        remove_command.append(str(item["path"]))
+        if bool(getattr(args, "dry_run", False)):
+            executions.append(
+                {
+                    "label": f"remove:{item['name']}",
+                    "command": remove_command,
+                    "returncode": 0,
+                    "output_tail": "dry-run",
+                }
+            )
+            removed.append(str(item["path"]))
+            pruned_roots.add(str(owner_root))
+            continue
+
+        execution = capture_command(remove_command, owner_root)
+        execution["label"] = f"remove:{item['name']}"
+        executions.append(execution)
+        if int(execution["returncode"]) != 0:
+            findings.append(
+                execution["output_tail"] or f"No pude remover el worktree `{item['name']}`."
+            )
+            continue
+        removed.append(str(item["path"]))
+        pruned_roots.add(str(owner_root))
+
+    for prune_root in sorted(pruned_roots):
+        prune_command = ["git", "-C", prune_root, "worktree", "prune"]
+        if bool(getattr(args, "dry_run", False)):
+            executions.append(
+                {
+                    "label": f"prune:{prune_root}",
+                    "command": prune_command,
+                    "returncode": 0,
+                    "output_tail": "dry-run",
+                }
+            )
+            continue
+        execution = capture_command(prune_command, Path(prune_root))
+        execution["label"] = f"prune:{prune_root}"
+        executions.append(execution)
+        if int(execution["returncode"]) != 0:
+            findings.append(execution["output_tail"] or f"No pude ejecutar `git worktree prune` en `{prune_root}`.")
+
+    payload = {
+        "generated_at": utc_now(),
+        "worktree_root": str(worktree_root.resolve()),
+        "selected": [item["name"] for item in selected],
+        "removed": removed,
+        "dry_run": bool(getattr(args, "dry_run", False)),
+        "force": force,
+        "stale_only": stale_only,
+        "executions": executions,
+        "findings": findings,
+    }
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+        return 1 if findings else 0
+
+    print("Worktree clean")
+    print(f"- root: {worktree_root.resolve()}")
+    print(f"- stale_only: {'yes' if stale_only else 'no'}")
+    print(f"- force: {'yes' if force else 'no'}")
+    print(f"- dry_run: {'yes' if payload['dry_run'] else 'no'}")
+    for name in payload["selected"]:
+        print(f"- selected: {name}")
+    for execution in executions:
+        print(f"- {execution.get('label', 'command')}: rc={execution['returncode']}")
+    for finding in findings:
+        print(f"- finding: {finding}")
+    return 1 if findings else 0
+
+
 def command_worktree_create(
     args,
     *,

@@ -173,6 +173,31 @@ En `workflow run`, la etapa `slice_start` usa scheduler multiagente con:
 host y dentro del devcontainer. Si hiciera falta otra ruta, se puede sobreescribir con
 `FLOW_WORKTREE_ROOT`.
 
+### Higiene y cleanup
+
+Las worktrees bajo `.worktrees/` son artefactos operativos temporales. SoftOS debe conservar solo:
+
+- worktrees referenciadas por una slice activa en `.flow/plans/*.json`
+- worktrees con cambios locales no integrados
+- worktrees retenidas de forma explícita para la siguiente ola inmediata
+
+Comandos recomendados:
+
+```bash
+python3 ./flow worktree list --json
+python3 ./flow worktree list --stale-only --json
+python3 ./flow worktree clean --stale --dry-run --json
+python3 ./flow worktree clean --stale --json
+python3 ./flow worktree clean --feature <slug> --dry-run --json
+```
+
+Reglas del cleanup seguro:
+
+- `flow worktree clean` preserva por defecto worktrees activas y worktrees con cambios locales
+- `--stale` elimina solo worktrees huérfanas o cerradas y limpias
+- `--force` permite remover worktrees dirty o todavía activas cuando el operador ya decidió cerrar el proceso
+- al final del cleanup, SoftOS ejecuta `git worktree prune` sobre los repos afectados
+
 ## Regla de drift
 
 Si cambia el comportamiento, cambia la spec en el mismo cambio. Si un test nuevo no esta

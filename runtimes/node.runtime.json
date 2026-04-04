@@ -39,6 +39,7 @@
   },
   "agent_skill_refs": [
     "workspace/softos-spec-definition-playbook",
+    "workspace/softos-worktree-hygiene",
     "workspace/spec-driven-workspace",
     "workspace/node-core"
   ],

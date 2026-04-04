@@ -19,6 +19,16 @@
       "notes": "Playbook local para crear, revisar y endurecer specs SoftOS listas para slicing y ejecucion."
     },
     {
+      "name": "workspace/softos-worktree-hygiene",
+      "provider": "tessl",
+      "kind": "skill",
+      "source": ".agents/skills/softos-worktree-hygiene",
+      "enabled": true,
+      "required": false,
+      "sync": false,
+      "notes": "Skill local para inventariar, preservar y limpiar worktrees operativas al cierre de una ejecucion SoftOS."
+    },
+    {
       "name": "workspace/skills-discover",
       "provider": "tessl",
       "kind": "tile",
