@@ -71,6 +71,7 @@ from flowctl.doctor import command_doctor as flow_command_doctor
 from flowctl.parser import build_parser as flow_build_parser
 from flowctl.projects import repo_placeholder_text
 from flowctl.admin import (
+    auto_cleanup_stale_worktrees as flow_auto_cleanup_stale_worktrees,
     command_providers_doctor as flow_command_providers_doctor,
     command_providers_list as flow_command_providers_list,
     command_secrets_doctor as flow_command_secrets_doctor,
@@ -1511,6 +1512,7 @@ def command_workflow_execute_feature(args: argparse.Namespace) -> int:
         slice_start_callable=command_slice_start,
         root=ROOT,
         rel=rel,
+        auto_worktree_cleanup=auto_cleanup_stale_worktrees,
         utc_now=utc_now,
         json_dumps=json_dumps,
     )
@@ -1937,6 +1939,20 @@ def command_worktree_clean(args: argparse.Namespace) -> int:
         capture_command=capture_command,
         utc_now=utc_now,
         json_dumps=json_dumps,
+    )
+
+
+def auto_cleanup_stale_worktrees() -> dict[str, object]:
+    return flow_auto_cleanup_stale_worktrees(
+        repo_names=REPO_NAMES,
+        root_repo=ROOT_REPO,
+        root=ROOT,
+        worktree_root=WORKTREE_ROOT,
+        plan_root=PLAN_ROOT,
+        state_root=STATE_ROOT,
+        repo_root=repo_root,
+        capture_command=capture_command,
+        utc_now=utc_now,
     )
 
 
@@ -2469,6 +2485,7 @@ def command_release_promote(args: argparse.Namespace) -> int:
         read_state=read_state,
         write_state=write_state,
         replace_frontmatter_status=replace_frontmatter_status,
+        auto_worktree_cleanup=auto_cleanup_stale_worktrees,
         json_dumps=json_dumps,
     )
 
@@ -2492,6 +2509,7 @@ def command_release_publish(args: argparse.Namespace) -> int:
         args,
         root=ROOT,
         changelog_path=CHANGELOG_FILE,
+        auto_worktree_cleanup=auto_cleanup_stale_worktrees,
         utc_now=utc_now,
         json_dumps=json_dumps,
     )

@@ -1267,6 +1267,7 @@ def command_release_promote(
     read_state,
     write_state,
     replace_frontmatter_status: Callable[[Path, str], None],
+    auto_worktree_cleanup: Callable[[], dict[str, object]] | None,
     json_dumps: Callable[[object], str],
 ) -> int:
     manifest = load_release_manifest(args.version)
@@ -1397,6 +1398,9 @@ def command_release_promote(
             "por lo que la feature no se marco como `released`."
         )
 
+    if not bool(getattr(args, "no_worktree_cleanup", False)) and auto_worktree_cleanup is not None:
+        promotion_payload["worktree_cleanup"] = auto_worktree_cleanup()
+
     promotion_path = rel(release_promotion_path(args.version, args.environment))
     if bool(getattr(args, "json", False)):
         promotion_payload["path"] = promotion_path
@@ -1411,6 +1415,7 @@ def command_release_publish(
     *,
     root: Path,
     changelog_path: Path,
+    auto_worktree_cleanup: Callable[[], dict[str, object]] | None,
     utc_now: Callable[[], str],
     json_dumps: Callable[[object], str],
     run_command: Callable[[list[str], Path], tuple[int, str, str]] = _run_command,
@@ -1525,6 +1530,8 @@ def command_release_publish(
 
     payload["commit_message"] = commit_message
     payload["release_url"] = release_url or None
+    if not bool(getattr(args, "no_worktree_cleanup", False)) and auto_worktree_cleanup is not None:
+        payload["worktree_cleanup"] = auto_worktree_cleanup()
     if bool(getattr(args, "json", False)):
         print(json_dumps(payload))
         return 0

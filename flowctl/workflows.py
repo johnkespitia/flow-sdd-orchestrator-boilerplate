@@ -617,6 +617,7 @@ def command_workflow_execute_feature(
     slice_start_callable: Callable[[object], int],
     root: Path,
     rel: Callable[[Path], str],
+    auto_worktree_cleanup: Callable[[], dict[str, object]] | None,
     utc_now: Callable[[], str],
     json_dumps: Callable[[object], str],
 ) -> int:
@@ -735,6 +736,8 @@ def command_workflow_execute_feature(
 
     payload["json_report"] = rel(json_path)
     payload["markdown_report"] = rel(md_path)
+    if not bool(getattr(args, "no_worktree_cleanup", False)) and auto_worktree_cleanup is not None:
+        payload["worktree_cleanup"] = auto_worktree_cleanup()
     if bool(getattr(args, "json", False)):
         print(json_dumps(payload))
         return 0

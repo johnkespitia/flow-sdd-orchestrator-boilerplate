@@ -93,6 +93,7 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - `python3 ./flow worktree list --json` inventaría worktrees bajo `.worktrees/` y clasifica cuáles siguen activas, cuáles están cerradas y cuáles son huérfanas
 - `python3 ./flow worktree clean --stale --json` elimina de forma segura worktrees huérfanas o cerradas sin cambios pendientes y ejecuta `git worktree prune`
 - `python3 ./flow worktree clean --feature <slug> --dry-run --json` permite revisar el cleanup de una feature antes de mutar git
+- `python3 ./flow workflow execute-feature <slug> --json`, `python3 ./flow release promote ... --json` y `python3 ./flow release publish --json` ejecutan cleanup automático `best-effort` de worktrees stale salvo que el operador use `--no-worktree-cleanup`
 - `scripts/workspace_exec.sh <cmd>` y `make workspace ARGS='<cmd>'` reutilizan el mismo entrypoint canónico del workspace para evitar ejecutar toolchains del proyecto directamente en el host
 - la imagen `workspace` incluye `pytest` para que las regresiones Python del control plane puedan validarse dentro del devcontainer sin depender del host
 - los handoffs y reportes de ejecución deben sugerir `flow repo exec <repo> -- <cmd>` para comandos del runtime del repo, evitando inducir a subagentes a correr PHPUnit, Composer, pnpm, pytest o Go test en `workspace`

@@ -146,6 +146,7 @@ def build_parser(
     workflow_execute.add_argument("spec", help="Spec slug or path.")
     workflow_execute.add_argument("--refresh-plan", action="store_true", help="Regenerate the flow plan before producing handoffs.")
     workflow_execute.add_argument("--start-slices", action="store_true", help="Materialize worktrees and handoffs for every planned slice.")
+    workflow_execute.add_argument("--no-worktree-cleanup", action="store_true", help="Skip automatic stale worktree cleanup after preparing the execution bundle.")
     add_workflow_orchestrator_args(workflow_execute)
     workflow_execute.add_argument("--json", action="store_true", help="Print the execution bundle as JSON.")
     workflow_execute.set_defaults(func=commands["workflow_execute_feature"])
@@ -426,6 +427,7 @@ def build_parser(
         action="store_true",
         help="Fail if pipeline checks are unavailable or missing during post-release verification.",
     )
+    release_promote.add_argument("--no-worktree-cleanup", action="store_true", help="Skip automatic stale worktree cleanup after a successful promote.")
     release_promote.add_argument("--json", action="store_true", help="Print the promotion result as JSON.")
     release_promote.set_defaults(func=commands["release_promote"])
 
@@ -468,6 +470,7 @@ def build_parser(
         action="store_true",
         help="Preview version, notes and changelog content without mutating git or files.",
     )
+    release_publish.add_argument("--no-worktree-cleanup", action="store_true", help="Skip automatic stale worktree cleanup after a successful publish.")
     release_publish.add_argument("--json", action="store_true", help="Print the publish plan/result as JSON.")
     release_publish.set_defaults(func=commands["release_publish"])
 

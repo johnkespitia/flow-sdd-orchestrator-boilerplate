@@ -85,11 +85,13 @@ class ReleasePublishTests(unittest.TestCase):
                     args,
                     root=workspace,
                     changelog_path=changelog,
+                    auto_worktree_cleanup=lambda: {"removed": ["dummy-worktree"], "findings": []},
                     utc_now=lambda: "2026-03-29T05:00:00+00:00",
                     json_dumps=lambda payload: json.dumps(payload, indent=2, ensure_ascii=True),
                 )
             self.assertEqual(result, 0)
             self.assertIn('"version": "v0.2.0"', output.getvalue())
+            self.assertIn('"worktree_cleanup"', output.getvalue())
 
             changelog_text = changelog.read_text(encoding="utf-8")
             self.assertIn("## v0.2.0 - 2026-03-29", changelog_text)
@@ -110,6 +112,59 @@ class ReleasePublishTests(unittest.TestCase):
                 text=True,
             ).stdout.strip()
             self.assertTrue(remote_tag)
+
+    def test_publish_can_skip_auto_worktree_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            remote = root / "origin.git"
+            workspace = root / "workspace"
+
+            subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True, text=True)
+            subprocess.run(["git", "clone", str(remote), str(workspace)], check=True, capture_output=True, text=True)
+            subprocess.run(["git", "-C", str(workspace), "config", "user.name", "Codex"], check=True)
+            subprocess.run(["git", "-C", str(workspace), "config", "user.email", "codex@example.com"], check=True)
+            subprocess.run(["git", "-C", str(workspace), "branch", "-M", "main"], check=True)
+
+            changelog = workspace / "CHANGELOG.md"
+            changelog.write_text(
+                "# Changelog\n\n"
+                "All notable changes to this project will be documented in this file.\n\n"
+                "## v0.1.0 - 2026-03-28\n\n"
+                "Previous release.\n",
+                encoding="utf-8",
+            )
+            (workspace / "README.md").write_text("hello\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(workspace), "add", "CHANGELOG.md", "README.md"], check=True)
+            subprocess.run(["git", "-C", str(workspace), "commit", "-m", "chore: bootstrap repo"], check=True)
+            subprocess.run(["git", "-C", str(workspace), "tag", "-a", "v0.1.0", "-m", "v0.1.0"], check=True)
+            subprocess.run(["git", "-C", str(workspace), "push", "origin", "main"], check=True)
+            subprocess.run(["git", "-C", str(workspace), "push", "origin", "v0.1.0"], check=True)
+
+            (workspace / "feature.txt").write_text("new feature\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(workspace), "add", "feature.txt"], check=True)
+            subprocess.run(["git", "-C", str(workspace), "commit", "-m", "fix: patch release"], check=True)
+
+            args = argparse.Namespace(
+                bump="auto",
+                version=None,
+                since_tag=None,
+                skip_github=True,
+                dry_run=False,
+                no_worktree_cleanup=True,
+                json=True,
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = release.command_release_publish(
+                    args,
+                    root=workspace,
+                    changelog_path=changelog,
+                    auto_worktree_cleanup=lambda: {"removed": ["dummy-worktree"], "findings": []},
+                    utc_now=lambda: "2026-03-29T05:00:00+00:00",
+                    json_dumps=lambda payload: json.dumps(payload, indent=2, ensure_ascii=True),
+                )
+            self.assertEqual(result, 0)
+            self.assertNotIn('"worktree_cleanup"', output.getvalue())
 
 
 if __name__ == "__main__":

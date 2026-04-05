@@ -764,6 +764,69 @@ def command_worktree_clean(
     return 1 if findings else 0
 
 
+def auto_cleanup_stale_worktrees(
+    *,
+    repo_names: list[str],
+    root_repo: str,
+    root: Path,
+    worktree_root: Path,
+    plan_root: Path,
+    state_root: Path,
+    repo_root: Callable[[str], Path],
+    capture_command,
+    utc_now: Callable[[], str],
+) -> dict[str, object]:
+    inventory = _build_worktree_inventory(
+        repo_names=repo_names,
+        root_repo=root_repo,
+        worktree_root=worktree_root,
+        plan_root=plan_root,
+        state_root=state_root,
+        capture_command=capture_command,
+    )
+    selected, findings = _select_worktrees_for_cleanup(
+        inventory,
+        names=set(),
+        features=set(),
+        stale_only=True,
+        force=False,
+    )
+
+    executions: list[dict[str, object]] = []
+    removed: list[str] = []
+    pruned_roots: set[str] = set()
+    for item in selected:
+        owner_repo = str(item.get("repo", "")).strip() or root_repo
+        owner_root = repo_root(owner_repo) if owner_repo in repo_names else root
+        execution = capture_command(
+            ["git", "-C", str(owner_root), "worktree", "remove", str(item["path"])],
+            owner_root,
+        )
+        execution["label"] = f"remove:{item['name']}"
+        executions.append(execution)
+        if int(execution["returncode"]) != 0:
+            findings.append(execution["output_tail"] or f"No pude remover el worktree `{item['name']}`.")
+            continue
+        removed.append(str(item["path"]))
+        pruned_roots.add(str(owner_root))
+
+    for prune_root in sorted(pruned_roots):
+        execution = capture_command(["git", "-C", prune_root, "worktree", "prune"], Path(prune_root))
+        execution["label"] = f"prune:{prune_root}"
+        executions.append(execution)
+        if int(execution["returncode"]) != 0:
+            findings.append(execution["output_tail"] or f"No pude ejecutar `git worktree prune` en `{prune_root}`.")
+
+    return {
+        "generated_at": utc_now(),
+        "mode": "auto-stale",
+        "selected": [item["name"] for item in selected],
+        "removed": removed,
+        "executions": executions,
+        "findings": findings,
+    }
+
+
 def command_worktree_create(
     args,
     *,

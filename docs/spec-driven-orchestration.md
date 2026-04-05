@@ -191,6 +191,12 @@ python3 ./flow worktree clean --stale --json
 python3 ./flow worktree clean --feature <slug> --dry-run --json
 ```
 
+Automatización por defecto:
+
+- `flow workflow execute-feature` ejecuta cleanup automático `best-effort` de worktrees stale al finalizar, salvo `--no-worktree-cleanup`
+- `flow release promote` ejecuta cleanup automático `best-effort` tras una promoción exitosa, salvo `--no-worktree-cleanup`
+- `flow release publish` ejecuta cleanup automático `best-effort` tras un publish exitoso, salvo `--no-worktree-cleanup`
+
 Reglas del cleanup seguro:
 
 - `flow worktree clean` preserva por defecto worktrees activas y worktrees con cambios locales
