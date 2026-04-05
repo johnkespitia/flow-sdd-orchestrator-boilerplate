@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.7 - 2026-04-05
+
+### Changed
+
+- Auto-clean stale worktrees after closeout
+
 ## v0.4.6 - 2026-04-04
 
 ### Changed
