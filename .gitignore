@@ -55,6 +55,7 @@ gateway/data/*.log
 !.agents/
 !.agents/skills/
 !.agents/skills/**
+.agents/skills/golang-pro/
 !.flow/state/.gitkeep
 !.flow/plans/.gitkeep
 !.flow/reports/.gitkeep
