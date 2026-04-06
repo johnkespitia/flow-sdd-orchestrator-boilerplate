@@ -29,6 +29,26 @@
       "notes": "Segunda pasada de endurecimiento para convertir specs implementation-ready en reference-grade con minima inferencia para agentes."
     },
     {
+      "name": "workspace/softos-schema-hardening-gates",
+      "provider": "tessl",
+      "kind": "skill",
+      "source": ".agents/skills/softos-schema-hardening-gates",
+      "enabled": true,
+      "required": false,
+      "sync": false,
+      "notes": "Playbook para separar materializacion, backfill, readiness gate y activacion final de hardening de schema sensible a datos."
+    },
+    {
+      "name": "workspace/softos-staging-promote-preflight",
+      "provider": "tessl",
+      "kind": "skill",
+      "source": ".agents/skills/softos-staging-promote-preflight",
+      "enabled": true,
+      "required": false,
+      "sync": false,
+      "notes": "Preflight binario para decidir si una promocion a staging es realmente despachable desde el runtime workspace."
+    },
+    {
       "name": "workspace/softos-worktree-hygiene",
       "provider": "tessl",
       "kind": "skill",

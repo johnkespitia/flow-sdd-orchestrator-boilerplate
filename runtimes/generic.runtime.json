@@ -24,6 +24,8 @@
   "agent_skill_refs": [
     "workspace/softos-spec-definition-playbook",
     "workspace/softos-reference-spec-hardening",
+    "workspace/softos-schema-hardening-gates",
+    "workspace/softos-staging-promote-preflight",
     "workspace/softos-worktree-hygiene",
     "workspace/spec-driven-workspace",
     "workspace/skills-discover"

@@ -17,6 +17,7 @@ Use this file when Cursor CLI does not load `.cursor/rules/**` automatically.
 - Prefer `python3 ./flow ...` commands for lifecycle actions over ad hoc shell flows.
 - Treat `status: released` as terminal: valid for CI/traceability, not valid for re-planning or re-execution.
 - If a spec is already approved or implementation-ready but still leaves major execution choices open, run the reference-grade hardening pass with `.agents/skills/softos-reference-spec-hardening/SKILL.md` before treating it as a stable execution reference.
+- If a staging promotion depends on GitHub dispatch or rollout-sensitive migrations, validate the preflight from the `workspace` devcontainer and treat the outcome as binary: dispatchable or blocked.
 
 ## Required lifecycle behavior
 

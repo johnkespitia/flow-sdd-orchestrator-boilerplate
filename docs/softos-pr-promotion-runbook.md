@@ -137,6 +137,27 @@ Para ramas de entorno (`staging`, `main`, o equivalentes):
 
 Para `production`, el patrón es `staging -> main`, con reviewer adicional y guardrails más estrictos.
 
+## 8.1) Preflight de staging
+
+Antes de despachar `release promote --env staging`, trata el promote como cuatro gates separados:
+
+1. local repo readiness
+2. remote source readiness
+3. workflow dispatch readiness
+4. environment rollout readiness
+
+Reglas operativas:
+
+- valida `gh` dentro del devcontainer `workspace`, no en el host por defecto
+- confirma que `source_ref` exista remotamente
+- confirma que el workflow de promoción exista y tenga inputs conocidos
+- si hay migraciones sensibles a datos, mantenlas como candidate migrations fuera del path automático hasta que el gate de readiness del entorno pase
+
+El resultado correcto es binario:
+
+- `promote dispatchable`
+- `promote blocked`
+
 ## 9) Rollback
 
 Rollback mínimo recomendado:

@@ -79,6 +79,24 @@ python3 ./flow release publish --dry-run --skip-github --json
 - Do not mark a spec `released` by hand; let `release promote` drive the state transition.
 - Treat `released` as terminal. Do not re-plan or re-execute those specs.
 - Keep operational feature releases and OSS repo releases conceptually separate.
+- For `staging` promotions, do not confuse local implementation readiness with dispatch readiness; use the dedicated preflight gate.
+- In this workspace, validate `gh` inside the `workspace` devcontainer. Missing `gh` on the host is not by itself a blocker.
+
+## Staging promote preflight
+
+Before `python3 ./flow release promote --env staging`, confirm:
+
+1. local repo readiness
+2. remote source readiness
+3. workflow dispatch readiness
+4. environment rollout readiness
+
+Valid outcomes:
+
+- `promote dispatchable`
+- `promote blocked`
+
+If schema hardening is rollout-sensitive, keep final migrations outside the automatic path until readiness verification for the target environment succeeds.
 
 ## Files and artifacts
 

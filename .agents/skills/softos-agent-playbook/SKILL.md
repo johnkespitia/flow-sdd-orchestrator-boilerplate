@@ -14,6 +14,7 @@ Use this skill as the default operating guide for any non-trivial task in this w
 - Cross-repo work stays routed through `workspace.config.json`.
 - Releases, CI, and stack operations use `flow` commands before ad hoc scripts.
 - Critical specs can be escalated from implementation-ready to reference-grade when execution ambiguity remains.
+- Rollout-sensitive schema hardening and staging promotion use explicit binary gates instead of narrative readiness.
 
 ## Default workflow
 
@@ -45,6 +46,8 @@ Use this skill as the default operating guide for any non-trivial task in this w
    - use `acceptable_evidence`
    - only escalate when there is a real technical blocker, not merely narrow scope
 9. When a spec is already coherent and approved but still leaves meaningful execution choices open, run the second hardening pass from `softos-reference-spec-hardening` before treating it as a stable execution reference.
+10. When schema hardening depends on real environment data, keep the final migration candidate-gated until an executable readiness check says it is safe to enable.
+11. When promoting to `staging`, treat dispatch readiness as a separate decision from local implementation readiness and verify `gh` from the `workspace` devcontainer, not from the host by default.
 
 ## Rules
 
@@ -66,6 +69,13 @@ Use this skill as the default operating guide for any non-trivial task in this w
   - optional GitHub Release
 
 Use `flow release publish --dry-run --skip-github --json` before publishing.
+
+For `flow release promote --env staging`:
+
+- distinguish local readiness from dispatch readiness
+- confirm `source_ref` exists remotely
+- confirm `gh` auth works inside `workspace`
+- confirm rollout-sensitive migrations remain gated until the environment gate passes
 
 ### Stack model
 
@@ -90,6 +100,14 @@ Use the specialized skill `softos-repo-ci-delegation` when implementing or modif
 - `softos-spec-definition-playbook` is the default path to reach an implementation-ready spec.
 - `softos-reference-spec-hardening` is the second pass for platform, legacy-heavy, or execution-critical specs that must minimize semantic drift across agents.
 - Do not expand a spec into a reference-grade document by adding vague prose; prefer execution surfaces, algorithms, matrices, and evidence contracts.
+
+### Rollout gate model
+
+- `softos-schema-hardening-gates` separates materialization, remediation, readiness, and final hardening activation.
+- `softos-staging-promote-preflight` separates local code readiness, remote source readiness, dispatch readiness, and environment rollout readiness.
+- Use binary outcomes:
+  - `prepared but not enabled` vs `enabled for rollout`
+  - `promote dispatchable` vs `promote blocked`
 
 ### Worktree hygiene model
 
