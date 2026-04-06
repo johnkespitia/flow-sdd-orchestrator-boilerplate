@@ -32,6 +32,7 @@
   },
   "agent_skill_refs": [
     "workspace/softos-spec-definition-playbook",
+    "workspace/softos-reference-spec-hardening",
     "workspace/softos-worktree-hygiene",
     "workspace/spec-driven-workspace"
   ],

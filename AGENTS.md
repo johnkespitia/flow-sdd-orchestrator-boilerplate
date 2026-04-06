@@ -58,6 +58,7 @@ For any AI agent working in this workspace, the following local playbooks are th
 
 - `.agents/skills/softos-agent-playbook/SKILL.md`
 - `.agents/skills/softos-spec-definition-playbook/SKILL.md`
+- `.agents/skills/softos-reference-spec-hardening/SKILL.md`
 - `.agents/skills/softos-repo-ci-delegation/SKILL.md`
 - `.agents/skills/softos-stack-compose-federation/SKILL.md`
 - `.agents/skills/softos-release-manager/SKILL.md`
@@ -65,6 +66,7 @@ For any AI agent working in this workspace, the following local playbooks are th
 Apply them when the task touches:
 
 - spec definition, spec review, or spec hardening
+- hardening de specs aprobadas hacia reference specs con mínima deriva semántica
 - spec lifecycle, workflow execution, or release state
 - repo CI delegated from `root-ci.yml`
 - project-owned `docker-compose.yml` files integrated into the workspace stack

@@ -9,6 +9,7 @@ targets:
   - ../../AGENTS.md
   - ../../CURSOR.md
   - ../../OPENCODE.md
+  - ../../.gitignore
   - ../../flow
   - ../../flowctl/**
   - ../../Makefile
@@ -104,6 +105,7 @@ Bootstrappear el workspace para que el mismo control plane pueda ejecutar:
 - `flow plan`, `workflow next-step` y `workflow execute-feature --start-slices` deben preservar ese contrato de cierre mínimo en el plan y en los handoffs para que el ejecutor pueda cerrar con enforcement/tests/verificación sin reabrir alcance
 - `workspace.skills.json` puede registrar skills locales versionados con `provider=tessl`, `kind=skill`, `source` relativo al workspace y `sync=false`
 - los runtime packs en `runtimes/*.runtime.json` pueden exponer esos playbooks locales via `agent_skill_refs`, y `python3 ./flow skills context --repo <repo> --json` resuelve los paths efectivos en `.agents/skills/**` o `.tessl/tiles/**`
+- el workspace debe poder registrar un playbook adicional de `reference spec hardening` para escalar una spec de `implementation-ready` a `reference-grade` sin depender de instrucciones ad hoc en chat
 - `python3 ./flow stack design --spec <slug>`, `stack plan --spec <slug>` y `stack apply --spec <slug>` derivan `workspace.stack.json` desde una spec aprobada con `stack_projects`, `stack_services` y `stack_capabilities`
 - los runtime packs pueden declarar `bindings` por runtime de servicio para resolver `environment` y `depends_on` sin modificar el core
 - las foundation specs generadas por capabilities nacen en `draft`, no en `approved`

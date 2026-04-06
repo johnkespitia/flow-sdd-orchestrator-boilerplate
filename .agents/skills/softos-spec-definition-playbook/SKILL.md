@@ -15,6 +15,7 @@ Use this skill when the task is to create a new spec, rewrite a weak spec, or re
 - A downstream agent can determine scope, invariants, observable outputs, and stop conditions without reverse-engineering code.
 - The spec defines the evidence required to approve, implement, and verify the work.
 - Slices that only preserve or enforce a contract declare an explicit minimum valid closeout instead of leaving the executor to guess whether a no-op or tests-only result is acceptable.
+- The spec reaches at least implementation-ready maturity, and critical specs may be hardened further into reference-grade execution specs.
 
 ## Default workflow
 
@@ -49,6 +50,7 @@ Use this skill when the task is to create a new spec, rewrite a weak spec, or re
    - parity vs intentional change
    - stop conditions
 8. Run a final readiness review before treating the spec as ready for `flow spec review`, planning, or slicing.
+9. If the spec is approved or nearly approved but still leaves meaningful execution choices open, run a second hardening pass with `../softos-reference-spec-hardening/SKILL.md`.
 
 ## SoftOS-specific rules
 
@@ -99,6 +101,21 @@ Include when relevant:
 - explicit slice closeout contract when the work may end in tests, enforcement, or validated no-op
 - `Verification Matrix` when transversal verification must block CI or release
 
+## Maturity rule
+
+This playbook targets implementation-ready specs by default.
+
+Use `../softos-reference-spec-hardening/SKILL.md` when the spec must become reference-grade:
+
+- platform/base specs that will govern many child specs
+- persistence or security specs with large legacy surface
+- specs the user explicitly wants at `10/10`
+- specs that pass governance but still trigger repeated clarification loops before execution
+
+Implementation-ready means a competent agent can execute with bounded discovery.
+
+Reference-grade means a competent agent should not need to invent important behavior, sequencing, exception policy, or evidence packaging.
+
 ## Repo and runtime grounding
 
 When `targets` point into `../../<repo>/**`:
@@ -128,6 +145,8 @@ A spec is weak if an implementation agent still has to guess:
 
 If two competent agents could implement materially different behavior and both claim compliance, tighten the spec.
 
+If that still remains true after the normal hardening pass, escalate to `softos-reference-spec-hardening`.
+
 ## Preferred checks
 
 ```bash
@@ -145,3 +164,4 @@ python3 ./flow ci spec --all --json
 
 - For the canonical structure and section selection rules, read [references/spec-structure.md](references/spec-structure.md).
 - For the readiness and anti-hallucination review, read [references/spec-readiness-checklist.md](references/spec-readiness-checklist.md).
+- For the maturity ladder from implementation-ready to reference-grade, read `../softos-reference-spec-hardening/references/reference-spec-ladder.md` when the spec must become a stable execution reference.

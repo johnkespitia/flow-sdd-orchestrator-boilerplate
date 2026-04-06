@@ -13,6 +13,7 @@ Use this skill as the default operating guide for any non-trivial task in this w
 - `.flow/**` is treated as operational state, not canonical product intent.
 - Cross-repo work stays routed through `workspace.config.json`.
 - Releases, CI, and stack operations use `flow` commands before ad hoc scripts.
+- Critical specs can be escalated from implementation-ready to reference-grade when execution ambiguity remains.
 
 ## Default workflow
 
@@ -43,6 +44,7 @@ Use this skill as the default operating guide for any non-trivial task in this w
    - close with `minimum_valid_completion`
    - use `acceptable_evidence`
    - only escalate when there is a real technical blocker, not merely narrow scope
+9. When a spec is already coherent and approved but still leaves meaningful execution choices open, run the second hardening pass from `softos-reference-spec-hardening` before treating it as a stable execution reference.
 
 ## Rules
 
@@ -82,6 +84,12 @@ See:
 - Delegated project CI must be triggered only by SoftOS root CI, not directly by `push`/`pull_request`.
 
 Use the specialized skill `softos-repo-ci-delegation` when implementing or modifying that pattern.
+
+### Spec maturity model
+
+- `softos-spec-definition-playbook` is the default path to reach an implementation-ready spec.
+- `softos-reference-spec-hardening` is the second pass for platform, legacy-heavy, or execution-critical specs that must minimize semantic drift across agents.
+- Do not expand a spec into a reference-grade document by adding vague prose; prefer execution surfaces, algorithms, matrices, and evidence contracts.
 
 ### Worktree hygiene model
 

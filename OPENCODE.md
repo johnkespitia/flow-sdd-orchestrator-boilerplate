@@ -45,6 +45,7 @@ Use this file as the root operational contract when the assistant does not load 
 
 - `.agents/skills/softos-agent-playbook/SKILL.md`
 - `.agents/skills/softos-spec-definition-playbook/SKILL.md`
+- `.agents/skills/softos-reference-spec-hardening/SKILL.md`
 - `.agents/skills/softos-repo-ci-delegation/SKILL.md`
 - `.agents/skills/softos-stack-compose-federation/SKILL.md`
 - `.agents/skills/softos-release-manager/SKILL.md`

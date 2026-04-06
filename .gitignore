@@ -52,6 +52,7 @@ gateway/data/*.log
 .flow/reports/*
 .flow/runs/*
 .agents/
+!.agents/
 !.agents/skills/
 !.agents/skills/**
 !.flow/state/.gitkeep
