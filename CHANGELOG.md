@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.8 - 2026-04-06
+
+### Changed
+
+- Ignore runtime-only golang skill
+- Add reference spec hardening skill
+
 ## v0.4.7 - 2026-04-05
 
 ### Changed
