@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.9 - 2026-04-06
+
+### Changed
+
+- Add staging promote hardening playbooks
+
 ## v0.4.8 - 2026-04-06
 
 ### Changed
