@@ -83,6 +83,20 @@ python3 ./flow gateway pick --actor <tu-actor> --json
 `pick` solo considera specs elegibles y termina en un `claim` explícito y auditable. No ejecuta
 plan ni slices automáticamente.
 
+Si quieres una ola más autónoma pero todavía acotada, puedes usar:
+
+```bash
+python3 ./flow gateway poll --actor <tu-actor> --json
+python3 ./flow gateway watch --actor <tu-actor> --interval-seconds 15 --timeout-seconds 600 --json
+```
+
+Reglas:
+
+- `poll` intenta una sola vez reclamar la primera spec elegible
+- `watch` repite `poll` con backoff hasta reclamar una spec o alcanzar sus límites
+- ninguno de los dos ejecuta `plan`, slices, `release` ni transitions automáticamente
+- ambos fallan si el workspace ya tiene un `gateway_claim` local vigente
+
 ### 3. Planear localmente
 
 ```bash
@@ -189,6 +203,13 @@ python3 ./flow plan <spec-id>
 python3 ./flow gateway heartbeat <spec-id> --json
 python3 ./flow gateway transition <spec-id> triaged --json
 python3 ./flow gateway release <spec-id> --json
+```
+
+Para validar el modo autónomo acotado:
+
+```bash
+python3 ./flow gateway poll --actor <tu-actor> --json
+python3 ./flow gateway watch --actor <tu-actor> --interval-seconds 5 --timeout-seconds 30 --json
 ```
 
 ## Referencias

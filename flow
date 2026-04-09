@@ -2381,6 +2381,28 @@ def command_gateway_pick(args: argparse.Namespace) -> int:
     )
 
 
+def command_gateway_poll(args: argparse.Namespace) -> int:
+    return flow_gateway_ops.command_gateway_poll(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        read_state=read_state,
+        write_state=write_state,
+        json_dumps=json_dumps,
+    )
+
+
+def command_gateway_watch(args: argparse.Namespace) -> int:
+    return flow_gateway_ops.command_gateway_watch(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        read_state=read_state,
+        write_state=write_state,
+        json_dumps=json_dumps,
+    )
+
+
 def command_gateway_claim(args: argparse.Namespace) -> int:
     return flow_gateway_ops.command_gateway_claim(
         args,
@@ -2786,6 +2808,8 @@ def build_parser() -> argparse.ArgumentParser:
         "gateway_list": command_gateway_list,
         "gateway_status": command_gateway_status,
         "gateway_pick": command_gateway_pick,
+        "gateway_poll": command_gateway_poll,
+        "gateway_watch": command_gateway_watch,
         "gateway_claim": command_gateway_claim,
         "gateway_fetch_spec": command_gateway_fetch_spec,
         "gateway_heartbeat": command_gateway_heartbeat,

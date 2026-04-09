@@ -176,6 +176,55 @@ def _maybe_claim_state_from_state(state: dict[str, object]) -> dict[str, str] | 
     return payload
 
 
+def _list_remote_specs(*, base_url: str, token: str) -> list[dict[str, Any]]:
+    payload = _http_json(method="GET", url=f"{base_url}/v1/specs", token=token)
+    items = payload.get("items", [])
+    if not isinstance(items, list):
+        raise SystemExit("Gateway devolvio una lista de specs invalida.")
+    return [item for item in items if isinstance(item, dict)]
+
+
+def _allowed_states_from_args(args: object) -> tuple[str, ...]:
+    return tuple(
+        str(item).strip()
+        for item in (getattr(args, "states", None) or ["new", "triaged"])
+        if str(item).strip()
+    )
+
+
+def _eligible_remote_specs(items: list[dict[str, Any]], *, allowed_states: tuple[str, ...]) -> list[dict[str, Any]]:
+    eligible: list[dict[str, Any]] = []
+    for item in items:
+        state = str(item.get("state") or "").strip()
+        assignee = str(item.get("assignee") or "").strip()
+        if allowed_states and state not in allowed_states:
+            continue
+        if assignee:
+            continue
+        eligible.append(item)
+    eligible.sort(key=lambda item: (str(item.get("updated_at") or ""), str(item.get("created_at") or "")))
+    return eligible
+
+
+def _find_any_local_gateway_claim(root: Path) -> dict[str, str] | None:
+    state_root = root / ".flow" / "state"
+    if not state_root.is_dir():
+        return None
+    for candidate in sorted(state_root.glob("*.json")):
+        try:
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        claim = _maybe_claim_state_from_state(payload)
+        if claim is None:
+            continue
+        claim["slug"] = str(candidate.stem)
+        return claim
+    return None
+
+
 def _heartbeat_remote_claim(
     *,
     token: str,
@@ -195,6 +244,176 @@ def _heartbeat_remote_claim(
             "ttl_seconds": ttl_seconds,
         },
     )
+
+
+def _fetch_remote_spec_payload(
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    read_state: Callable[[str], dict[str, object]],
+    write_state: Callable[[str, dict[str, object]], None],
+    spec_id: str,
+) -> dict[str, Any]:
+    connection = load_gateway_connection(root=root, workspace_config=workspace_config)
+    base_url, token = _require_remote_gateway(connection)
+    payload = _http_json(method="GET", url=f"{base_url}/v1/specs/{spec_id}/source", token=token)
+    path_text = str(payload.get("path") or "").strip()
+    content = str(payload.get("content") or "")
+    if not path_text or not content:
+        raise SystemExit(f"Gateway no devolvio `path`/`content` validos para `{spec_id}`.")
+    try:
+        relative = Path(path_text).relative_to("/workspace")
+    except ValueError:
+        relative = Path("specs/features") / f"{spec_id}.spec.md"
+    local_path = root / relative
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    local_path.write_text(content, encoding="utf-8")
+    state = read_state(spec_id)
+    remote_sync = state.get("gateway_remote_spec")
+    sync_payload = remote_sync if isinstance(remote_sync, dict) else {}
+    sync_payload.update(
+        {
+            "base_url": base_url,
+            "spec_id": spec_id,
+            "path": str(relative),
+            "updated_at": str(payload.get("updated_at") or ""),
+            "content_sha256": str(payload.get("content_sha256") or ""),
+        }
+    )
+    state["spec_path"] = str(relative)
+    state["gateway_remote_spec"] = sync_payload
+    write_state(spec_id, state)
+    return {"spec_id": spec_id, "path": str(relative), "updated_at": sync_payload["updated_at"]}
+
+
+def _claim_remote_spec_payload(
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    read_state: Callable[[str], dict[str, object]],
+    write_state: Callable[[str, dict[str, object]], None],
+    spec_id: str,
+    actor: str,
+    ttl_seconds: int,
+    reason: str,
+) -> dict[str, Any]:
+    connection = load_gateway_connection(root=root, workspace_config=workspace_config)
+    base_url, token = _require_remote_gateway(connection)
+    payload = _http_json(
+        method="POST",
+        url=f"{base_url}/v1/specs/{spec_id}/claim",
+        token=token,
+        payload={
+            "actor": actor,
+            "source": "slave",
+            "reason": reason,
+            "ttl_seconds": ttl_seconds,
+        },
+    )
+    lock_token = str(payload.get("lock_token") or "").strip()
+    if not lock_token:
+        raise SystemExit(f"Gateway no devolvio `lock_token` al reclamar `{spec_id}`.")
+    _write_gateway_claim_state(
+        read_state=read_state,
+        write_state=write_state,
+        slug=spec_id,
+        spec_id=spec_id,
+        actor=actor,
+        lock_token=lock_token,
+        base_url=base_url,
+    )
+    fetched = _fetch_remote_spec_payload(
+        root=root,
+        workspace_config=workspace_config,
+        read_state=read_state,
+        write_state=write_state,
+        spec_id=spec_id,
+    )
+    return {
+        "spec_id": spec_id,
+        "actor": actor,
+        "lock_token": lock_token,
+        "state": payload.get("state"),
+        "assignee": payload.get("assignee"),
+        "lock_expires_at": payload.get("lock_expires_at"),
+        "path": fetched.get("path"),
+        "updated_at": fetched.get("updated_at"),
+    }
+
+
+def _poll_remote_spec_payload(
+    args,
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    read_state: Callable[[str], dict[str, object]],
+    write_state: Callable[[str, dict[str, object]], None],
+    attempt: int = 1,
+) -> dict[str, Any]:
+    conflict = _find_any_local_gateway_claim(root)
+    if conflict is not None:
+        raise SystemExit(
+            "El workspace ya tiene un claim remoto activo; libera o resuelve ese claim antes de usar `gateway poll/watch`."
+        )
+    connection = load_gateway_connection(root=root, workspace_config=workspace_config)
+    base_url, token = _require_remote_gateway(connection)
+    allowed_states = _allowed_states_from_args(args)
+    items = _list_remote_specs(base_url=base_url, token=token)
+    eligible = _eligible_remote_specs(items, allowed_states=allowed_states)
+    actor = str(getattr(args, "actor", "") or "").strip() or _default_actor()
+    ttl_seconds = int(getattr(args, "ttl_seconds", 120) or 120)
+    reason = str(getattr(args, "reason", "") or "").strip() or "poll-from-flow"
+    if not eligible:
+        return {
+            "picked": False,
+            "reason": "no-eligible-specs",
+            "attempt": attempt,
+            "attempts_total": attempt,
+            "actor": actor,
+            "states": list(allowed_states),
+        }
+    last_race = False
+    for chosen in eligible:
+        spec_id = str(chosen.get("spec_id") or "").strip()
+        if not spec_id:
+            continue
+        try:
+            claimed = _claim_remote_spec_payload(
+                root=root,
+                workspace_config=workspace_config,
+                read_state=read_state,
+                write_state=write_state,
+                spec_id=spec_id,
+                actor=actor,
+                ttl_seconds=ttl_seconds,
+                reason=reason,
+            )
+        except SystemExit as exc:
+            if "SPEC_ALREADY_CLAIMED" in str(exc):
+                last_race = True
+                continue
+            raise
+        return {
+            "picked": True,
+            "reason": "claimed",
+            "attempt": attempt,
+            "attempts_total": attempt,
+            "actor": actor,
+            "remote_state": claimed.get("state"),
+            "spec_id": spec_id,
+            "lock_token": claimed.get("lock_token"),
+            "lock_expires_at": claimed.get("lock_expires_at"),
+            "path": claimed.get("path"),
+            "updated_at": claimed.get("updated_at"),
+        }
+    return {
+        "picked": False,
+        "reason": "claim-race" if last_race else "no-eligible-specs",
+        "attempt": attempt,
+        "attempts_total": attempt,
+        "actor": actor,
+        "states": list(allowed_states),
+    }
 
 
 def _transition_remote_claim(
@@ -473,25 +692,9 @@ def command_gateway_pick(
 ) -> int:
     connection = load_gateway_connection(root=root, workspace_config=workspace_config)
     base_url, token = _require_remote_gateway(connection)
-    payload = _http_json(method="GET", url=f"{base_url}/v1/specs", token=token)
-    items = payload.get("items", [])
-    if not isinstance(items, list):
-        raise SystemExit("Gateway devolvio una lista de specs invalida para `pick`.")
-    allowed_states = tuple(
-        str(item).strip() for item in (getattr(args, "states", None) or ["new", "triaged"]) if str(item).strip()
-    )
-    eligible: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        state = str(item.get("state") or "").strip()
-        assignee = str(item.get("assignee") or "").strip()
-        if allowed_states and state not in allowed_states:
-            continue
-        if assignee:
-            continue
-        eligible.append(item)
-    eligible.sort(key=lambda item: (str(item.get("updated_at") or ""), str(item.get("created_at") or "")))
+    allowed_states = _allowed_states_from_args(args)
+    items = _list_remote_specs(base_url=base_url, token=token)
+    eligible = _eligible_remote_specs(items, allowed_states=allowed_states)
     if not eligible:
         response = {"picked": False, "reason": "no-eligible-specs", "states": list(allowed_states)}
         if bool(getattr(args, "json", False)):
@@ -511,15 +714,16 @@ def command_gateway_pick(
             "json": False,
         },
     )()
-    with contextlib.redirect_stdout(io.StringIO()):
-        command_gateway_claim(
-            claim_args,
-            root=root,
-            workspace_config=workspace_config,
-            read_state=read_state,
-            write_state=write_state,
-            json_dumps=json_dumps,
-        )
+    _claim_remote_spec_payload(
+        root=root,
+        workspace_config=workspace_config,
+        read_state=read_state,
+        write_state=write_state,
+        spec_id=claim_args.spec,
+        actor=claim_args.actor,
+        ttl_seconds=int(claim_args.ttl_seconds),
+        reason=str(claim_args.reason),
+    )
     response = {
         "picked": True,
         "spec_id": str(chosen.get("spec_id") or ""),
@@ -533,6 +737,94 @@ def command_gateway_pick(
     else:
         print(json.dumps(response, ensure_ascii=True))
     return 0
+
+
+def command_gateway_poll(
+    args,
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    read_state: Callable[[str], dict[str, object]],
+    write_state: Callable[[str, dict[str, object]], None],
+    json_dumps: Callable[[object], str],
+) -> int:
+    response = _poll_remote_spec_payload(
+        args,
+        root=root,
+        workspace_config=workspace_config,
+        read_state=read_state,
+        write_state=write_state,
+    )
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(response))
+    else:
+        print(json.dumps(response, ensure_ascii=True))
+    return 0
+
+
+def command_gateway_watch(
+    args,
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    read_state: Callable[[str], dict[str, object]],
+    write_state: Callable[[str, dict[str, object]], None],
+    json_dumps: Callable[[object], str],
+    sleep_fn: Callable[[float], None] = time.sleep,
+    monotonic_fn: Callable[[], float] = time.monotonic,
+) -> int:
+    interval_seconds = max(1.0, float(getattr(args, "interval_seconds", 15) or 15))
+    timeout_seconds = max(0.0, float(getattr(args, "timeout_seconds", 600) or 0))
+    max_attempts = max(0, int(getattr(args, "max_attempts", 40) or 0))
+    backoff_multiplier = max(1.0, float(getattr(args, "backoff_multiplier", 1.5) or 1.5))
+    max_interval_seconds = max(interval_seconds, float(getattr(args, "max_interval_seconds", 60) or 60))
+    started_at = monotonic_fn()
+    attempt = 0
+    wait_seconds = interval_seconds
+
+    while True:
+        if timeout_seconds and (monotonic_fn() - started_at) >= timeout_seconds:
+            response = {
+                "picked": False,
+                "reason": "timeout",
+                "attempt": attempt,
+                "attempts_total": attempt,
+            }
+            if bool(getattr(args, "json", False)):
+                print(json_dumps(response))
+            else:
+                print(json.dumps(response, ensure_ascii=True))
+            return 0
+        if max_attempts and attempt >= max_attempts:
+            response = {
+                "picked": False,
+                "reason": "max-attempts-reached",
+                "attempt": attempt,
+                "attempts_total": attempt,
+            }
+            if bool(getattr(args, "json", False)):
+                print(json_dumps(response))
+            else:
+                print(json.dumps(response, ensure_ascii=True))
+            return 0
+        attempt += 1
+        response = _poll_remote_spec_payload(
+            args,
+            root=root,
+            workspace_config=workspace_config,
+            read_state=read_state,
+            write_state=write_state,
+            attempt=attempt,
+        )
+        if response.get("picked"):
+            response["attempts_total"] = attempt
+            if bool(getattr(args, "json", False)):
+                print(json_dumps(response))
+            else:
+                print(json.dumps(response, ensure_ascii=True))
+            return 0
+        sleep_fn(wait_seconds)
+        wait_seconds = min(max_interval_seconds, wait_seconds * backoff_multiplier)
 
 
 def command_gateway_heartbeat(
@@ -709,41 +1001,18 @@ def command_gateway_fetch_spec(
     write_state: Callable[[str, dict[str, object]], None],
     json_dumps: Callable[[object], str],
 ) -> int:
-    connection = load_gateway_connection(root=root, workspace_config=workspace_config)
-    base_url, token = _require_remote_gateway(connection)
     spec_id = str(args.spec).strip().lower()
-    payload = _http_json(method="GET", url=f"{base_url}/v1/specs/{spec_id}/source", token=token)
-    path_text = str(payload.get("path") or "").strip()
-    content = str(payload.get("content") or "")
-    if not path_text or not content:
-        raise SystemExit(f"Gateway no devolvio `path`/`content` validos para `{spec_id}`.")
-    try:
-        relative = Path(path_text).relative_to("/workspace")
-    except ValueError:
-        relative = Path("specs/features") / f"{spec_id}.spec.md"
-    local_path = root / relative
-    local_path.parent.mkdir(parents=True, exist_ok=True)
-    local_path.write_text(content, encoding="utf-8")
-    state = read_state(spec_id)
-    remote_sync = state.get("gateway_remote_spec")
-    sync_payload = remote_sync if isinstance(remote_sync, dict) else {}
-    sync_payload.update(
-        {
-            "base_url": base_url,
-            "spec_id": spec_id,
-            "path": str(relative),
-            "updated_at": str(payload.get("updated_at") or ""),
-            "content_sha256": str(payload.get("content_sha256") or ""),
-        }
+    response = _fetch_remote_spec_payload(
+        root=root,
+        workspace_config=workspace_config,
+        read_state=read_state,
+        write_state=write_state,
+        spec_id=spec_id,
     )
-    state["spec_path"] = str(relative)
-    state["gateway_remote_spec"] = sync_payload
-    write_state(spec_id, state)
-    response = {"spec_id": spec_id, "path": str(relative), "updated_at": sync_payload["updated_at"]}
     if bool(getattr(args, "json", False)):
         print(json_dumps(response))
     else:
-        print(str(relative))
+        print(str(response["path"]))
     return 0
 
 
@@ -756,51 +1025,19 @@ def command_gateway_claim(
     write_state: Callable[[str, dict[str, object]], None],
     json_dumps: Callable[[object], str],
 ) -> int:
-    connection = load_gateway_connection(root=root, workspace_config=workspace_config)
-    base_url, token = _require_remote_gateway(connection)
     spec_id = str(args.spec).strip().lower()
     actor = str(getattr(args, "actor", "") or "").strip() or _default_actor()
     ttl_seconds = int(getattr(args, "ttl_seconds", 120) or 120)
-    payload = _http_json(
-        method="POST",
-        url=f"{base_url}/v1/specs/{spec_id}/claim",
-        token=token,
-        payload={
-            "actor": actor,
-            "source": "slave",
-            "reason": str(getattr(args, "reason", "") or "").strip() or "claim-from-flow",
-            "ttl_seconds": ttl_seconds,
-        },
-    )
-    lock_token = str(payload.get("lock_token") or "").strip()
-    if not lock_token:
-        raise SystemExit(f"Gateway no devolvio `lock_token` al reclamar `{spec_id}`.")
-    _write_gateway_claim_state(
-        read_state=read_state,
-        write_state=write_state,
-        slug=spec_id,
-        spec_id=spec_id,
-        actor=actor,
-        lock_token=lock_token,
-        base_url=base_url,
-    )
-    fetch_args = type("FetchArgs", (), {"spec": spec_id, "json": False})()
-    command_gateway_fetch_spec(
-        fetch_args,
+    response = _claim_remote_spec_payload(
         root=root,
         workspace_config=workspace_config,
         read_state=read_state,
         write_state=write_state,
-        json_dumps=json_dumps,
+        spec_id=spec_id,
+        actor=actor,
+        ttl_seconds=ttl_seconds,
+        reason=str(getattr(args, "reason", "") or "").strip() or "claim-from-flow",
     )
-    response = {
-        "spec_id": spec_id,
-        "actor": actor,
-        "lock_token": lock_token,
-        "state": payload.get("state"),
-        "assignee": payload.get("assignee"),
-        "lock_expires_at": payload.get("lock_expires_at"),
-    }
     if bool(getattr(args, "json", False)):
         print(json_dumps(response))
     else:

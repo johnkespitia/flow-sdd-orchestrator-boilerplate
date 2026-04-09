@@ -147,6 +147,8 @@ cd /ruta/slave
 python3 ./flow init
 python3 ./flow gateway list --json
 python3 ./flow gateway pick --actor <tu-actor> --json
+python3 ./flow gateway poll --actor <tu-actor> --json
+python3 ./flow gateway watch --actor <tu-actor> --interval-seconds 15 --timeout-seconds 600 --json
 python3 ./flow gateway claim <spec-id> --actor <tu-actor> --json
 python3 ./flow gateway status <spec-id> --json
 python3 ./flow plan <spec-id>
@@ -159,6 +161,8 @@ Puntos importantes:
 
 - la seleccion del intake/spec es explicita y ocurre en `flow gateway claim`
 - `flow gateway pick` ya puede hacer seleccion asistida con orden estable sobre specs elegibles
+- `flow gateway poll` hace un intento autónomo único de claim/fetch bajo las mismas reglas de elegibilidad
+- `flow gateway watch` repite `poll` con límites explícitos; no ejecuta `plan` ni slices automáticamente
 - el claim es exclusivo; otro developer no puede tomar la misma spec mientras el lock siga vigente
 - `flow plan` en `slave` exige claim remoto vigente
 - `flow gateway status <spec-id>` y `flow gateway current <spec-id>` muestran el claim local y remoto de forma resumida

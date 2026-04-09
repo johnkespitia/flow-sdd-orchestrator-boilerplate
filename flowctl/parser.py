@@ -99,6 +99,27 @@ def build_parser(
     gateway_pick.add_argument("--json", action="store_true", help="Print the result as JSON.")
     gateway_pick.set_defaults(func=commands["gateway_pick"])
 
+    gateway_poll = gateway_subparsers.add_parser("poll", help="Run one autonomous polling attempt against the remote gateway.")
+    gateway_poll.add_argument("--actor", help="Actor claiming the picked spec. Defaults to FLOW_ACTOR or USER.")
+    gateway_poll.add_argument("--state", dest="states", action="append", help="Eligible remote state filter. Repeatable; default is `new` and `triaged`.")
+    gateway_poll.add_argument("--reason", help="Optional audit reason.")
+    gateway_poll.add_argument("--ttl-seconds", type=int, default=120, help="Lock TTL in seconds.")
+    gateway_poll.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    gateway_poll.set_defaults(func=commands["gateway_poll"])
+
+    gateway_watch = gateway_subparsers.add_parser("watch", help="Run a bounded polling loop until a spec is claimed or the declared limits are reached.")
+    gateway_watch.add_argument("--actor", help="Actor claiming the picked spec. Defaults to FLOW_ACTOR or USER.")
+    gateway_watch.add_argument("--state", dest="states", action="append", help="Eligible remote state filter. Repeatable; default is `new` and `triaged`.")
+    gateway_watch.add_argument("--reason", help="Optional audit reason.")
+    gateway_watch.add_argument("--ttl-seconds", type=int, default=120, help="Lock TTL in seconds.")
+    gateway_watch.add_argument("--interval-seconds", type=float, default=15, help="Base interval between polling attempts.")
+    gateway_watch.add_argument("--max-interval-seconds", type=float, default=60, help="Maximum interval after backoff.")
+    gateway_watch.add_argument("--backoff-multiplier", type=float, default=1.5, help="Backoff multiplier applied after each empty attempt.")
+    gateway_watch.add_argument("--timeout-seconds", type=float, default=600, help="Maximum wall-clock time for the watch loop.")
+    gateway_watch.add_argument("--max-attempts", type=int, default=40, help="Maximum polling attempts before stopping.")
+    gateway_watch.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    gateway_watch.set_defaults(func=commands["gateway_watch"])
+
     stack = subparsers.add_parser("stack", help="Operate the devcontainer stack from the control plane.")
     stack_subparsers = stack.add_subparsers(dest="stack_command", required=True)
     for name, help_text in [("doctor", "Show resolved Docker Compose context."), ("ps", "Show stack services.")]:

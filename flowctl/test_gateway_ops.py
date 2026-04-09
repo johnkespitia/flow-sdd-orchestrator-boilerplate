@@ -380,6 +380,265 @@ class GatewayOpsTests(unittest.TestCase):
             self.assertEqual("demo", payload["spec_id"])
             self.assertEqual("dev-a", state["gateway_claim"]["actor"])
 
+    def test_command_gateway_poll_returns_no_eligible_specs(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace_config = {"gateway": {"connection": {"mode": "remote", "base_url": "https://gateway.example"}}}
+            state: dict[str, object] = {}
+
+            def _http_json(**kwargs):  # type: ignore[no-untyped-def]
+                self.assertEqual("https://gateway.example/v1/specs", kwargs["url"])
+                return {"items": []}
+
+            original = gateway_ops._http_json
+            gateway_ops._http_json = _http_json  # type: ignore[assignment]
+            try:
+                stream = io.StringIO()
+                with contextlib.redirect_stdout(stream):
+                    rc = gateway_ops.command_gateway_poll(
+                        argparse.Namespace(actor="dev-a", states=None, reason="", ttl_seconds=120, json=True),
+                        root=root,
+                        workspace_config=workspace_config,
+                        read_state=lambda _slug: dict(state),
+                        write_state=lambda _slug, payload: state.update(payload),
+                        json_dumps=self._json_dumps,
+                    )
+            finally:
+                gateway_ops._http_json = original  # type: ignore[assignment]
+
+            self.assertEqual(0, rc)
+            payload = json.loads(stream.getvalue())
+            self.assertFalse(payload["picked"])
+            self.assertEqual("no-eligible-specs", payload["reason"])
+
+    def test_command_gateway_poll_claims_first_eligible_spec(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace_config = {"gateway": {"connection": {"mode": "remote", "base_url": "https://gateway.example"}}}
+            state: dict[str, object] = {}
+
+            def read_state(_slug: str) -> dict[str, object]:
+                return dict(state)
+
+            def write_state(_slug: str, payload: dict[str, object]) -> None:
+                state.clear()
+                state.update(payload)
+
+            def _http_json(**kwargs):  # type: ignore[no-untyped-def]
+                url = str(kwargs["url"])
+                if url == "https://gateway.example/v1/specs":
+                    return {
+                        "items": [
+                            {
+                                "spec_id": "demo",
+                                "state": "triaged",
+                                "assignee": None,
+                                "updated_at": "2026-04-09T12:00:00+00:00",
+                                "created_at": "2026-04-09T00:00:00+00:00",
+                            }
+                        ]
+                    }
+                if url == "https://gateway.example/v1/specs/demo/claim":
+                    return {
+                        "state": "triaged",
+                        "assignee": "dev-a",
+                        "lock_token": "lock-1",
+                        "lock_expires_at": "2026-04-09T12:00:00+00:00",
+                    }
+                if url == "https://gateway.example/v1/specs/demo/source":
+                    return {
+                        "spec_id": "demo",
+                        "path": "/workspace/specs/features/demo.spec.md",
+                        "content": "---\nstatus: approved\n---\n\n# Demo\n",
+                        "updated_at": "2026-04-09T00:00:00+00:00",
+                        "content_sha256": "abc123",
+                    }
+                raise AssertionError(url)
+
+            original = gateway_ops._http_json
+            gateway_ops._http_json = _http_json  # type: ignore[assignment]
+            try:
+                stream = io.StringIO()
+                with contextlib.redirect_stdout(stream):
+                    rc = gateway_ops.command_gateway_poll(
+                        argparse.Namespace(actor="dev-a", states=None, reason="", ttl_seconds=120, json=True),
+                        root=root,
+                        workspace_config=workspace_config,
+                        read_state=read_state,
+                        write_state=write_state,
+                        json_dumps=self._json_dumps,
+                    )
+            finally:
+                gateway_ops._http_json = original  # type: ignore[assignment]
+
+            self.assertEqual(0, rc)
+            payload = json.loads(stream.getvalue())
+            self.assertTrue(payload["picked"])
+            self.assertEqual("demo", payload["spec_id"])
+            self.assertEqual("dev-a", state["gateway_claim"]["actor"])
+
+    def test_command_gateway_poll_rejects_existing_local_claim(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_root = root / ".flow" / "state"
+            state_root.mkdir(parents=True, exist_ok=True)
+            (state_root / "claimed.json").write_text(
+                json.dumps(
+                    {
+                        "gateway_claim": {
+                            "mode": "remote",
+                            "base_url": "https://gateway.example",
+                            "spec_id": "claimed",
+                            "actor": "dev-a",
+                            "lock_token": "lock-1",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            workspace_config = {"gateway": {"connection": {"mode": "remote", "base_url": "https://gateway.example"}}}
+            with self.assertRaises(SystemExit) as ctx:
+                gateway_ops.command_gateway_poll(
+                    argparse.Namespace(actor="dev-a", states=None, reason="", ttl_seconds=120, json=False),
+                    root=root,
+                    workspace_config=workspace_config,
+                    read_state=lambda _slug: {},
+                    write_state=lambda _slug, payload: None,
+                    json_dumps=self._json_dumps,
+                )
+            self.assertIn("claim remoto activo", str(ctx.exception))
+
+    def test_command_gateway_watch_stops_after_max_attempts(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace_config = {"gateway": {"connection": {"mode": "remote", "base_url": "https://gateway.example"}}}
+            state: dict[str, object] = {}
+            sleep_calls: list[float] = []
+            ticks = iter([0.0, 0.0, 1.0, 2.0, 3.0])
+
+            def _http_json(**kwargs):  # type: ignore[no-untyped-def]
+                self.assertEqual("https://gateway.example/v1/specs", kwargs["url"])
+                return {"items": []}
+
+            original = gateway_ops._http_json
+            gateway_ops._http_json = _http_json  # type: ignore[assignment]
+            try:
+                stream = io.StringIO()
+                with contextlib.redirect_stdout(stream):
+                    rc = gateway_ops.command_gateway_watch(
+                        argparse.Namespace(
+                            actor="dev-a",
+                            states=None,
+                            reason="",
+                            ttl_seconds=120,
+                            interval_seconds=1.0,
+                            max_interval_seconds=2.0,
+                            backoff_multiplier=2.0,
+                            timeout_seconds=0.0,
+                            max_attempts=2,
+                            json=True,
+                        ),
+                        root=root,
+                        workspace_config=workspace_config,
+                        read_state=lambda _slug: dict(state),
+                        write_state=lambda _slug, payload: state.update(payload),
+                        json_dumps=self._json_dumps,
+                        sleep_fn=lambda seconds: sleep_calls.append(seconds),
+                        monotonic_fn=lambda: next(ticks),
+                    )
+            finally:
+                gateway_ops._http_json = original  # type: ignore[assignment]
+
+            self.assertEqual(0, rc)
+            payload = json.loads(stream.getvalue())
+            self.assertFalse(payload["picked"])
+            self.assertEqual("max-attempts-reached", payload["reason"])
+            self.assertEqual([1.0, 2.0], sleep_calls)
+
+    def test_command_gateway_watch_stops_on_first_claim(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace_config = {"gateway": {"connection": {"mode": "remote", "base_url": "https://gateway.example"}}}
+            state: dict[str, object] = {}
+            sleep_calls: list[float] = []
+            call_count = {"list": 0}
+
+            def read_state(_slug: str) -> dict[str, object]:
+                return dict(state)
+
+            def write_state(_slug: str, payload: dict[str, object]) -> None:
+                state.clear()
+                state.update(payload)
+
+            def _http_json(**kwargs):  # type: ignore[no-untyped-def]
+                url = str(kwargs["url"])
+                if url == "https://gateway.example/v1/specs":
+                    call_count["list"] += 1
+                    if call_count["list"] == 1:
+                        return {"items": []}
+                    return {
+                        "items": [
+                            {
+                                "spec_id": "demo",
+                                "state": "triaged",
+                                "assignee": None,
+                                "updated_at": "2026-04-09T12:00:00+00:00",
+                                "created_at": "2026-04-09T00:00:00+00:00",
+                            }
+                        ]
+                    }
+                if url == "https://gateway.example/v1/specs/demo/claim":
+                    return {
+                        "state": "triaged",
+                        "assignee": "dev-a",
+                        "lock_token": "lock-1",
+                        "lock_expires_at": "2026-04-09T12:00:00+00:00",
+                    }
+                if url == "https://gateway.example/v1/specs/demo/source":
+                    return {
+                        "spec_id": "demo",
+                        "path": "/workspace/specs/features/demo.spec.md",
+                        "content": "---\nstatus: approved\n---\n\n# Demo\n",
+                        "updated_at": "2026-04-09T00:00:00+00:00",
+                        "content_sha256": "abc123",
+                    }
+                raise AssertionError(url)
+
+            original = gateway_ops._http_json
+            gateway_ops._http_json = _http_json  # type: ignore[assignment]
+            try:
+                stream = io.StringIO()
+                with contextlib.redirect_stdout(stream):
+                    rc = gateway_ops.command_gateway_watch(
+                        argparse.Namespace(
+                            actor="dev-a",
+                            states=None,
+                            reason="",
+                            ttl_seconds=120,
+                            interval_seconds=1.0,
+                            max_interval_seconds=2.0,
+                            backoff_multiplier=2.0,
+                            timeout_seconds=10.0,
+                            max_attempts=3,
+                            json=True,
+                        ),
+                        root=root,
+                        workspace_config=workspace_config,
+                        read_state=read_state,
+                        write_state=write_state,
+                        json_dumps=self._json_dumps,
+                        sleep_fn=lambda seconds: sleep_calls.append(seconds),
+                        monotonic_fn=lambda: 0.0,
+                    )
+            finally:
+                gateway_ops._http_json = original  # type: ignore[assignment]
+
+            self.assertEqual(0, rc)
+            payload = json.loads(stream.getvalue())
+            self.assertTrue(payload["picked"])
+            self.assertEqual("demo", payload["spec_id"])
+            self.assertEqual([1.0], sleep_calls)
+
     def test_maybe_publish_transition_hook_skips_redundant_remote_state(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
