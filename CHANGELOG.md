@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.10 - 2026-04-09
+
+### Changed
+
+- Add portable master gateway deployment baseline
+
 ## v0.4.9 - 2026-04-06
 
 ### Changed
