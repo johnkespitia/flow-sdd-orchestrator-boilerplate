@@ -1,0 +1,28 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      FLOW_WORKSPACE_ROOT: /app
+      SOFTOS_GATEWAY_HOST: 0.0.0.0
+      SOFTOS_GATEWAY_PORT: 8010
+      SOFTOS_GATEWAY_FLOW_BIN: python3
+      SOFTOS_GATEWAY_FLOW_ENTRYPOINT: ./flow
+      SOFTOS_DEFAULT_FEEDBACK_PROVIDER: local-log
+      SOFTOS_GATEWAY_DB_URL: ${SOFTOS_GATEWAY_DB_URL:?set_SOFTOS_GATEWAY_DB_URL}
+      SOFTOS_GATEWAY_API_TOKEN: ${SOFTOS_GATEWAY_API_TOKEN:?set_SOFTOS_GATEWAY_API_TOKEN}
+      SOFTOS_GITHUB_WEBHOOK_SECRET: ${SOFTOS_GITHUB_WEBHOOK_SECRET:-}
+      SOFTOS_SLACK_SIGNING_SECRET: ${SOFTOS_SLACK_SIGNING_SECRET:-}
+      SOFTOS_JIRA_WEBHOOK_TOKEN: ${SOFTOS_JIRA_WEBHOOK_TOKEN:-}
+      SOFTOS_JIRA_BASE_URL: ${SOFTOS_JIRA_BASE_URL:-}
+      SOFTOS_JIRA_USER_EMAIL: ${SOFTOS_JIRA_USER_EMAIL:-}
+      SOFTOS_JIRA_API_TOKEN: ${SOFTOS_JIRA_API_TOKEN:-}
+    ports:
+      - "8010:8010"
+    healthcheck:
+      test: ["CMD", "bash", "/app/scripts/gateway_central_smoke.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

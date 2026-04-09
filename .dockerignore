@@ -1,0 +1,14 @@
+.git
+.github
+.flow
+.worktrees
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+node_modules
+gateway/data
+tmp

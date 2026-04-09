@@ -107,6 +107,10 @@ Eso genera un workspace nuevo:
 - `master`: instala control-plane completo (incluye `gateway/` y operación central).
 - `slave`: instala runner de desarrollo (excluye `gateway/`) y configura conexión a gateway remoto.
 
+La portabilidad de despliegue del gateway aplica al perfil `master`. Una vez materializado el
+workspace `master`, el bootstrap operativo sigue siendo `python3 ./flow init`; no existe un
+modo separado `init --master`, porque el perfil ya quedó definido al crear el workspace.
+
 Ejemplo `master`:
 
 ```bash
@@ -278,6 +282,25 @@ Arranque basico:
 python3 ./flow init
 curl -fsSL "http://127.0.0.1:${SOFTOS_GATEWAY_HOST_PORT:-8010}/healthz"
 ```
+
+Deploy portable del gateway:
+
+```bash
+docker build -t softos-gateway:local .
+docker run --rm -p 8010:8010 \
+  -e FLOW_WORKSPACE_ROOT=/app \
+  -e SOFTOS_GATEWAY_DB_URL=postgresql://user:pass@host:5432/postgres \
+  -e SOFTOS_GATEWAY_API_TOKEN=change-me \
+  -e SOFTOS_DEFAULT_FEEDBACK_PROVIDER=local-log \
+  softos-gateway:local
+```
+
+El contrato de despliegue es proveedor-agnóstico: el artefacto es el workspace completo y el
+arranque recomendado sigue siendo `bash scripts/gateway_central_start.sh`. Ver
+`docs/gateway-central-deployment-runbook.md`.
+
+Eso aplica al perfil `master`. En `slave`, el gateway no se despliega: el runner apunta a un
+gateway remoto ya existente.
 
 Happy path nuevo para una iniciativa:
 
