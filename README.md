@@ -138,6 +138,30 @@ En `slave`, además, persiste:
 - `workspace.config.json` con `gateway.connection = {"mode":"remote","base_url":"..."}`
 - `.env.gateway` con `SOFTOS_GATEWAY_URL` y placeholder de `SOFTOS_GATEWAY_API_TOKEN`
 
+### Operacion `slave` contra gateway remoto
+
+Una vez bootstrappeado el workspace `slave`, el flujo operativo esperado es:
+
+```bash
+cd /ruta/slave
+python3 ./flow init
+python3 ./flow gateway list --json
+python3 ./flow gateway claim <spec-id> --actor <tu-actor> --json
+python3 ./flow plan <spec-id>
+python3 ./flow gateway heartbeat <spec-id> --json
+python3 ./flow gateway transition <spec-id> triaged --json
+python3 ./flow gateway release <spec-id> --json
+```
+
+Puntos importantes:
+
+- la seleccion del intake/spec es explicita y ocurre en `flow gateway claim`
+- el claim es exclusivo; otro developer no puede tomar la misma spec mientras el lock siga vigente
+- `flow plan` en `slave` exige claim remoto vigente
+- la reasignacion requiere accion explicita con `python3 ./flow gateway reassign <spec-id> <nuevo-actor> --json`
+
+El runbook completo del operador esta en [docs/slave-remote-gateway-operator-runbook.md](/Users/john/Projects/Personal/softos-sdd-orchestrator/docs/slave-remote-gateway-operator-runbook.md).
+
 ## Después de crear tu workspace
 
 1. Abre el root en devcontainer

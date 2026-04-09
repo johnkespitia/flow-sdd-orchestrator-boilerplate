@@ -18,8 +18,15 @@ Reglas:
 - `POST /v1/specs/{id}/claim` crea o toma lock exclusivo.
 - `POST /v1/specs/{id}/heartbeat` renueva TTL del lock.
 - `POST /v1/specs/{id}/release` libera lock explicitamente.
+- `POST /v1/specs/{id}/reassign` transfiere ownership de manera explicita y rota `lock_token`.
 - Si expira TTL sin heartbeat, el lock se libera automaticamente con evento de auditoria `lock_expired`.
 - Claims concurrentes sobre la misma spec: un solo ganador; el resto recibe `SPEC_ALREADY_CLAIMED`.
+
+## Fetch canonico de spec
+
+- `GET /v1/specs/{id}/source` devuelve el markdown canonico de la spec, su path y un hash estable de contenido.
+- El cliente remoto de `flow` debe usar este endpoint para materializar la spec local antes de planear.
+- Si la spec no existe en el workspace canonico, el gateway devuelve `SPEC_SOURCE_NOT_FOUND`.
 
 ## Errores deterministas y auditables
 
@@ -63,6 +70,7 @@ Eventos registrados por el contrato:
 - `heartbeat`
 - `release`
 - `transition`
+- `reassign`
 - `lock_expired`
 
 ## Spec 1 Closure

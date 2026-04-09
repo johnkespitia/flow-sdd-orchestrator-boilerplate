@@ -567,6 +567,7 @@ def command_plan(
     plan_root: Path,
     read_state: Callable[[str], dict[str, object]],
     write_state: Callable[[str, dict[str, object]], None],
+    ensure_remote_claim_for_plan: Callable[[str], None] | None,
     rel: Callable[[Path], str],
     utc_now: Callable[[], str],
 ) -> int:
@@ -579,6 +580,8 @@ def command_plan(
         raise SystemExit(f"La spec '{slug}' ya esta en estado `released`; no se debe planear de nuevo.")
     if not frontmatter_status_allows_execution(frontmatter.get("status")):
         raise SystemExit(f"La spec '{slug}' debe estar en estado `approved` antes de planearla.")
+    if ensure_remote_claim_for_plan is not None:
+        ensure_remote_claim_for_plan(slug)
 
     if analysis["target_errors"]:
         joined = "\n".join(f"- {error}" for error in analysis["target_errors"])

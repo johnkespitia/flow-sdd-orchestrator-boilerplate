@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from hashlib import sha256
 from typing import Any
 
 try:
@@ -126,6 +127,15 @@ class SpecTransitionRequest(BaseModel):
     lock_token: str | None = None
 
 
+class SpecReassignRequest(BaseModel):
+    actor: str
+    to_actor: str
+    lock_token: str
+    source: str = Field(default="api")
+    reason: str = Field(default="")
+    ttl_seconds: int = Field(default=120)
+
+
 class SpecAuditEntry(BaseModel):
     event: str
     from_state: str | None = None
@@ -145,3 +155,21 @@ class SpecView(BaseModel):
     created_at: str
     updated_at: str
     audit: list[SpecAuditEntry] = Field(default_factory=list)
+
+
+class SpecSourceView(BaseModel):
+    spec_id: str
+    path: str
+    content: str
+    updated_at: str
+    content_sha256: str
+
+    @classmethod
+    def from_content(cls, *, spec_id: str, path: str, content: str, updated_at: str) -> "SpecSourceView":
+        return cls(
+            spec_id=spec_id,
+            path=path,
+            content=content,
+            updated_at=updated_at,
+            content_sha256=sha256(content.encode("utf-8")).hexdigest(),
+        )

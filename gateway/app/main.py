@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from hashlib import sha256
 import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -21,7 +23,9 @@ from .models import (
     TaskCommentRequest,
     SpecClaimRequest,
     SpecHeartbeatRequest,
+    SpecReassignRequest,
     SpecReleaseRequest,
+    SpecSourceView,
     SpecTransitionRequest,
     SpecView,
     TaskAccepted,
@@ -53,6 +57,17 @@ def _view_payload(task: dict[str, Any]) -> TaskView:
 
 def _spec_payload(spec: dict[str, Any]) -> SpecView:
     return SpecView(**spec)
+
+
+def _spec_source_payload(*, spec_id: str, path: Path, content: str) -> SpecSourceView:
+    updated_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).replace(microsecond=0).isoformat()
+    return SpecSourceView(
+        spec_id=spec_id,
+        path=str(path),
+        content=content,
+        updated_at=updated_at,
+        content_sha256=sha256(content.encode("utf-8")).hexdigest(),
+    )
 
 
 def _intake_spec_exists(settings: Settings, intent_request: IntentRequest) -> tuple[bool, str]:
@@ -438,6 +453,20 @@ def _sanitize_spec_id(spec_id: str) -> str:
     return normalized
 
 
+def _resolve_spec_source_path(settings: Settings, spec_id: str) -> Path:
+    specs_root = settings.workspace_root / "specs"
+    preferred = specs_root / "features" / f"{spec_id}.spec.md"
+    if preferred.is_file():
+        return preferred
+    candidates = sorted(specs_root.rglob(f"{spec_id}.spec.md"))
+    if not candidates:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "SPEC_SOURCE_NOT_FOUND", "message": "Canonical spec source not found."},
+        )
+    return candidates[0]
+
+
 @app.post("/v1/specs/{spec_id}/claim", response_model=SpecView)
 async def claim_spec(spec_id: str, payload: SpecClaimRequest, request: Request) -> SpecView:
     _ = require_api_auth(request, endpoint="/v1/specs/{spec_id}/claim", source=str(payload.source or "api"))
@@ -507,6 +536,25 @@ async def release_spec(spec_id: str, payload: SpecReleaseRequest, request: Reque
     return _spec_payload(record)
 
 
+@app.post("/v1/specs/{spec_id}/reassign", response_model=SpecView)
+async def reassign_spec(spec_id: str, payload: SpecReassignRequest, request: Request) -> SpecView:
+    _ = require_api_auth(request, endpoint="/v1/specs/{spec_id}/reassign", source=str(payload.source or "api"))
+    store: TaskStore = request.app.state.store
+    try:
+        record = store.reassign_spec(
+            spec_id=_sanitize_spec_id(spec_id),
+            actor=payload.actor,
+            to_actor=payload.to_actor,
+            lock_token=payload.lock_token,
+            source=payload.source,
+            reason=payload.reason,
+            ttl_seconds=payload.ttl_seconds,
+        )
+    except SpecRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+    return _spec_payload(record)
+
+
 @app.post("/v1/specs/{spec_id}/transition", response_model=SpecView)
 async def transition_spec(spec_id: str, payload: SpecTransitionRequest, request: Request) -> SpecView:
     _ = require_api_auth(request, endpoint="/v1/specs/{spec_id}/transition", source=str(payload.source or "api"))
@@ -536,6 +584,16 @@ async def get_spec(spec_id: str, request: Request) -> SpecView:
             status_code=404, detail={"code": "SPEC_NOT_FOUND", "message": "Spec not found in registry."}
         ) from exc
     return _spec_payload(record)
+
+
+@app.get("/v1/specs/{spec_id}/source", response_model=SpecSourceView)
+async def get_spec_source(spec_id: str, request: Request) -> SpecSourceView:
+    _ = require_api_auth(request, endpoint="/v1/specs/{spec_id}/source", source="api")
+    settings: Settings = request.app.state.settings
+    normalized_spec_id = _sanitize_spec_id(spec_id)
+    source_path = _resolve_spec_source_path(settings, normalized_spec_id)
+    content = source_path.read_text(encoding="utf-8")
+    return _spec_source_payload(spec_id=normalized_spec_id, path=source_path, content=content)
 
 
 @app.get("/v1/specs")

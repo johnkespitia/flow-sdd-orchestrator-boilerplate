@@ -367,6 +367,21 @@ def _persist_slave_gateway_connection(destination: Path, gateway_url: str, gatew
     env_gateway.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _print_slave_next_steps(destination: Path, gateway_url: str) -> None:
+    print("")
+    print("[slave setup] Conexion remota lista")
+    print(f"- gateway: {gateway_url}")
+    print(f"- workspace: {destination}")
+    print("- siguientes pasos:")
+    print("  1. cd <workspace> && python3 ./flow init")
+    print("  2. python3 ./flow gateway list --json")
+    print("  3. python3 ./flow gateway claim <spec-id> --actor <tu-actor> --json")
+    print("  4. python3 ./flow plan <spec-id>")
+    print("  5. python3 ./flow gateway heartbeat <spec-id> --json")
+    print("  6. python3 ./flow gateway transition <spec-id> <to-state> --json")
+    print("  7. python3 ./flow gateway release <spec-id> --json")
+
+
 def main() -> int:
     args = parse_args()
     profile = resolve_profile(args.profile)
@@ -399,6 +414,7 @@ def main() -> int:
         if not args.skip_gateway_check:
             _check_gateway_health(gateway_url)
         _persist_slave_gateway_connection(destination, gateway_url, args.gateway_token)
+        _print_slave_next_steps(destination, gateway_url)
 
     if args.git_init:
         git_init(destination)

@@ -11,6 +11,9 @@ Este runbook aplica al perfil de bootstrap `master`. En SoftOS, `master` es el p
 instala el control plane completo, incluyendo `gateway/`. El perfil `slave` excluye `gateway/`
 y se conecta a un gateway remoto ya existente.
 
+Para la operacion del workspace `slave` contra ese gateway remoto, usa
+`docs/slave-remote-gateway-operator-runbook.md`.
+
 ## Artefacto desplegable
 
 El artefacto desplegable no es `gateway/` aislado. Es el workspace completo, porque el gateway
@@ -163,3 +166,4 @@ No es necesario el script central si ya usas otro proceso (IDE, docker-compose p
 - Política de feedback y reintentos: `docs/feedback-retry-policy.md`
 - API del gateway: `gateway/README.md`
 - Empaquetado portable: `Dockerfile`, `docker-compose.gateway.yml`
+- Operacion `slave`: `docs/slave-remote-gateway-operator-runbook.md`

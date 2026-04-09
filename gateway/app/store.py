@@ -843,6 +843,52 @@ class TaskStore:
                 connection.commit()
         return self.get_spec(spec_id)
 
+    def reassign_spec(
+        self,
+        *,
+        spec_id: str,
+        actor: str,
+        to_actor: str,
+        lock_token: str,
+        source: str,
+        reason: str,
+        ttl_seconds: int,
+    ) -> dict[str, Any]:
+        normalized_target = str(to_actor).strip()
+        if not normalized_target:
+            raise SpecRegistryError("INVALID_REASSIGN", "Reassignment requires a non-empty target actor.", 400)
+        ttl = self._normalized_ttl(ttl_seconds)
+        with self._lock:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                record = self._must_get_spec_locked(connection, spec_id)
+                self._expire_lock_if_needed_locked(connection, record, source)
+                self._require_lock_owner(record, actor=actor, lock_token=lock_token)
+                now = utc_now()
+                new_token = uuid.uuid4().hex
+                expires_at = self._iso_after_seconds(ttl)
+                connection.execute(
+                    """
+                    UPDATE spec_registry
+                    SET assignee = ?, lock_token = ?, lock_expires_at = ?, updated_at = ?
+                    WHERE spec_id = ?
+                    """,
+                    (normalized_target, new_token, expires_at, now, spec_id),
+                )
+                audit_reason = reason.strip() if str(reason).strip() else f"reassign to {normalized_target}"
+                self._append_audit_locked(
+                    connection,
+                    spec_id=spec_id,
+                    event="reassign",
+                    from_state=str(record["state"]),
+                    to_state=str(record["state"]),
+                    actor=actor,
+                    reason=audit_reason,
+                    source=source,
+                )
+                connection.commit()
+        return self.get_spec(spec_id)
+
     def transition_spec(
         self,
         *,

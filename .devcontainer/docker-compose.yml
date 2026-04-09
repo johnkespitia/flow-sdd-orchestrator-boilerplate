@@ -27,8 +27,9 @@ services:
       - .env.generated
     environment:
       PYTHONPATH: /workspace
+      FLOW_WORKSPACE_ROOT: /workspace
     working_dir: /workspace/gateway
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8010
+    command: bash /workspace/scripts/gateway_central_start.sh
     ports:
       - "${SOFTOS_GATEWAY_HOST_PORT:-8010}:8010"
     networks:

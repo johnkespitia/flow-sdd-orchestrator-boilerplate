@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from flowctl import features as flow_features
+from flowctl import gateway_ops as flow_gateway_ops
 from flowctl import locks as flow_locks
 from flowctl import skills_ops as flow_skills_ops
 from flowctl import specs as flow_specs
@@ -2281,8 +2282,89 @@ def command_plan(args: argparse.Namespace) -> int:
         plan_root=PLAN_ROOT,
         read_state=read_state,
         write_state=write_state,
+        ensure_remote_claim_for_plan=lambda slug: flow_gateway_ops.ensure_remote_claim_for_plan(
+            root=ROOT,
+            slug=slug,
+            read_state=read_state,
+            workspace_config=WORKSPACE_CONFIG,
+        ),
         rel=rel,
         utc_now=utc_now,
+    )
+
+
+def command_gateway_list(args: argparse.Namespace) -> int:
+    return flow_gateway_ops.command_gateway_list(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        json_dumps=json_dumps,
+    )
+
+
+def command_gateway_claim(args: argparse.Namespace) -> int:
+    return flow_gateway_ops.command_gateway_claim(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        read_state=read_state,
+        write_state=write_state,
+        json_dumps=json_dumps,
+    )
+
+
+def command_gateway_fetch_spec(args: argparse.Namespace) -> int:
+    return flow_gateway_ops.command_gateway_fetch_spec(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        read_state=read_state,
+        write_state=write_state,
+        json_dumps=json_dumps,
+    )
+
+
+def command_gateway_heartbeat(args: argparse.Namespace) -> int:
+    return flow_gateway_ops.command_gateway_heartbeat(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        read_state=read_state,
+        write_state=write_state,
+        json_dumps=json_dumps,
+    )
+
+
+def command_gateway_transition(args: argparse.Namespace) -> int:
+    return flow_gateway_ops.command_gateway_transition(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        read_state=read_state,
+        write_state=write_state,
+        json_dumps=json_dumps,
+    )
+
+
+def command_gateway_release(args: argparse.Namespace) -> int:
+    return flow_gateway_ops.command_gateway_release(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        read_state=read_state,
+        write_state=write_state,
+        json_dumps=json_dumps,
+    )
+
+
+def command_gateway_reassign(args: argparse.Namespace) -> int:
+    return flow_gateway_ops.command_gateway_reassign(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        read_state=read_state,
+        write_state=write_state,
+        json_dumps=json_dumps,
     )
 
 
@@ -2565,6 +2647,13 @@ def build_parser() -> argparse.ArgumentParser:
     commands = {
         "doctor": command_doctor,
         "init": command_init,
+        "gateway_list": command_gateway_list,
+        "gateway_claim": command_gateway_claim,
+        "gateway_fetch_spec": command_gateway_fetch_spec,
+        "gateway_heartbeat": command_gateway_heartbeat,
+        "gateway_transition": command_gateway_transition,
+        "gateway_release": command_gateway_release,
+        "gateway_reassign": command_gateway_reassign,
         "stack_doctor": command_stack_doctor,
         "stack_ps": command_stack_ps,
         "stack_up": command_stack_up,

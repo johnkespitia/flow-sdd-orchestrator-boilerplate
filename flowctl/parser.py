@@ -29,6 +29,56 @@ def build_parser(
     init.add_argument("--force-secrets-sync", action="store_true", help="Regenerate `.devcontainer/.env.generated` even if it already exists.")
     init.set_defaults(func=commands["init"])
 
+    gateway = subparsers.add_parser("gateway", help="Consume a remote SoftOS gateway from a slave workspace.")
+    gateway_subparsers = gateway.add_subparsers(dest="gateway_command", required=True)
+
+    gateway_list = gateway_subparsers.add_parser("list", help="List remote specs from the configured gateway.")
+    gateway_list.add_argument("--state", help="Optional state filter.")
+    gateway_list.add_argument("--assignee", help="Optional assignee filter.")
+    gateway_list.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    gateway_list.set_defaults(func=commands["gateway_list"])
+
+    gateway_claim = gateway_subparsers.add_parser("claim", help="Claim a remote spec for the current actor and fetch it locally.")
+    gateway_claim.add_argument("spec", help="Remote spec id / slug.")
+    gateway_claim.add_argument("--actor", help="Actor claiming the spec. Defaults to FLOW_ACTOR or USER.")
+    gateway_claim.add_argument("--reason", help="Optional audit reason.")
+    gateway_claim.add_argument("--ttl-seconds", type=int, default=120, help="Lock TTL in seconds.")
+    gateway_claim.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    gateway_claim.set_defaults(func=commands["gateway_claim"])
+
+    gateway_fetch = gateway_subparsers.add_parser("fetch-spec", help="Fetch the canonical remote spec markdown into the local workspace.")
+    gateway_fetch.add_argument("spec", help="Remote spec id / slug.")
+    gateway_fetch.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    gateway_fetch.set_defaults(func=commands["gateway_fetch_spec"])
+
+    gateway_heartbeat = gateway_subparsers.add_parser("heartbeat", help="Renew the remote lock for a claimed spec.")
+    gateway_heartbeat.add_argument("spec", help="Remote spec id / slug.")
+    gateway_heartbeat.add_argument("--reason", help="Optional audit reason.")
+    gateway_heartbeat.add_argument("--ttl-seconds", type=int, default=120, help="Lock TTL in seconds.")
+    gateway_heartbeat.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    gateway_heartbeat.set_defaults(func=commands["gateway_heartbeat"])
+
+    gateway_transition = gateway_subparsers.add_parser("transition", help="Publish a state transition for a remotely claimed spec.")
+    gateway_transition.add_argument("spec", help="Remote spec id / slug.")
+    gateway_transition.add_argument("to_state", help="Target state in the gateway registry.")
+    gateway_transition.add_argument("--reason", help="Optional audit reason.")
+    gateway_transition.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    gateway_transition.set_defaults(func=commands["gateway_transition"])
+
+    gateway_release = gateway_subparsers.add_parser("release", help="Release the remote lock for a claimed spec.")
+    gateway_release.add_argument("spec", help="Remote spec id / slug.")
+    gateway_release.add_argument("--reason", help="Optional audit reason.")
+    gateway_release.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    gateway_release.set_defaults(func=commands["gateway_release"])
+
+    gateway_reassign = gateway_subparsers.add_parser("reassign", help="Reassign a remotely claimed spec to another actor.")
+    gateway_reassign.add_argument("spec", help="Remote spec id / slug.")
+    gateway_reassign.add_argument("to_actor", help="Target actor for the reassignment.")
+    gateway_reassign.add_argument("--reason", help="Optional audit reason.")
+    gateway_reassign.add_argument("--ttl-seconds", type=int, default=120, help="Lock TTL in seconds for the new assignee.")
+    gateway_reassign.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    gateway_reassign.set_defaults(func=commands["gateway_reassign"])
+
     stack = subparsers.add_parser("stack", help="Operate the devcontainer stack from the control plane.")
     stack_subparsers = stack.add_subparsers(dest="stack_command", required=True)
     for name, help_text in [("doctor", "Show resolved Docker Compose context."), ("ps", "Show stack services.")]:
