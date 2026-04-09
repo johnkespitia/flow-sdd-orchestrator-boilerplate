@@ -472,13 +472,21 @@ def command_workflow_next_step(
             }
         else:
             pending_slices = []
+            verified_slices = []
+            failed_slices = []
             for slice_payload in plan_payload.get("slices", []):
                 if not isinstance(slice_payload, dict):
                     continue
                 name = str(slice_payload.get("name", "")).strip()
-                result = slice_results.get(name, {})
-                started = isinstance(result, dict) and str(result.get("status", "")).strip() == "started"
-                pending_slices.append((slice_payload, started))
+                effective_status = _slice_effective_status(slice_payload, slice_results)
+                started = effective_status == "started"
+                done = effective_status in {"verification-passed", "closed"}
+                failed = effective_status == "verification-failed"
+                pending_slices.append((slice_payload, started, done, failed))
+                if done:
+                    verified_slices.append(name)
+                if failed:
+                    failed_slices.append(name)
                 subagents.append(
                     {
                         "slice": name,
@@ -486,6 +494,7 @@ def command_workflow_next_step(
                         "branch": str(slice_payload.get("branch", "")),
                         "worktree": str(slice_payload.get("worktree", "")),
                         "started": started,
+                        "status": effective_status,
                         "recommended_workflow": "quick-dev",
                         "workflow_path": rel(assets["bmad_quick_dev"]),
                         "handoff": rel(workflow_report_root.parent / f"{slug}-{name}-handoff.md")
@@ -494,7 +503,23 @@ def command_workflow_next_step(
                     }
                 )
 
-            if any(not started for _, started in pending_slices):
+            if failed_slices:
+                stage = "in-review"
+                summary = "Hay slices con verificacion fallida; corrige esas slices antes de cerrar la feature."
+                next_commands = [
+                    flow_shell_command(["slice", "verify", slug, str(item.get("name", "")), "--json"])
+                    for item, _, _, failed in pending_slices
+                    if isinstance(item, dict) and failed
+                ]
+            elif all(done for _, _, done, _ in pending_slices) and pending_slices:
+                stage = "ready-for-merge"
+                summary = "Todas las slices requeridas ya tienen verificacion exitosa; puedes cerrar la feature."
+                next_commands = [
+                    flow_shell_command(["workflow", "close-feature", slug, "--json"]),
+                    flow_shell_command(["ci", "spec", slug, "--json"]),
+                    flow_shell_command(["ci", "repo", "--all", "--json"]),
+                ]
+            elif any(not started and not done for _, started, done, _ in pending_slices):
                 stage = "execution-ready"
                 summary = "El plan existe; puedes arrancar slices por repo y asignarlas a subagentes."
                 next_commands = [
@@ -502,16 +527,16 @@ def command_workflow_next_step(
                 ]
                 next_commands.extend(
                     flow_shell_command(["slice", "start", slug, str(item.get("name", ""))])
-                    for item, started in pending_slices
-                    if isinstance(item, dict) and not started
+                    for item, started, done, _ in pending_slices
+                    if isinstance(item, dict) and not started and not done
                 )
             else:
                 stage = "verification"
                 summary = "Las slices ya tienen worktrees; el siguiente paso es verificar cada slice y cerrar CI."
                 next_commands = [
                     flow_shell_command(["slice", "verify", slug, str(item.get("name", "")), "--json"])
-                    for item, _ in pending_slices
-                    if isinstance(item, dict)
+                    for item, _, done, _ in pending_slices
+                    if isinstance(item, dict) and not done
                 ]
                 next_commands.extend(
                     [
@@ -552,6 +577,8 @@ def command_workflow_next_step(
             "dev_story": rel(assets["bmad_dev_story"]),
             "sprint_status": rel(assets["bmad_sprint_status"]),
         },
+        "verified_slices": verified_slices if 'verified_slices' in locals() else [],
+        "failed_slices": failed_slices if 'failed_slices' in locals() else [],
     }
 
     json_path = workflow_report_root / f"{slug}-next-step.json"
@@ -593,6 +620,102 @@ def command_workflow_next_step(
             )
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
+    payload["json_report"] = rel(json_path)
+    payload["markdown_report"] = rel(md_path)
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+        return 0
+    print(rel(json_path))
+    print(rel(md_path))
+    return 0
+
+
+def command_workflow_close_feature(
+    args,
+    *,
+    require_dirs: Callable[[], None],
+    resolve_spec: Callable[[str], Path],
+    spec_slug: Callable[[Path], str],
+    analyze_spec: Callable[[Path], dict[str, object]],
+    read_state: Callable[[str], dict[str, object]],
+    write_state: Callable[[str, dict[str, object]], None],
+    plan_root: Path,
+    workflow_report_root: Path,
+    rel: Callable[[Path], str],
+    utc_now: Callable[[], str],
+    json_dumps: Callable[[object], str],
+) -> int:
+    require_dirs()
+    workflow_report_root.mkdir(parents=True, exist_ok=True)
+    spec_path = resolve_spec(args.spec)
+    slug = spec_slug(spec_path)
+    _analysis = analyze_spec(spec_path)
+    plan_path = plan_root / f"{slug}.json"
+    if not plan_path.exists():
+        raise SystemExit(f"No existe plan para `{slug}`.")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    slices = plan.get("slices", [])
+    if not isinstance(slices, list) or not slices:
+        raise SystemExit(f"La feature `{slug}` no tiene slices planificadas.")
+    state = read_state(slug)
+    slice_results = state.get("slice_results", {})
+    if not isinstance(slice_results, dict):
+        slice_results = {}
+
+    missing: list[str] = []
+    failed: list[str] = []
+    closed: list[str] = []
+    for slice_payload in slices:
+        if not isinstance(slice_payload, dict):
+            continue
+        name = str(slice_payload.get("name", "")).strip()
+        effective_status = _slice_effective_status(slice_payload, slice_results)
+        if effective_status in {"verification-passed", "closed"}:
+            slice_payload["status"] = "closed"
+            closed.append(name)
+            continue
+        if effective_status == "verification-failed":
+            failed.append(name)
+            continue
+        missing.append(name)
+
+    if missing or failed:
+        problems = []
+        if missing:
+            problems.append("slices sin verificacion exitosa: " + ", ".join(missing))
+        if failed:
+            problems.append("slices con verificacion fallida: " + ", ".join(failed))
+        raise SystemExit(f"No puedo cerrar la feature `{slug}` porque hay evidencia incompleta:\n- " + "\n- ".join(problems))
+
+    plan_path.write_text(json.dumps(plan, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    state["status"] = "ready-for-merge"
+    state["closed_at"] = utc_now()
+    state["closed_slices"] = closed
+    write_state(slug, state)
+
+    payload = {
+        "feature": slug,
+        "generated_at": utc_now(),
+        "spec": rel(spec_path),
+        "plan_path": rel(plan_path),
+        "closed_slices": closed,
+        "state_status": "ready-for-merge",
+    }
+    json_path = workflow_report_root / f"{slug}-close-feature.json"
+    md_path = workflow_report_root / f"{slug}-close-feature.md"
+    json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    md_lines = [
+        f"# Workflow Close Feature: {slug}",
+        "",
+        f"- Spec: `{rel(spec_path)}`",
+        f"- Plan: `{rel(plan_path)}`",
+        f"- State status: `ready-for-merge`",
+        "",
+        "## Closed slices",
+        "",
+    ]
+    md_lines.extend(f"- `{name}`" for name in closed)
+    md_path.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
     payload["json_report"] = rel(json_path)
     payload["markdown_report"] = rel(md_path)
     if bool(getattr(args, "json", False)):
@@ -759,6 +882,22 @@ WORKFLOW_ENGINE_STAGES = [
 
 
 ERROR_CLASSES = ("infra", "dependencia", "validacion", "logica")
+
+
+def _slice_effective_status(slice_payload: dict[str, object], slice_results: dict[str, object]) -> str:
+    name = str(slice_payload.get("name", "")).strip()
+    plan_status = str(slice_payload.get("status", "")).strip()
+    result = slice_results.get(name, {})
+    result_status = str(result.get("status", "")).strip() if isinstance(result, dict) else ""
+    if plan_status == "closed":
+        return "closed"
+    if plan_status == "verification-passed" or result_status == "passed":
+        return "verification-passed"
+    if plan_status == "verification-failed" or result_status == "failed":
+        return "verification-failed"
+    if result_status == "started":
+        return "started"
+    return plan_status or "slice-ready"
 
 
 def _ensure_engine_state(state: dict[str, object], *, utc_now: Callable[[], str]) -> dict[str, object]:

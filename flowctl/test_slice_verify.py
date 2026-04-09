@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flowctl.features import resolve_slice_inspection_path
+import json
+
+from flowctl.features import resolve_slice_inspection_path, update_plan_slice_status
 
 
 def test_resolve_slice_inspection_path_uses_worktree_root_for_direct_checkout(tmp_path: Path) -> None:
@@ -55,3 +57,25 @@ def test_resolve_slice_inspection_path_falls_back_to_repo_without_worktree(tmp_p
     )
 
     assert resolved == repo_path
+
+
+def test_update_plan_slice_status_persists_verification_result(tmp_path: Path) -> None:
+    plan_root = tmp_path / ".flow" / "plans"
+    plan_root.mkdir(parents=True)
+    plan_path = plan_root / "demo.json"
+    plan_path.write_text(
+        json.dumps({"feature": "demo", "slices": [{"name": "demo-slice", "status": "slice-ready"}]}),
+        encoding="utf-8",
+    )
+
+    update_plan_slice_status(
+        plan_root=plan_root,
+        slug="demo",
+        slice_name="demo-slice",
+        status="verification-passed",
+        extra={"last_verification_result": "passed"},
+    )
+
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    assert payload["slices"][0]["status"] == "verification-passed"
+    assert payload["slices"][0]["last_verification_result"] == "passed"

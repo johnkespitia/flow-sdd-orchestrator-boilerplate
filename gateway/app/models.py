@@ -131,6 +131,8 @@ class SpecReassignRequest(BaseModel):
     actor: str
     to_actor: str
     lock_token: str
+    role: str = Field(default="assignee")
+    force: bool = Field(default=False)
     source: str = Field(default="api")
     reason: str = Field(default="")
     ttl_seconds: int = Field(default=120)

@@ -38,6 +38,16 @@ def build_parser(
     gateway_list.add_argument("--json", action="store_true", help="Print the result as JSON.")
     gateway_list.set_defaults(func=commands["gateway_list"])
 
+    gateway_status = gateway_subparsers.add_parser("status", help="Inspect the local and remote claim state for a spec.")
+    gateway_status.add_argument("spec", help="Remote spec id / slug.")
+    gateway_status.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    gateway_status.set_defaults(func=commands["gateway_status"])
+
+    gateway_current = gateway_subparsers.add_parser("current", help="Alias of `gateway status` for the current claimed spec.")
+    gateway_current.add_argument("spec", help="Remote spec id / slug.")
+    gateway_current.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    gateway_current.set_defaults(func=commands["gateway_status"])
+
     gateway_claim = gateway_subparsers.add_parser("claim", help="Claim a remote spec for the current actor and fetch it locally.")
     gateway_claim.add_argument("spec", help="Remote spec id / slug.")
     gateway_claim.add_argument("--actor", help="Actor claiming the spec. Defaults to FLOW_ACTOR or USER.")
@@ -74,10 +84,20 @@ def build_parser(
     gateway_reassign = gateway_subparsers.add_parser("reassign", help="Reassign a remotely claimed spec to another actor.")
     gateway_reassign.add_argument("spec", help="Remote spec id / slug.")
     gateway_reassign.add_argument("to_actor", help="Target actor for the reassignment.")
+    gateway_reassign.add_argument("--role", default="assignee", help="Operational role for reassignment: assignee, coordinator or admin.")
+    gateway_reassign.add_argument("--force", action="store_true", help="Force reassignment. Only valid for admin role.")
     gateway_reassign.add_argument("--reason", help="Optional audit reason.")
     gateway_reassign.add_argument("--ttl-seconds", type=int, default=120, help="Lock TTL in seconds for the new assignee.")
     gateway_reassign.add_argument("--json", action="store_true", help="Print the result as JSON.")
     gateway_reassign.set_defaults(func=commands["gateway_reassign"])
+
+    gateway_pick = gateway_subparsers.add_parser("pick", help="Pick the first eligible remote spec using a stable assisted-selection policy.")
+    gateway_pick.add_argument("--actor", help="Actor claiming the picked spec. Defaults to FLOW_ACTOR or USER.")
+    gateway_pick.add_argument("--state", dest="states", action="append", help="Eligible remote state filter. Repeatable; default is `new` and `triaged`.")
+    gateway_pick.add_argument("--reason", help="Optional audit reason.")
+    gateway_pick.add_argument("--ttl-seconds", type=int, default=120, help="Lock TTL in seconds.")
+    gateway_pick.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    gateway_pick.set_defaults(func=commands["gateway_pick"])
 
     stack = subparsers.add_parser("stack", help="Operate the devcontainer stack from the control plane.")
     stack_subparsers = stack.add_subparsers(dest="stack_command", required=True)
@@ -191,6 +211,11 @@ def build_parser(
     add_workflow_orchestrator_args(workflow_next)
     workflow_next.add_argument("--json", action="store_true", help="Print the summary as JSON.")
     workflow_next.set_defaults(func=commands["workflow_next_step"])
+
+    workflow_close = workflow_subparsers.add_parser("close-feature", help="Consolidate verified slices and emit a final closeout report.")
+    workflow_close.add_argument("spec", help="Spec slug or path.")
+    workflow_close.add_argument("--json", action="store_true", help="Print the closeout payload as JSON.")
+    workflow_close.set_defaults(func=commands["workflow_close_feature"])
 
     workflow_execute = workflow_subparsers.add_parser("execute-feature", help="Prepare an approved feature for executor subagents.")
     workflow_execute.add_argument("spec", help="Spec slug or path.")

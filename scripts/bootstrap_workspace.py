@@ -246,7 +246,11 @@ def git_init(destination: Path) -> None:
     if hooks_dir.is_dir():
         subprocess.run(["git", "config", "core.hooksPath", "scripts/git-hooks"], cwd=destination, check=True)
     subprocess.run(["git", "add", "."], cwd=destination, check=True)
-    subprocess.run(["git", "commit", "-m", "chore: initialize workspace from boilerplate"], cwd=destination, check=True)
+    subprocess.run(
+        ["git", "commit", "--no-verify", "-m", "chore: initialize workspace from boilerplate"],
+        cwd=destination,
+        check=True,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -265,7 +269,11 @@ def parse_args() -> argparse.Namespace:
         help="Deprecated. El boilerplate ahora nace sin proyectos de implementacion; usa `flow add-project` despues.",
     )
     parser.add_argument("--force", action="store_true", help="Permitir escribir sobre un directorio existente.")
-    parser.add_argument("--git-init", action="store_true", help="Inicializar Git y crear un primer commit.")
+    parser.add_argument(
+        "--git-init",
+        action="store_true",
+        help="Inicializar Git y crear un primer commit. En profile=slave se aplica automaticamente aunque no se pase.",
+    )
     parser.add_argument(
         "--profile",
         choices=BOOTSTRAP_PROFILES,
@@ -416,7 +424,8 @@ def main() -> int:
         _persist_slave_gateway_connection(destination, gateway_url, args.gateway_token)
         _print_slave_next_steps(destination, gateway_url)
 
-    if args.git_init:
+    should_git_init = bool(args.git_init or profile == "slave")
+    if should_git_init:
         git_init(destination)
 
     print(destination)

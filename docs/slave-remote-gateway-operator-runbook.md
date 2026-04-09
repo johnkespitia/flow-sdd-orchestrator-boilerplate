@@ -49,6 +49,13 @@ python3 ./flow gateway list --state triaged --json
 python3 ./flow gateway list --assignee dev-a --json
 ```
 
+Para inspeccionar el claim local/remoto resumido:
+
+```bash
+python3 ./flow gateway status <spec-id> --json
+python3 ./flow gateway current <spec-id> --json
+```
+
 ### 2. Reclamar una spec de forma exclusiva
 
 El developer selecciona una spec y la reclama explícitamente. Mientras el lock siga vigente,
@@ -67,6 +74,15 @@ Efectos del claim:
 
 Si otro actor intenta reclamarla con lock vigente, el gateway responde `SPEC_ALREADY_CLAIMED`.
 
+Si quieres selección asistida en vez de elegir manualmente desde `list`, puedes usar:
+
+```bash
+python3 ./flow gateway pick --actor <tu-actor> --json
+```
+
+`pick` solo considera specs elegibles y termina en un `claim` explícito y auditable. No ejecuta
+plan ni slices automáticamente.
+
 ### 3. Planear localmente
 
 ```bash
@@ -75,6 +91,9 @@ python3 ./flow plan <spec-id>
 
 En modo `slave`, `flow plan` exige claim remoto vigente. Si el claim expiró, fue liberado o fue
 reasignado a otro actor, el comando falla hasta que el developer vuelva a reclamar la spec.
+
+Mientras `plan`, `slice start` o `slice verify` corren con claim vigente, `flow` renueva heartbeat
+automáticamente y publica transitions controladas desde los hitos SDLC permitidos por la spec.
 
 ### 4. Mantener el lock mientras trabajas
 
@@ -100,6 +119,12 @@ python3 ./flow gateway transition <spec-id> triaged --json
 
 La transición válida depende del contrato remoto del gateway. `flow` no salta la máquina de
 estados del registry. Si intentas una transición inválida, el gateway la rechaza.
+
+El hook automático actual usa transiciones explícitas y limitadas:
+
+- `plan` exitoso -> `triaged`
+- `slice start` exitoso -> `in_edit`
+- `slice verify` exitoso -> `in_review`
 
 ### 6. Reasignar explícitamente
 

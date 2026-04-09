@@ -65,6 +65,52 @@ class GatewayOpsTests(unittest.TestCase):
             self.assertTrue((root / "specs" / "features" / "demo.spec.md").is_file())
             self.assertEqual("specs/features/demo.spec.md", state["spec_path"])
 
+    def test_command_gateway_status_reports_local_remote_match(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace_config = {"gateway": {"connection": {"mode": "remote", "base_url": "https://gateway.example"}}}
+            state = {
+                "gateway_claim": {
+                    "mode": "remote",
+                    "base_url": "https://gateway.example",
+                    "spec_id": "demo",
+                    "actor": "dev-a",
+                    "lock_token": "lock-1",
+                }
+            }
+
+            def _http_json(**kwargs):  # type: ignore[no-untyped-def]
+                self.assertEqual("GET", kwargs["method"])
+                self.assertEqual("https://gateway.example/v1/specs/demo", kwargs["url"])
+                return {
+                    "spec_id": "demo",
+                    "state": "triaged",
+                    "assignee": "dev-a",
+                    "lock_token": "lock-1",
+                    "lock_expires_at": "2026-04-09T12:00:00+00:00",
+                }
+
+            original = gateway_ops._http_json
+            gateway_ops._http_json = _http_json  # type: ignore[assignment]
+            try:
+                stream = io.StringIO()
+                with contextlib.redirect_stdout(stream):
+                    rc = gateway_ops.command_gateway_status(
+                        argparse.Namespace(spec="demo", json=True),
+                        root=root,
+                        workspace_config=workspace_config,
+                        read_state=lambda _slug: dict(state),
+                        json_dumps=self._json_dumps,
+                    )
+            finally:
+                gateway_ops._http_json = original  # type: ignore[assignment]
+
+            self.assertEqual(0, rc)
+            payload = json.loads(stream.getvalue())
+            self.assertTrue(payload["has_local_claim"])
+            self.assertTrue(payload["claim_matches_remote"])
+            self.assertEqual("triaged", payload["remote_state"])
+
     def test_ensure_remote_claim_for_plan_rejects_missing_claim(self) -> None:
         with TemporaryDirectory() as tmp:
             workspace_config = {"gateway": {"connection": {"mode": "remote", "base_url": "https://gateway.example"}}}
@@ -193,6 +239,8 @@ class GatewayOpsTests(unittest.TestCase):
                 self.assertEqual("POST", kwargs["method"])
                 self.assertEqual("https://gateway.example/v1/specs/demo/reassign", kwargs["url"])
                 self.assertEqual("dev-b", kwargs["payload"]["to_actor"])
+                self.assertEqual("coordinator", kwargs["payload"]["role"])
+                self.assertTrue(kwargs["payload"]["force"])
                 return {"state": "claimed", "assignee": "dev-b", "lock_token": "lock-2"}
 
             original = gateway_ops._http_json
@@ -201,7 +249,7 @@ class GatewayOpsTests(unittest.TestCase):
                 stream = io.StringIO()
                 with contextlib.redirect_stdout(stream):
                     rc = gateway_ops.command_gateway_reassign(
-                        argparse.Namespace(spec="demo", to_actor="dev-b", ttl_seconds=120, reason="", json=True),
+                        argparse.Namespace(spec="demo", to_actor="dev-b", role="coordinator", force=True, ttl_seconds=120, reason="", json=True),
                         root=root,
                         workspace_config=workspace_config,
                         read_state=read_state,
@@ -218,6 +266,256 @@ class GatewayOpsTests(unittest.TestCase):
             payload = json.loads(stream.getvalue())
             self.assertEqual("dev-a", payload["from_actor"])
             self.assertEqual("dev-b", payload["to_actor"])
+            self.assertEqual("coordinator", payload["role"])
+            self.assertTrue(payload["force"])
+
+    def test_run_with_remote_claim_heartbeat_keeps_command_protected(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace_config = {"gateway": {"connection": {"mode": "remote", "base_url": "https://gateway.example"}}}
+            state = {
+                "gateway_claim": {
+                    "mode": "remote",
+                    "base_url": "https://gateway.example",
+                    "spec_id": "demo",
+                    "actor": "dev-a",
+                    "lock_token": "lock-1",
+                }
+            }
+            calls: list[str] = []
+
+            def _http_json(**kwargs):  # type: ignore[no-untyped-def]
+                calls.append(str(kwargs["url"]))
+                return {"state": "triaged", "lock_expires_at": "2026-04-09T12:00:00+00:00"}
+
+            original = gateway_ops._http_json
+            gateway_ops._http_json = _http_json  # type: ignore[assignment]
+            try:
+                rc = gateway_ops.run_with_remote_claim_heartbeat(
+                    root=root,
+                    slug="demo",
+                    read_state=lambda _slug: dict(state),
+                    workspace_config=workspace_config,
+                    callback=lambda: 0,
+                    ttl_seconds=120,
+                    interval_seconds=30,
+                    reason="auto-heartbeat-test",
+                )
+            finally:
+                gateway_ops._http_json = original  # type: ignore[assignment]
+
+            self.assertEqual(0, rc)
+            self.assertEqual(["https://gateway.example/v1/specs/demo/heartbeat"], calls)
+
+    def test_command_gateway_pick_claims_first_eligible_spec(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace_config = {"gateway": {"connection": {"mode": "remote", "base_url": "https://gateway.example"}}}
+            state: dict[str, object] = {}
+
+            def read_state(_slug: str) -> dict[str, object]:
+                return dict(state)
+
+            def write_state(_slug: str, payload: dict[str, object]) -> None:
+                state.clear()
+                state.update(payload)
+
+            def _http_json(**kwargs):  # type: ignore[no-untyped-def]
+                url = str(kwargs["url"])
+                if url == "https://gateway.example/v1/specs":
+                    return {
+                        "items": [
+                            {
+                                "spec_id": "taken",
+                                "state": "triaged",
+                                "assignee": "other-dev",
+                                "updated_at": "2026-04-10T00:00:00+00:00",
+                                "created_at": "2026-04-09T00:00:00+00:00",
+                            },
+                            {
+                                "spec_id": "demo",
+                                "state": "triaged",
+                                "assignee": None,
+                                "updated_at": "2026-04-09T12:00:00+00:00",
+                                "created_at": "2026-04-09T00:00:00+00:00",
+                            },
+                        ]
+                    }
+                if url == "https://gateway.example/v1/specs/demo/claim":
+                    return {
+                        "state": "triaged",
+                        "assignee": "dev-a",
+                        "lock_token": "lock-1",
+                        "lock_expires_at": "2026-04-09T12:00:00+00:00",
+                    }
+                if url == "https://gateway.example/v1/specs/demo/source":
+                    return {
+                        "spec_id": "demo",
+                        "path": "/workspace/specs/features/demo.spec.md",
+                        "content": "---\nstatus: approved\n---\n\n# Demo\n",
+                        "updated_at": "2026-04-09T00:00:00+00:00",
+                        "content_sha256": "abc123",
+                    }
+                raise AssertionError(url)
+
+            original = gateway_ops._http_json
+            gateway_ops._http_json = _http_json  # type: ignore[assignment]
+            try:
+                stream = io.StringIO()
+                with contextlib.redirect_stdout(stream):
+                    rc = gateway_ops.command_gateway_pick(
+                        argparse.Namespace(actor="dev-a", states=None, reason="", ttl_seconds=120, json=True),
+                        root=root,
+                        workspace_config=workspace_config,
+                        read_state=read_state,
+                        write_state=write_state,
+                        json_dumps=self._json_dumps,
+                    )
+            finally:
+                gateway_ops._http_json = original  # type: ignore[assignment]
+
+            self.assertEqual(0, rc)
+            payload = json.loads(stream.getvalue())
+            self.assertTrue(payload["picked"])
+            self.assertEqual("demo", payload["spec_id"])
+            self.assertEqual("dev-a", state["gateway_claim"]["actor"])
+
+    def test_maybe_publish_transition_hook_skips_redundant_remote_state(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace_config = {"gateway": {"connection": {"mode": "remote", "base_url": "https://gateway.example"}}}
+            state = {
+                "gateway_claim": {
+                    "mode": "remote",
+                    "base_url": "https://gateway.example",
+                    "spec_id": "demo",
+                    "actor": "dev-a",
+                    "lock_token": "lock-1",
+                }
+            }
+            calls: list[str] = []
+
+            def _http_json(**kwargs):  # type: ignore[no-untyped-def]
+                calls.append(f"{kwargs['method']} {kwargs['url']}")
+                if kwargs["url"] == "https://gateway.example/v1/specs/demo":
+                    return {
+                        "spec_id": "demo",
+                        "state": "triaged",
+                        "assignee": "dev-a",
+                        "lock_token": "lock-1",
+                        "lock_expires_at": "2026-04-09T12:00:00+00:00",
+                    }
+                raise AssertionError(kwargs["url"])
+
+            original = gateway_ops._http_json
+            gateway_ops._http_json = _http_json  # type: ignore[assignment]
+            try:
+                gateway_ops.maybe_publish_transition_hook(
+                    root=root,
+                    slug="demo",
+                    read_state=lambda _slug: dict(state),
+                    workspace_config=workspace_config,
+                    to_state="triaged",
+                    reason="hook-plan-succeeded",
+                )
+            finally:
+                gateway_ops._http_json = original  # type: ignore[assignment]
+
+            self.assertEqual(["GET https://gateway.example/v1/specs/demo"], calls)
+
+    def test_maybe_publish_transition_hook_publishes_when_state_changes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace_config = {"gateway": {"connection": {"mode": "remote", "base_url": "https://gateway.example"}}}
+            state = {
+                "gateway_claim": {
+                    "mode": "remote",
+                    "base_url": "https://gateway.example",
+                    "spec_id": "demo",
+                    "actor": "dev-a",
+                    "lock_token": "lock-1",
+                }
+            }
+            calls: list[str] = []
+
+            def _http_json(**kwargs):  # type: ignore[no-untyped-def]
+                calls.append(f"{kwargs['method']} {kwargs['url']}")
+                if kwargs["url"] == "https://gateway.example/v1/specs/demo":
+                    return {
+                        "spec_id": "demo",
+                        "state": "new",
+                        "assignee": "dev-a",
+                        "lock_token": "lock-1",
+                        "lock_expires_at": "2026-04-09T12:00:00+00:00",
+                    }
+                if kwargs["url"] == "https://gateway.example/v1/specs/demo/transition":
+                    return {"spec_id": "demo", "state": "triaged"}
+                raise AssertionError(kwargs["url"])
+
+            original = gateway_ops._http_json
+            gateway_ops._http_json = _http_json  # type: ignore[assignment]
+            try:
+                gateway_ops.maybe_publish_transition_hook(
+                    root=root,
+                    slug="demo",
+                    read_state=lambda _slug: dict(state),
+                    workspace_config=workspace_config,
+                    to_state="triaged",
+                    reason="hook-plan-succeeded",
+                )
+            finally:
+                gateway_ops._http_json = original  # type: ignore[assignment]
+
+            self.assertEqual(
+                [
+                    "GET https://gateway.example/v1/specs/demo",
+                    "POST https://gateway.example/v1/specs/demo/transition",
+                ],
+                calls,
+            )
+
+    def test_maybe_publish_transition_hook_skips_non_sequential_transition(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace_config = {"gateway": {"connection": {"mode": "remote", "base_url": "https://gateway.example"}}}
+            state = {
+                "gateway_claim": {
+                    "mode": "remote",
+                    "base_url": "https://gateway.example",
+                    "spec_id": "demo",
+                    "actor": "dev-a",
+                    "lock_token": "lock-1",
+                }
+            }
+            calls: list[str] = []
+
+            def _http_json(**kwargs):  # type: ignore[no-untyped-def]
+                calls.append(f"{kwargs['method']} {kwargs['url']}")
+                if kwargs["url"] == "https://gateway.example/v1/specs/demo":
+                    return {
+                        "spec_id": "demo",
+                        "state": "in_edit",
+                        "assignee": "dev-a",
+                        "lock_token": "lock-1",
+                        "lock_expires_at": "2026-04-09T12:00:00+00:00",
+                    }
+                raise AssertionError(kwargs["url"])
+
+            original = gateway_ops._http_json
+            gateway_ops._http_json = _http_json  # type: ignore[assignment]
+            try:
+                gateway_ops.maybe_publish_transition_hook(
+                    root=root,
+                    slug="demo",
+                    read_state=lambda _slug: dict(state),
+                    workspace_config=workspace_config,
+                    to_state="triaged",
+                    reason="hook-plan-succeeded",
+                )
+            finally:
+                gateway_ops._http_json = original  # type: ignore[assignment]
+
+            self.assertEqual(["GET https://gateway.example/v1/specs/demo"], calls)
 
 
 if __name__ == "__main__":

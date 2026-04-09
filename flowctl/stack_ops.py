@@ -35,6 +35,7 @@ def command_stack_up(
     *,
     ensure_devcontainer_env: Callable[[], int],
     run_compose: Callable[[list[str], bool | None], int],
+    services: list[str] | None = None,
 ) -> int:
     env_rc = ensure_devcontainer_env()
     if env_rc != 0:
@@ -42,6 +43,8 @@ def command_stack_up(
     command = ["up", "-d"]
     if args.build:
         command.append("--build")
+    if services:
+        command.extend(services)
     return run_compose(command, None)
 
 

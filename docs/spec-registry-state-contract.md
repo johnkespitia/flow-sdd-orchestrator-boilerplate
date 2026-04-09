@@ -18,7 +18,8 @@ Reglas:
 - `POST /v1/specs/{id}/claim` crea o toma lock exclusivo.
 - `POST /v1/specs/{id}/heartbeat` renueva TTL del lock.
 - `POST /v1/specs/{id}/release` libera lock explicitamente.
-- `POST /v1/specs/{id}/reassign` transfiere ownership de manera explicita y rota `lock_token`.
+- `POST /v1/specs/{id}/reassign` transfiere ownership de manera explicita, rota `lock_token`, exige `reason` no vacio y valida `role`.
+- `force=true` en reasignacion solo esta permitido para `role=admin`.
 - Si expira TTL sin heartbeat, el lock se libera automaticamente con evento de auditoria `lock_expired`.
 - Claims concurrentes sobre la misma spec: un solo ganador; el resto recibe `SPEC_ALREADY_CLAIMED`.
 
@@ -39,6 +40,10 @@ Codigos estables:
 - `LOCK_MISMATCH`
 - `INVALID_TTL`
 - `INVALID_TRANSITION`
+- `INVALID_REASSIGN_ROLE`
+- `REASSIGN_REASON_REQUIRED`
+- `REASSIGN_FORCE_FORBIDDEN`
+- `REASSIGN_FORBIDDEN`
 
 Formato de error HTTP:
 

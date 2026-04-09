@@ -80,6 +80,36 @@ def load_plan_and_slice(
     return plan, selected, plan_path
 
 
+def update_plan_slice_status(
+    *,
+    plan_root: Path,
+    slug: str,
+    slice_name: str,
+    status: str,
+    extra: dict[str, object] | None = None,
+) -> None:
+    plan_path = plan_root / f"{slug}.json"
+    if not plan_path.exists():
+        return
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    slices = plan.get("slices", [])
+    if not isinstance(slices, list):
+        return
+    changed = False
+    for item in slices:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("name", "")).strip() != slice_name:
+            continue
+        item["status"] = status
+        if extra:
+            item.update(extra)
+        changed = True
+        break
+    if changed:
+        plan_path.write_text(json.dumps(plan, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
 def matches_any_pattern(path: str, patterns: list[str]) -> bool:
     normalized = path.replace("\\", "/")
     return any(fnmatch.fnmatch(normalized, pattern) for pattern in patterns)
@@ -845,6 +875,7 @@ def command_slice_verify(
     detect_test_command: Callable[[str, Path, list[str]], Optional[list[str]]],
     format_findings: Callable[[list[str]], list[str]],
     report_root: Path,
+    plan_root: Path,
     read_state: Callable[[str], dict[str, object]],
     write_state: Callable[[str, dict[str, object]], None],
     running_inside_workspace: Callable[[], bool],
@@ -1046,6 +1077,16 @@ def command_slice_verify(
         "verified_at": utc_now(),
     }
     write_state(slug, state)
+    update_plan_slice_status(
+        plan_root=plan_root,
+        slug=slug,
+        slice_name=args.slice,
+        status="verification-passed" if not has_failures else "verification-failed",
+        extra={
+            "last_verification_report": rel(report_path),
+            "last_verification_result": "passed" if not has_failures else "failed",
+        },
+    )
     print(rel(report_path))
     return 1 if has_failures else 0
 

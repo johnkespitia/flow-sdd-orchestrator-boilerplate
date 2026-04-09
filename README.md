@@ -146,7 +146,9 @@ Una vez bootstrappeado el workspace `slave`, el flujo operativo esperado es:
 cd /ruta/slave
 python3 ./flow init
 python3 ./flow gateway list --json
+python3 ./flow gateway pick --actor <tu-actor> --json
 python3 ./flow gateway claim <spec-id> --actor <tu-actor> --json
+python3 ./flow gateway status <spec-id> --json
 python3 ./flow plan <spec-id>
 python3 ./flow gateway heartbeat <spec-id> --json
 python3 ./flow gateway transition <spec-id> triaged --json
@@ -156,8 +158,12 @@ python3 ./flow gateway release <spec-id> --json
 Puntos importantes:
 
 - la seleccion del intake/spec es explicita y ocurre en `flow gateway claim`
+- `flow gateway pick` ya puede hacer seleccion asistida con orden estable sobre specs elegibles
 - el claim es exclusivo; otro developer no puede tomar la misma spec mientras el lock siga vigente
 - `flow plan` en `slave` exige claim remoto vigente
+- `flow gateway status <spec-id>` y `flow gateway current <spec-id>` muestran el claim local y remoto de forma resumida
+- `flow` mantiene heartbeat automaticamente durante `plan`, `slice start` y `slice verify` cuando hay claim vigente
+- los hooks de transition automaticos usan hitos declarados: `plan -> triaged`, `slice start -> in_edit`, `slice verify -> in_review`
 - la reasignacion requiere accion explicita con `python3 ./flow gateway reassign <spec-id> <nuevo-actor> --json`
 
 El runbook completo del operador esta en [docs/slave-remote-gateway-operator-runbook.md](/Users/john/Projects/Personal/softos-sdd-orchestrator/docs/slave-remote-gateway-operator-runbook.md).

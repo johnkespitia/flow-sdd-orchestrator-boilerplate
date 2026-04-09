@@ -84,6 +84,8 @@ class RemoteSpecBridgeApiTests(unittest.TestCase):
                         "actor": "alice",
                         "to_actor": "bob",
                         "lock_token": original_token,
+                        "role": "coordinator",
+                        "force": False,
                         "source": "slave",
                         "reason": "handoff to bob",
                         "ttl_seconds": 120,
@@ -124,7 +126,72 @@ class RemoteSpecBridgeApiTests(unittest.TestCase):
                 self.assertEqual(200, fetched.status_code)
                 audit = fetched.json()["audit"]
                 self.assertTrue(any(item["event"] == "reassign" for item in audit))
-                self.assertTrue(any(item["reason"] == "handoff to bob" for item in audit))
+                self.assertTrue(any("handoff to bob" in item["reason"] for item in audit))
+
+    def test_reassign_requires_authorized_role_and_reason(self) -> None:
+        (self.workspace / "specs" / "features").mkdir(parents=True, exist_ok=True)
+
+        with (
+            patch.object(gateway_config, "load_settings", self.load),
+            patch("gateway.app.main.load_settings", self.load),
+            patch("gateway.app.main.TaskWorker.start", return_value=None),
+            patch("gateway.app.main.TaskWorker.stop", return_value=None),
+        ):
+            with TestClient(app) as client:
+                claimed = client.post(
+                    "/v1/specs/demo/claim",
+                    json={"actor": "alice", "source": "slave", "reason": "take", "ttl_seconds": 120},
+                )
+                self.assertEqual(200, claimed.status_code)
+                original_token = claimed.json()["lock_token"]
+
+                forbidden = client.post(
+                    "/v1/specs/demo/reassign",
+                    json={
+                        "actor": "alice",
+                        "to_actor": "bob",
+                        "lock_token": original_token,
+                        "role": "assignee",
+                        "force": False,
+                        "source": "slave",
+                        "reason": "handoff",
+                        "ttl_seconds": 120,
+                    },
+                )
+                self.assertEqual(403, forbidden.status_code)
+                self.assertEqual("REASSIGN_FORBIDDEN", forbidden.json()["detail"]["code"])
+
+                force_forbidden = client.post(
+                    "/v1/specs/demo/reassign",
+                    json={
+                        "actor": "alice",
+                        "to_actor": "bob",
+                        "lock_token": original_token,
+                        "role": "coordinator",
+                        "force": True,
+                        "source": "slave",
+                        "reason": "urgent handoff",
+                        "ttl_seconds": 120,
+                    },
+                )
+                self.assertEqual(403, force_forbidden.status_code)
+                self.assertEqual("REASSIGN_FORCE_FORBIDDEN", force_forbidden.json()["detail"]["code"])
+
+                missing_reason = client.post(
+                    "/v1/specs/demo/reassign",
+                    json={
+                        "actor": "alice",
+                        "to_actor": "bob",
+                        "lock_token": original_token,
+                        "role": "admin",
+                        "force": True,
+                        "source": "slave",
+                        "reason": "",
+                        "ttl_seconds": 120,
+                    },
+                )
+                self.assertEqual(400, missing_reason.status_code)
+                self.assertEqual("REASSIGN_REASON_REQUIRED", missing_reason.json()["detail"]["code"])
 
 
 if __name__ == "__main__":

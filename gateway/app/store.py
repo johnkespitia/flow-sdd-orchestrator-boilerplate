@@ -850,6 +850,8 @@ class TaskStore:
         actor: str,
         to_actor: str,
         lock_token: str,
+        role: str,
+        force: bool,
         source: str,
         reason: str,
         ttl_seconds: int,
@@ -857,6 +859,15 @@ class TaskStore:
         normalized_target = str(to_actor).strip()
         if not normalized_target:
             raise SpecRegistryError("INVALID_REASSIGN", "Reassignment requires a non-empty target actor.", 400)
+        normalized_role = str(role).strip().lower() or "assignee"
+        if normalized_role not in {"assignee", "coordinator", "admin"}:
+            raise SpecRegistryError("INVALID_REASSIGN_ROLE", f"Unsupported reassignment role: `{normalized_role}`.", 400)
+        if not str(reason).strip():
+            raise SpecRegistryError("REASSIGN_REASON_REQUIRED", "Reassignment requires a non-empty reason.", 400)
+        if force and normalized_role != "admin":
+            raise SpecRegistryError("REASSIGN_FORCE_FORBIDDEN", "Only admin can use force reassignment.", 403)
+        if normalized_role not in {"coordinator", "admin"}:
+            raise SpecRegistryError("REASSIGN_FORBIDDEN", "Only coordinator or admin can reassign ownership.", 403)
         ttl = self._normalized_ttl(ttl_seconds)
         with self._lock:
             with self._connect() as connection:
@@ -875,7 +886,7 @@ class TaskStore:
                     """,
                     (normalized_target, new_token, expires_at, now, spec_id),
                 )
-                audit_reason = reason.strip() if str(reason).strip() else f"reassign to {normalized_target}"
+                audit_reason = f"{reason.strip()} [role={normalized_role} force={'yes' if force else 'no'}]"
                 self._append_audit_locked(
                     connection,
                     spec_id=spec_id,

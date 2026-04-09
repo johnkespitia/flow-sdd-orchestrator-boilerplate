@@ -546,6 +546,8 @@ async def reassign_spec(spec_id: str, payload: SpecReassignRequest, request: Req
             actor=payload.actor,
             to_actor=payload.to_actor,
             lock_token=payload.lock_token,
+            role=payload.role,
+            force=bool(payload.force),
             source=payload.source,
             reason=payload.reason,
             ttl_seconds=payload.ttl_seconds,

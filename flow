@@ -849,6 +849,17 @@ def gateway_host_port() -> str:
     return str(value).strip() or "8010"
 
 
+def gateway_connection() -> dict[str, str]:
+    gateway = WORKSPACE_CONFIG.get("gateway")
+    gateway_cfg = gateway if isinstance(gateway, dict) else {}
+    connection = gateway_cfg.get("connection")
+    connection_cfg = connection if isinstance(connection, dict) else {}
+    return {
+        "mode": str(connection_cfg.get("mode", "") or "").strip().lower(),
+        "base_url": str(connection_cfg.get("base_url", "") or "").strip().rstrip("/"),
+    }
+
+
 def devcontainer_env_targets() -> list[tuple[str, Path]]:
     payload = load_secrets_config()
     targets = secrets_target_entries(payload)
@@ -1229,10 +1240,13 @@ def command_stack_ps(_: argparse.Namespace) -> int:
 
 
 def command_stack_up(args: argparse.Namespace) -> int:
+    connection = gateway_connection()
+    services = [WORKSPACE_SERVICE] if connection.get("mode") == "remote" else None
     return flow_stack_ops.command_stack_up(
         args,
         ensure_devcontainer_env=ensure_devcontainer_env,
         run_compose=run_compose,
+        services=services,
     )
 
 
@@ -1290,7 +1304,11 @@ def command_init(args: argparse.Namespace) -> int:
     if workflow_doctor_rc != 0:
         return workflow_doctor_rc
 
-    print(f"Gateway host health: http://127.0.0.1:{gateway_host_port()}/healthz")
+    connection = gateway_connection()
+    if connection.get("mode") == "remote" and connection.get("base_url"):
+        print(f"Gateway remote target: {connection['base_url']}/healthz")
+    else:
+        print(f"Gateway host health: http://127.0.0.1:{gateway_host_port()}/healthz")
     return 0
 
 
@@ -1493,6 +1511,23 @@ def command_workflow_next_step(args: argparse.Namespace) -> int:
         plan_root=PLAN_ROOT,
         workflow_report_root=WORKFLOW_REPORT_ROOT,
         root=ROOT,
+        rel=rel,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
+    )
+
+
+def command_workflow_close_feature(args: argparse.Namespace) -> int:
+    return flow_workflows.command_workflow_close_feature(
+        args,
+        require_dirs=require_dirs,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        analyze_spec=analyze_spec,
+        read_state=read_state,
+        write_state=write_state,
+        plan_root=PLAN_ROOT,
+        workflow_report_root=WORKFLOW_REPORT_ROOT,
         rel=rel,
         utc_now=utc_now,
         json_dumps=json_dumps,
@@ -2269,28 +2304,51 @@ def command_spec_approve(args: argparse.Namespace) -> int:
 
 
 def command_plan(args: argparse.Namespace) -> int:
-    return flow_features.command_plan(
-        args,
-        require_dirs=require_dirs,
-        resolve_spec=resolve_spec,
-        spec_slug=spec_slug,
-        analyze_spec=analyze_spec,
-        require_routed_paths=require_routed_paths,
-        repo_slice_prefix=repo_slice_prefix,
-        repo_root=repo_root,
-        worktree_root=WORKTREE_ROOT,
-        plan_root=PLAN_ROOT,
+    spec_path = resolve_spec(args.spec)
+    slug = spec_slug(spec_path)
+
+    def _callback() -> int:
+        return flow_features.command_plan(
+            args,
+            require_dirs=require_dirs,
+            resolve_spec=resolve_spec,
+            spec_slug=spec_slug,
+            analyze_spec=analyze_spec,
+            require_routed_paths=require_routed_paths,
+            repo_slice_prefix=repo_slice_prefix,
+            repo_root=repo_root,
+            worktree_root=WORKTREE_ROOT,
+            plan_root=PLAN_ROOT,
+            read_state=read_state,
+            write_state=write_state,
+            ensure_remote_claim_for_plan=lambda claim_slug: flow_gateway_ops.ensure_remote_claim_for_plan(
+                root=ROOT,
+                slug=claim_slug,
+                read_state=read_state,
+                workspace_config=WORKSPACE_CONFIG,
+            ),
+            rel=rel,
+            utc_now=utc_now,
+        )
+
+    rc = flow_gateway_ops.run_with_remote_claim_heartbeat(
+        root=ROOT,
+        slug=slug,
         read_state=read_state,
-        write_state=write_state,
-        ensure_remote_claim_for_plan=lambda slug: flow_gateway_ops.ensure_remote_claim_for_plan(
+        workspace_config=WORKSPACE_CONFIG,
+        callback=_callback,
+        reason="auto-heartbeat-plan",
+    )
+    if rc == 0:
+        flow_gateway_ops.maybe_publish_transition_hook(
             root=ROOT,
             slug=slug,
             read_state=read_state,
             workspace_config=WORKSPACE_CONFIG,
-        ),
-        rel=rel,
-        utc_now=utc_now,
-    )
+            to_state="triaged",
+            reason="hook-plan-succeeded",
+        )
+    return rc
 
 
 def command_gateway_list(args: argparse.Namespace) -> int:
@@ -2298,6 +2356,27 @@ def command_gateway_list(args: argparse.Namespace) -> int:
         args,
         root=ROOT,
         workspace_config=WORKSPACE_CONFIG,
+        json_dumps=json_dumps,
+    )
+
+
+def command_gateway_status(args: argparse.Namespace) -> int:
+    return flow_gateway_ops.command_gateway_status(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        read_state=read_state,
+        json_dumps=json_dumps,
+    )
+
+
+def command_gateway_pick(args: argparse.Namespace) -> int:
+    return flow_gateway_ops.command_gateway_pick(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        read_state=read_state,
+        write_state=write_state,
         json_dumps=json_dumps,
     )
 
@@ -2369,53 +2448,110 @@ def command_gateway_reassign(args: argparse.Namespace) -> int:
 
 
 def command_slice_start(args: argparse.Namespace) -> int:
-    return flow_features.command_slice_start(
-        args,
-        slugify=slugify,
-        load_plan_and_slice=lambda slug, slice_name: flow_features.load_plan_and_slice(
-            slug,
-            slice_name,
-            plan_root=PLAN_ROOT,
-            rel=rel,
-        ),
-        worktree_root=WORKTREE_ROOT,
-        report_root=REPORT_ROOT,
+    slug = slugify(args.spec)
+    flow_gateway_ops.ensure_remote_claim_for_execution(
+        root=ROOT,
+        slug=slug,
         read_state=read_state,
-        write_state=write_state,
-        rel=rel,
+        workspace_config=WORKSPACE_CONFIG,
     )
+
+    def _callback() -> int:
+        return flow_features.command_slice_start(
+            args,
+            slugify=slugify,
+            load_plan_and_slice=lambda selected_slug, slice_name: flow_features.load_plan_and_slice(
+                selected_slug,
+                slice_name,
+                plan_root=PLAN_ROOT,
+                rel=rel,
+            ),
+            worktree_root=WORKTREE_ROOT,
+            report_root=REPORT_ROOT,
+            read_state=read_state,
+            write_state=write_state,
+            rel=rel,
+        )
+
+    rc = flow_gateway_ops.run_with_remote_claim_heartbeat(
+        root=ROOT,
+        slug=slug,
+        read_state=read_state,
+        workspace_config=WORKSPACE_CONFIG,
+        callback=_callback,
+        reason="auto-heartbeat-slice-start",
+    )
+    if rc == 0:
+        flow_gateway_ops.maybe_publish_transition_hook(
+            root=ROOT,
+            slug=slug,
+            read_state=read_state,
+            workspace_config=WORKSPACE_CONFIG,
+            to_state="in_edit",
+            reason="hook-slice-start-succeeded",
+        )
+    return rc
 
 
 def command_slice_verify(args: argparse.Namespace) -> int:
-    return flow_features.command_slice_verify(
-        args,
-        slugify=slugify,
-        load_plan_and_slice=lambda slug, slice_name: flow_features.load_plan_and_slice(
-            slug,
-            slice_name,
-            plan_root=PLAN_ROOT,
-            rel=rel,
-        ),
+    slug = slugify(args.spec)
+    flow_gateway_ops.ensure_remote_claim_for_execution(
         root=ROOT,
-        analyze_spec=analyze_spec,
-        root_repo=ROOT_REPO,
-        classify_routed_path=classify_routed_path,
-        validate_test_reference_patterns=validate_test_reference_patterns,
-        git_changed_files=git_changed_files,
-        detect_test_command=detect_test_command,
-        format_findings=format_findings,
-        report_root=REPORT_ROOT,
+        slug=slug,
         read_state=read_state,
-        write_state=write_state,
-        running_inside_workspace=running_inside_workspace,
-        repo_compose_service=repo_compose_service,
-        run_workspace_tool=run_workspace_tool,
-        workspace_flow_workdir=root_container_workdir,
-        runtime_path=runtime_path,
-        host_root_hint=lambda: str(workspace_host_root().resolve()),
-        rel=rel,
-        utc_now=utc_now,
+        workspace_config=WORKSPACE_CONFIG,
     )
+
+    def _callback() -> int:
+        return flow_features.command_slice_verify(
+            args,
+            slugify=slugify,
+            load_plan_and_slice=lambda selected_slug, slice_name: flow_features.load_plan_and_slice(
+                selected_slug,
+                slice_name,
+                plan_root=PLAN_ROOT,
+                rel=rel,
+            ),
+            root=ROOT,
+            analyze_spec=analyze_spec,
+            root_repo=ROOT_REPO,
+            classify_routed_path=classify_routed_path,
+            validate_test_reference_patterns=validate_test_reference_patterns,
+            git_changed_files=git_changed_files,
+            detect_test_command=detect_test_command,
+            format_findings=format_findings,
+            report_root=REPORT_ROOT,
+            plan_root=PLAN_ROOT,
+            read_state=read_state,
+            write_state=write_state,
+            running_inside_workspace=running_inside_workspace,
+            repo_compose_service=repo_compose_service,
+            run_workspace_tool=run_workspace_tool,
+            workspace_flow_workdir=root_container_workdir,
+            runtime_path=runtime_path,
+            host_root_hint=lambda: str(workspace_host_root().resolve()),
+            rel=rel,
+            utc_now=utc_now,
+        )
+
+    rc = flow_gateway_ops.run_with_remote_claim_heartbeat(
+        root=ROOT,
+        slug=slug,
+        read_state=read_state,
+        workspace_config=WORKSPACE_CONFIG,
+        callback=_callback,
+        reason="auto-heartbeat-slice-verify",
+    )
+    if rc == 0:
+        flow_gateway_ops.maybe_publish_transition_hook(
+            root=ROOT,
+            slug=slug,
+            read_state=read_state,
+            workspace_config=WORKSPACE_CONFIG,
+            to_state="in_review",
+            reason="hook-slice-verify-succeeded",
+        )
+    return rc
 
 
 def command_status(args: argparse.Namespace) -> int:
@@ -2648,6 +2784,8 @@ def build_parser() -> argparse.ArgumentParser:
         "doctor": command_doctor,
         "init": command_init,
         "gateway_list": command_gateway_list,
+        "gateway_status": command_gateway_status,
+        "gateway_pick": command_gateway_pick,
         "gateway_claim": command_gateway_claim,
         "gateway_fetch_spec": command_gateway_fetch_spec,
         "gateway_heartbeat": command_gateway_heartbeat,
@@ -2671,6 +2809,7 @@ def build_parser() -> argparse.ArgumentParser:
         "workflow_doctor": command_workflow_doctor,
         "workflow_intake": command_workflow_intake,
         "workflow_next_step": command_workflow_next_step,
+        "workflow_close_feature": command_workflow_close_feature,
         "workflow_execute_feature": command_workflow_execute_feature,
         "workflow_run": command_workflow_run,
         "workflow_pause": command_workflow_pause,
