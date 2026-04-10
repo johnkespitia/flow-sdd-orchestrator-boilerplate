@@ -104,6 +104,20 @@ def build_parser(
     gateway_poll.add_argument("--state", dest="states", action="append", help="Eligible remote state filter. Repeatable; default is `new` and `triaged`.")
     gateway_poll.add_argument("--reason", help="Optional audit reason.")
     gateway_poll.add_argument("--ttl-seconds", type=int, default=120, help="Lock TTL in seconds.")
+    gateway_poll_auto_plan = gateway_poll.add_mutually_exclusive_group()
+    gateway_poll_auto_plan.add_argument(
+        "--auto-plan",
+        dest="auto_plan",
+        action="store_true",
+        default=None,
+        help="Enable the opt-in `claim -> plan` gate for this invocation.",
+    )
+    gateway_poll_auto_plan.add_argument(
+        "--no-auto-plan",
+        dest="auto_plan",
+        action="store_false",
+        help="Disable the `claim -> plan` gate for this invocation even if the workspace enables it.",
+    )
     gateway_poll.add_argument("--json", action="store_true", help="Print the result as JSON.")
     gateway_poll.set_defaults(func=commands["gateway_poll"])
 
@@ -117,6 +131,20 @@ def build_parser(
     gateway_watch.add_argument("--backoff-multiplier", type=float, default=1.5, help="Backoff multiplier applied after each empty attempt.")
     gateway_watch.add_argument("--timeout-seconds", type=float, default=600, help="Maximum wall-clock time for the watch loop.")
     gateway_watch.add_argument("--max-attempts", type=int, default=40, help="Maximum polling attempts before stopping.")
+    gateway_watch_auto_plan = gateway_watch.add_mutually_exclusive_group()
+    gateway_watch_auto_plan.add_argument(
+        "--auto-plan",
+        dest="auto_plan",
+        action="store_true",
+        default=None,
+        help="Enable the opt-in `claim -> plan` gate for this invocation.",
+    )
+    gateway_watch_auto_plan.add_argument(
+        "--no-auto-plan",
+        dest="auto_plan",
+        action="store_false",
+        help="Disable the `claim -> plan` gate for this invocation even if the workspace enables it.",
+    )
     gateway_watch.add_argument("--json", action="store_true", help="Print the result as JSON.")
     gateway_watch.set_defaults(func=commands["gateway_watch"])
 

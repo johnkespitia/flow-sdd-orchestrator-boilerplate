@@ -2382,6 +2382,9 @@ def command_gateway_pick(args: argparse.Namespace) -> int:
 
 
 def command_gateway_poll(args: argparse.Namespace) -> int:
+    def _auto_plan_callback(spec_id: str) -> int:
+        return command_plan(argparse.Namespace(spec=spec_id))
+
     return flow_gateway_ops.command_gateway_poll(
         args,
         root=ROOT,
@@ -2389,10 +2392,14 @@ def command_gateway_poll(args: argparse.Namespace) -> int:
         read_state=read_state,
         write_state=write_state,
         json_dumps=json_dumps,
+        auto_plan_callback=_auto_plan_callback,
     )
 
 
 def command_gateway_watch(args: argparse.Namespace) -> int:
+    def _auto_plan_callback(spec_id: str) -> int:
+        return command_plan(argparse.Namespace(spec=spec_id))
+
     return flow_gateway_ops.command_gateway_watch(
         args,
         root=ROOT,
@@ -2400,6 +2407,7 @@ def command_gateway_watch(args: argparse.Namespace) -> int:
         read_state=read_state,
         write_state=write_state,
         json_dumps=json_dumps,
+        auto_plan_callback=_auto_plan_callback,
     )
 
 

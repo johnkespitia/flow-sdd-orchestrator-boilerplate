@@ -87,15 +87,21 @@ Si quieres una ola más autónoma pero todavía acotada, puedes usar:
 
 ```bash
 python3 ./flow gateway poll --actor <tu-actor> --json
+python3 ./flow gateway poll --actor <tu-actor> --auto-plan --json
 python3 ./flow gateway watch --actor <tu-actor> --interval-seconds 15 --timeout-seconds 600 --json
+python3 ./flow gateway watch --actor <tu-actor> --auto-plan --interval-seconds 15 --timeout-seconds 600 --json
 ```
 
 Reglas:
 
 - `poll` intenta una sola vez reclamar la primera spec elegible
 - `watch` repite `poll` con backoff hasta reclamar una spec o alcanzar sus límites
-- ninguno de los dos ejecuta `plan`, slices, `release` ni transitions automáticamente
+- sin gate explícito, ninguno de los dos ejecuta `plan`, slices, `release` ni transitions automáticamente
 - ambos fallan si el workspace ya tiene un `gateway_claim` local vigente
+- `--auto-plan` y `gateway.execution.auto_plan` ya quedan soportados como gate opt-in para la ola
+  `claim -> plan`
+- si el gate está activo y el claim/fetch sale bien, el comando ejecuta exactamente un `flow plan`
+- el comando se detiene después de `plan`, incluso si el plan fue exitoso
 
 ### 3. Planear localmente
 
@@ -210,6 +216,58 @@ Para validar el modo autónomo acotado:
 ```bash
 python3 ./flow gateway poll --actor <tu-actor> --json
 python3 ./flow gateway watch --actor <tu-actor> --interval-seconds 5 --timeout-seconds 30 --json
+```
+
+Para validar específicamente la ola `claim -> plan`:
+
+```bash
+python3 ./flow gateway poll --actor <tu-actor> --auto-plan --json
+python3 ./flow gateway watch --actor <tu-actor> --auto-plan --interval-seconds 5 --timeout-seconds 30 --max-attempts 6 --json
+```
+
+Smoke esperado para `poll --auto-plan` cuando encuentra trabajo:
+
+- `picked=true`
+- `plan_attempted=true`
+- `plan_status=passed`
+- `reason=claimed-and-planned`
+- `remote_claim_still_valid=true`
+- el comando deja `.flow/plans/<spec-id>.json`
+- el flujo se detiene sin arrancar `slice start`, `slice verify` ni `release`
+
+Smoke esperado para `watch --auto-plan` cuando encuentra trabajo antes del timeout:
+
+- el loop se detiene al primer claim exitoso
+- ejecuta exactamente un `flow plan <spec-id>`
+- devuelve la misma metadata final de `poll --auto-plan`
+- no vuelve a iterar después de `plan`, incluso si el plan fue exitoso
+
+Smoke esperado cuando no hay trabajo o no alcanza sus límites:
+
+- `picked=false`
+- `plan_attempted=false`
+- `plan_status=not-requested`
+- `reason=timeout` o `reason=max-attempts-reached`
+
+Smoke esperado cuando el `plan` falla después del claim:
+
+- `picked=true`
+- `plan_attempted=true`
+- `plan_status=failed`
+- `reason=plan-failed-after-claim` o `reason=claim-not-valid-for-plan`
+- no hay retry automático hacia otra spec
+- no hay `release` automático
+
+Si quieres dejar el gate preparado por workspace:
+
+```json
+{
+  "gateway": {
+    "execution": {
+      "auto_plan": false
+    }
+  }
+}
 ```
 
 ## Referencias

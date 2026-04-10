@@ -192,6 +192,119 @@ def _allowed_states_from_args(args: object) -> tuple[str, ...]:
     )
 
 
+def _gateway_execution_config(workspace_config: dict[str, object]) -> dict[str, object]:
+    gateway = workspace_config.get("gateway")
+    gateway_cfg = gateway if isinstance(gateway, dict) else {}
+    execution = gateway_cfg.get("execution")
+    return execution if isinstance(execution, dict) else {}
+
+
+def _resolve_auto_plan_mode(args: object, *, workspace_config: dict[str, object]) -> tuple[bool, str]:
+    cli_value = getattr(args, "auto_plan", None)
+    if cli_value is not None:
+        return bool(cli_value), "cli"
+    execution_cfg = _gateway_execution_config(workspace_config)
+    if "auto_plan" in execution_cfg:
+        return bool(execution_cfg.get("auto_plan")), "workspace"
+    return False, "default"
+
+
+def _claim_validity_snapshot(
+    *,
+    root: Path,
+    slug: str,
+    read_state: Callable[[str], dict[str, object]],
+    workspace_config: dict[str, object],
+) -> dict[str, Any]:
+    try:
+        inspected = _inspect_remote_claim(
+            root=root,
+            slug=slug,
+            read_state=read_state,
+            workspace_config=workspace_config,
+        )
+    except SystemExit as exc:
+        return {
+            "remote_claim_still_valid": None,
+            "remote_claim_check_error": str(exc),
+        }
+    return {
+        "remote_claim_still_valid": bool(inspected.get("claim_matches_remote")),
+        "remote_claim_check_error": None,
+    }
+
+
+def _run_auto_plan_callback(
+    *,
+    response: dict[str, Any],
+    root: Path,
+    workspace_config: dict[str, object],
+    read_state: Callable[[str], dict[str, object]],
+    auto_plan_callback: Callable[[str], int] | None,
+) -> int:
+    response.setdefault("plan_attempted", False)
+    response.setdefault("plan_status", "not-requested")
+    if not bool(response.get("picked")):
+        return 0
+    if not bool(response.get("auto_plan_enabled")):
+        return 0
+
+    spec_id = str(response.get("spec_id") or "").strip()
+    if not spec_id:
+        response["plan_status"] = "not-run"
+        response["auto_plan_error"] = "missing-spec-id"
+        return 1
+    if auto_plan_callback is None:
+        response["plan_status"] = "not-run"
+        response["auto_plan_error"] = "auto-plan-callback-missing"
+        return 1
+
+    response["plan_attempted"] = True
+    try:
+        rc = int(auto_plan_callback(spec_id))
+    except SystemExit as exc:
+        message = str(exc)
+        response["plan_status"] = "failed"
+        response["reason"] = (
+            "claim-not-valid-for-plan" if "claim remoto vigente" in message else "plan-failed-after-claim"
+        )
+        response["auto_plan_error"] = message
+        response.update(
+            _claim_validity_snapshot(
+                root=root,
+                slug=spec_id,
+                read_state=read_state,
+                workspace_config=workspace_config,
+            )
+        )
+        return 1
+
+    if rc == 0:
+        response["plan_status"] = "passed"
+        response["reason"] = "claimed-and-planned"
+        response.update(
+            _claim_validity_snapshot(
+                root=root,
+                slug=spec_id,
+                read_state=read_state,
+                workspace_config=workspace_config,
+            )
+        )
+        return 0
+
+    response["plan_status"] = "failed"
+    response["reason"] = "plan-failed-after-claim"
+    response.update(
+        _claim_validity_snapshot(
+            root=root,
+            slug=spec_id,
+            read_state=read_state,
+            workspace_config=workspace_config,
+        )
+    )
+    return rc
+
+
 def _eligible_remote_specs(items: list[dict[str, Any]], *, allowed_states: tuple[str, ...]) -> list[dict[str, Any]]:
     eligible: list[dict[str, Any]] = []
     for item in items:
@@ -350,6 +463,7 @@ def _poll_remote_spec_payload(
     write_state: Callable[[str, dict[str, object]], None],
     attempt: int = 1,
 ) -> dict[str, Any]:
+    auto_plan_enabled, auto_plan_source = _resolve_auto_plan_mode(args, workspace_config=workspace_config)
     conflict = _find_any_local_gateway_claim(root)
     if conflict is not None:
         raise SystemExit(
@@ -371,6 +485,8 @@ def _poll_remote_spec_payload(
             "attempts_total": attempt,
             "actor": actor,
             "states": list(allowed_states),
+            "auto_plan_enabled": auto_plan_enabled,
+            "auto_plan_source": auto_plan_source,
         }
     last_race = False
     for chosen in eligible:
@@ -405,6 +521,8 @@ def _poll_remote_spec_payload(
             "lock_expires_at": claimed.get("lock_expires_at"),
             "path": claimed.get("path"),
             "updated_at": claimed.get("updated_at"),
+            "auto_plan_enabled": auto_plan_enabled,
+            "auto_plan_source": auto_plan_source,
         }
     return {
         "picked": False,
@@ -413,6 +531,8 @@ def _poll_remote_spec_payload(
         "attempts_total": attempt,
         "actor": actor,
         "states": list(allowed_states),
+        "auto_plan_enabled": auto_plan_enabled,
+        "auto_plan_source": auto_plan_source,
     }
 
 
@@ -747,6 +867,7 @@ def command_gateway_poll(
     read_state: Callable[[str], dict[str, object]],
     write_state: Callable[[str, dict[str, object]], None],
     json_dumps: Callable[[object], str],
+    auto_plan_callback: Callable[[str], int] | None = None,
 ) -> int:
     response = _poll_remote_spec_payload(
         args,
@@ -755,11 +876,18 @@ def command_gateway_poll(
         read_state=read_state,
         write_state=write_state,
     )
+    rc = _run_auto_plan_callback(
+        response=response,
+        root=root,
+        workspace_config=workspace_config,
+        read_state=read_state,
+        auto_plan_callback=auto_plan_callback,
+    )
     if bool(getattr(args, "json", False)):
         print(json_dumps(response))
     else:
         print(json.dumps(response, ensure_ascii=True))
-    return 0
+    return rc
 
 
 def command_gateway_watch(
@@ -770,6 +898,7 @@ def command_gateway_watch(
     read_state: Callable[[str], dict[str, object]],
     write_state: Callable[[str, dict[str, object]], None],
     json_dumps: Callable[[object], str],
+    auto_plan_callback: Callable[[str], int] | None = None,
     sleep_fn: Callable[[float], None] = time.sleep,
     monotonic_fn: Callable[[], float] = time.monotonic,
 ) -> int:
@@ -783,12 +912,17 @@ def command_gateway_watch(
     wait_seconds = interval_seconds
 
     while True:
+        auto_plan_enabled, auto_plan_source = _resolve_auto_plan_mode(args, workspace_config=workspace_config)
         if timeout_seconds and (monotonic_fn() - started_at) >= timeout_seconds:
             response = {
                 "picked": False,
                 "reason": "timeout",
                 "attempt": attempt,
                 "attempts_total": attempt,
+                "auto_plan_enabled": auto_plan_enabled,
+                "auto_plan_source": auto_plan_source,
+                "plan_attempted": False,
+                "plan_status": "not-requested",
             }
             if bool(getattr(args, "json", False)):
                 print(json_dumps(response))
@@ -801,6 +935,10 @@ def command_gateway_watch(
                 "reason": "max-attempts-reached",
                 "attempt": attempt,
                 "attempts_total": attempt,
+                "auto_plan_enabled": auto_plan_enabled,
+                "auto_plan_source": auto_plan_source,
+                "plan_attempted": False,
+                "plan_status": "not-requested",
             }
             if bool(getattr(args, "json", False)):
                 print(json_dumps(response))
@@ -818,11 +956,18 @@ def command_gateway_watch(
         )
         if response.get("picked"):
             response["attempts_total"] = attempt
+            rc = _run_auto_plan_callback(
+                response=response,
+                root=root,
+                workspace_config=workspace_config,
+                read_state=read_state,
+                auto_plan_callback=auto_plan_callback,
+            )
             if bool(getattr(args, "json", False)):
                 print(json_dumps(response))
             else:
                 print(json.dumps(response, ensure_ascii=True))
-            return 0
+            return rc
         sleep_fn(wait_seconds)
         wait_seconds = min(max_interval_seconds, wait_seconds * backoff_multiplier)
 

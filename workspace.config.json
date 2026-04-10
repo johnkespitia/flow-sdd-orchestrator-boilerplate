@@ -53,6 +53,9 @@
     }
   },
   "gateway": {
+    "execution": {
+      "auto_plan": false
+    },
     "transforms": {
       "github": [
         {
