@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.5.0 - 2026-04-10
+
+### Added
+
+- automate claim-to-plan execution
+
+### Changed
+
+- Add autonomous slave intake polling
+- Harden remote slave gateway workflow
+- Add remote gateway slave intake bridge
+
 ## v0.4.10 - 2026-04-09
 
 ### Changed
