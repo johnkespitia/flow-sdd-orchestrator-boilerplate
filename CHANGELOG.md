@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.5.1 - 2026-04-10
+
+### Docs
+
+- improve v0.5.0 release notes
+
 ## v0.5.0 - 2026-04-10
 
 ### Added
