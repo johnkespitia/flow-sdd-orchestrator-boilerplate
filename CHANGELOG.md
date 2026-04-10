@@ -6,13 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- automate claim-to-plan execution
+- Automate claim-to-plan execution in the gateway so accepted claims transition into SDLC planning without manual operator steps.
+- Add autonomous slave intake polling to continuously discover new remote work and reduce idle time between claim cycles.
 
 ### Changed
 
-- Add autonomous slave intake polling
-- Harden remote slave gateway workflow
-- Add remote gateway slave intake bridge
+- Harden the remote slave gateway workflow with safer claim lifecycle transitions and clearer operator-facing behavior.
+- Introduce a remote gateway slave intake bridge to improve handoff reliability between gateway-side intake and slave-side execution.
+- Improve end-to-end intake orchestration so remote claim processing is more predictable under autonomous operation.
 
 ## v0.4.10 - 2026-04-09
 
