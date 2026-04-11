@@ -66,6 +66,9 @@ La base local vive en `.flow/memory/engram` y no se versiona. Engram es consulti
 recordar gotchas/outcomes entre sesiones, pero nunca reemplaza `specs/**`, reports, CI ni release
 evidence.
 
+El smoke de memoria en GitHub Actions es manual (`Agent Memory Smoke`) y corre dentro del devcontainer;
+no es gate de `push` ni de `pull_request`.
+
 ## Qué trae
 
 - `flow`: CLI del workspace para `stack`, `tessl`, `skills`, `bmad`, `memory`, `workflow`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `submodule`, `secrets`, `drift`, `status`

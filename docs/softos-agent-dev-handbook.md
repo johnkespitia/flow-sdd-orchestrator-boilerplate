@@ -237,6 +237,7 @@ Resultado esperado:
 - `smoke` valida `engram version`, `engram stats`, `engram context <project>` y `engram search <project>`
 - `smoke --save` persiste una memoria reusable de prueba en la DB local del workspace
 - ningún comando de `flow` depende de esa memoria para pasar
+- `.github/workflows/memory-smoke.yml` ofrece `Agent Memory Smoke` manual en devcontainer; no corre en `push` ni `pull_request`
 
 MCP opcional:
 

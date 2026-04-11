@@ -1,0 +1,63 @@
+name: Memory Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      save_memory:
+        description: "Also write a smoke memory after doctor/smoke pass"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  memory-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT || github.token }}
+          submodules: false
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: python3 -m pip install --upgrade pip PyYAML
+
+      - name: Build workspace devcontainer
+        run: docker compose -f .devcontainer/docker-compose.yml build workspace
+
+      - name: Start workspace devcontainer
+        run: docker compose -f .devcontainer/docker-compose.yml up -d workspace
+
+      - name: Engram doctor
+        run: scripts/workspace_exec.sh python3 ./flow memory doctor --json
+
+      - name: Engram smoke
+        if: inputs.save_memory != 'true'
+        run: scripts/workspace_exec.sh python3 ./flow memory smoke --json
+
+      - name: Engram smoke with save
+        if: inputs.save_memory == 'true'
+        run: scripts/workspace_exec.sh python3 ./flow memory smoke --save --json
+
+      - name: Upload memory reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flow-memory-reports
+          path: .flow/memory/
+
+      - name: Stop workspace devcontainer
+        if: always()
+        run: docker compose -f .devcontainer/docker-compose.yml down -v
