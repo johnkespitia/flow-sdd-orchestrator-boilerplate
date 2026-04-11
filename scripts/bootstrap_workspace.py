@@ -55,7 +55,7 @@ def copy_template(source_config: dict[str, object], destination: Path, *, profil
                 # En modo slave no levantamos control-plane central.
                 ignored.add("gateway")
         if current.name == ".flow":
-            ignored.update({"state", "plans", "reports", "runs"})
+            ignored.update({"state", "plans", "reports", "runs", "memory"})
         if current.name == "data" and current.parent.name == "gateway":
             ignored.update({name for name in names if name.endswith(".db") or name.endswith(".log")})
         return ignored.intersection(names)
@@ -69,6 +69,7 @@ def reset_flow_state(destination: Path) -> None:
         destination / ".flow" / "plans" / ".gitkeep": "",
         destination / ".flow" / "reports" / ".gitkeep": "",
         destination / ".flow" / "runs" / ".gitignore": "*\n!.gitignore\n",
+        destination / ".flow" / "memory" / ".gitkeep": "",
     }
     for path, content in placeholders.items():
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -115,6 +116,12 @@ def build_repo_config(path: str, kind: str, source_repo: dict[str, object]) -> d
             target_roots.append("workspace.stack.json")
         if "workspace.skills.json" not in target_roots:
             target_roots.append("workspace.skills.json")
+        if ".devcontainer" not in target_roots:
+            target_roots.append(".devcontainer")
+        if ".flow/memory" not in target_roots:
+            target_roots.append(".flow/memory")
+        if ".mcp.example.json" not in target_roots:
+            target_roots.append(".mcp.example.json")
         if "flowctl" not in target_roots:
             target_roots.append("flowctl")
         if "capabilities" not in target_roots:
@@ -147,6 +154,14 @@ def rewrite_workspace_config(
         "repos": {
             root_repo: build_repo_config(".", "root", root_source),
         },
+        "memory": {
+            "agent": {
+                "provider": "engram",
+                "project": root_repo,
+                "data_dir": ".flow/memory/engram",
+                "source_boundary": "consultive",
+            }
+        },
     }
 
     (destination / "workspace.config.json").write_text(
@@ -176,6 +191,23 @@ def patch_gateway_pythonpath(destination: Path) -> None:
     if marker not in text:
         return
     compose_path.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
+
+
+def patch_engram_project(destination: Path, root_repo: str) -> None:
+    compose_path = destination / ".devcontainer" / "docker-compose.yml"
+    if compose_path.exists():
+        text = compose_path.read_text(encoding="utf-8")
+        text = text.replace(
+            "ENGRAM_PROJECT: ${ENGRAM_PROJECT:-softos-sdd-orchestrator}",
+            f"ENGRAM_PROJECT: ${{ENGRAM_PROJECT:-{root_repo}}}",
+        )
+        compose_path.write_text(text, encoding="utf-8")
+
+    mcp_example = destination / ".mcp.example.json"
+    if mcp_example.exists():
+        text = mcp_example.read_text(encoding="utf-8")
+        text = text.replace("softos-sdd-orchestrator", root_repo)
+        mcp_example.write_text(text, encoding="utf-8")
 
 
 def rewrite_text_file(path: Path, replacements: dict[str, str]) -> None:
@@ -225,6 +257,7 @@ def rewrite_project_texts(
         "workspace.skills.json",
         "workspace.stack.json",
         "Makefile",
+        ".mcp.example.json",
     ]:
         target = destination / relative_root
         if not target.exists():
@@ -408,6 +441,7 @@ def main() -> int:
     )
     patch_devcontainer(destination, args.project_name)
     patch_gateway_pythonpath(destination)
+    patch_engram_project(destination, args.root_repo)
     rewrite_project_texts(
         destination,
         source_config,

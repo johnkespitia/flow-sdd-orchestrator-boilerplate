@@ -23,6 +23,7 @@
         ".agents",
         ".cursor",
         ".devcontainer",
+        ".mcp.example.json",
         ".flow/memory",
         "gateway",
         "flow",

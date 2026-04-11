@@ -79,6 +79,7 @@ evidence.
 - `.flow/**`: estado operativo local del SDLC
 - `.agents/skills/softos-agent-memory-playbook/`: reglas para usar memoria de agentes sin reemplazar specs ni evidencia
 - `.devcontainer/**`: chasis reproducible con `workspace`, Engram y runtime packs listos para crecer
+- `.mcp.example.json`: plantilla opt-in para conectar Engram como MCP usando la misma memoria aislada del devcontainer
 - `scripts/bootstrap_workspace.py`: scaffolder para generar un proyecto nuevo sin heredar Git
 
 ## Qué parte es boilerplate y qué parte es ejemplo
@@ -123,6 +124,10 @@ Eso genera un workspace nuevo:
 
 - con su propio `.git`
 - con `workspace.config.json` ya ajustado
+- con `memory.agent.project` ajustado al `--root-repo`
+- con `ENGRAM_PROJECT` del devcontainer ajustado al `--root-repo`
+- sin copiar la DB local de `.flow/memory/engram`
+- con `.mcp.example.json` listo para opt-in si el agente soporta MCP
 - con un chasis root-only limpio
 - sin arrastrar estado operativo previo
 

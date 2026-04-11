@@ -186,6 +186,8 @@ Instalacion y aislamiento:
 - La memoria queda en `/workspace/.flow/memory/engram` dentro del contenedor.
 - `.flow/memory/**` queda fuera de git para evitar contaminar el repo con memoria local.
 - `ENGRAM_PROJECT` identifica el workspace; por defecto este repo usa `softos-sdd-orchestrator`.
+- Los workspaces creados con `scripts/bootstrap_workspace.py` reciben `ENGRAM_PROJECT` y
+  `memory.agent.project` derivados de `--root-repo`; no heredan la DB local del boilerplate.
 
 Playbook:
 
@@ -225,6 +227,18 @@ Resultado esperado:
 - `smoke` valida `engram version`, `engram stats`, `engram context <project>` y `engram search <project>`
 - `smoke --save` persiste una memoria reusable de prueba en la DB local del workspace
 - ningún comando de `flow` depende de esa memoria para pasar
+
+MCP opcional:
+
+- `.mcp.example.json` muestra una configuracion opt-in para agentes compatibles con MCP.
+- No se activa automaticamente porque cada cliente maneja MCP de forma distinta.
+- La plantilla usa `engram mcp` y el mismo `ENGRAM_DATA_DIR=/workspace/.flow/memory/engram`.
+- Si se copia a la configuracion activa del cliente, verificar primero:
+
+```bash
+python3 ./flow memory doctor --json
+engram mcp --help
+```
 
 Checklist mínimo antes de declarar “done”:
 
