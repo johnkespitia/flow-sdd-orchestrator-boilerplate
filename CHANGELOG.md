@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.9.5 - 2026-04-11
+
+### Added
+
+- add optional memory smoke workflow
+
 ## v0.9.4 - 2026-04-11
 
 ### Added
