@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.7.0 - 2026-04-11
+
+### Added
+
+- install Engram in devcontainer
+
 ## v0.6.0 - 2026-04-11
 
 ### Added
