@@ -11,10 +11,12 @@ from unittest.mock import patch
 
 from flowctl.memory_ops import (
     command_memory_doctor,
+    command_memory_export,
     command_memory_save,
     command_memory_search,
     command_memory_smoke,
     command_memory_stats,
+    parse_search_stdout,
 )
 
 
@@ -23,6 +25,26 @@ def _json_dumps(payload: object) -> str:
 
 
 class MemoryOpsTests(unittest.TestCase):
+    def test_parse_search_stdout_returns_structured_items(self) -> None:
+        stdout = """Found 1 memories:
+
+[1] #42 (manual) — SoftOS memory smoke
+    TYPE: outcome
+    Project: softos-sdd-orchestrator
+    Area: memory-smoke
+    2026-04-11 13:54:31 | scope: project
+"""
+
+        items = parse_search_stdout(stdout)
+
+        self.assertEqual(1, len(items))
+        self.assertEqual("42", items[0]["id"])
+        self.assertEqual("manual", items[0]["kind"])
+        self.assertEqual("SoftOS memory smoke", items[0]["title"])
+        self.assertEqual("project", items[0]["scope"])
+        self.assertEqual("2026-04-11 13:54:31", items[0]["created_at"])
+        self.assertIn("TYPE: outcome", items[0]["body"])
+
     def test_doctor_is_non_blocking_when_engram_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -156,6 +178,52 @@ class MemoryOpsTests(unittest.TestCase):
 
         self.assertEqual(0, rc)
         self.assertEqual([["/usr/local/bin/engram", "search", "SoftOS"]], commands)
+
+    def test_search_json_includes_structured_items(self) -> None:
+        stdout = """Found 1 memories:
+
+[1] #7 (manual) — Wrapper
+    Body line
+    2026-04-11 14:25:54 | scope: project
+"""
+
+        def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rc = command_memory_search(
+                Namespace(json=True, query="Wrapper"),
+                root=Path(tmp),
+                workspace_config={},
+                json_dumps=_json_dumps,
+                which=lambda _name: "/usr/local/bin/engram",
+                run_command=fake_run,
+            )
+
+        self.assertEqual(0, rc)
+
+    def test_export_runs_native_engram_export(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            Path(command[-1]).write_text(json.dumps({"observations": [{"id": 1}]}) + "\n", encoding="utf-8")
+            return subprocess.CompletedProcess(command, 0, stdout="exported\n", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "memory-export.json"
+            rc = command_memory_export(
+                Namespace(json=True, output=str(output)),
+                root=Path(tmp),
+                workspace_config={},
+                json_dumps=_json_dumps,
+                which=lambda _name: "/usr/local/bin/engram",
+                run_command=fake_run,
+            )
+
+        self.assertEqual(0, rc)
+        self.assertEqual("/usr/local/bin/engram", commands[0][0])
+        self.assertEqual("export", commands[0][1])
 
     def test_save_runs_project_scoped_engram_save_with_body(self) -> None:
         commands: list[list[str]] = []

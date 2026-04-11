@@ -169,6 +169,11 @@ def build_parser(
     memory_search.add_argument("--json", action="store_true", help="Print the result as JSON.")
     memory_search.set_defaults(func=commands["memory_search"])
 
+    memory_export = memory_subparsers.add_parser("export", help="Export Engram search results as structured JSON.")
+    memory_export.add_argument("--output", help="Output JSON path. Defaults to .flow/memory/exports/<project>-<timestamp>.json.")
+    memory_export.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    memory_export.set_defaults(func=commands["memory_export"])
+
     memory_save = memory_subparsers.add_parser("save", help="Save an explicit consultive memory.")
     memory_save.add_argument("title", help="Short memory title.")
     memory_save_body = memory_save.add_mutually_exclusive_group(required=True)

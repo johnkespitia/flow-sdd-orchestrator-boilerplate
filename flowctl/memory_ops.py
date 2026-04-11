@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import os
+import json
+import re
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 
 RunCommand = Callable[..., subprocess.CompletedProcess[str]]
+SEARCH_HEADER_RE = re.compile(r"^\[(?P<rank>\d+)\]\s+#(?P<id>\d+)\s+\((?P<kind>[^)]*)\)\s+[—-]\s+(?P<title>.*)$")
+SEARCH_META_RE = re.compile(r"^\s*(?P<created_at>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+\|\s+scope:\s*(?P<scope>\S+)\s*$")
 
 
 def _memory_config(*, root: Path, workspace_config: dict[str, object]) -> dict[str, str]:
@@ -113,6 +118,52 @@ def _run_engram(
         "stdout": completed.stdout.strip(),
         "stderr": completed.stderr.strip(),
     }
+
+
+def parse_search_stdout(stdout: str) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
+    body_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal current, body_lines
+        if current is None:
+            return
+        current["body"] = "\n".join(line.rstrip() for line in body_lines).strip()
+        items.append(current)
+        current = None
+        body_lines = []
+
+    for raw_line in stdout.splitlines():
+        line = raw_line.rstrip()
+        header = SEARCH_HEADER_RE.match(line)
+        if header:
+            flush()
+            current = {
+                "rank": int(header.group("rank")),
+                "id": header.group("id"),
+                "kind": header.group("kind"),
+                "title": header.group("title").strip(),
+                "scope": "",
+                "created_at": "",
+                "body": "",
+                "raw_header": line,
+            }
+            continue
+        if current is None:
+            continue
+        meta = SEARCH_META_RE.match(line)
+        if meta:
+            current["created_at"] = meta.group("created_at")
+            current["scope"] = meta.group("scope")
+            continue
+        if line.startswith("    "):
+            body_lines.append(line[4:])
+        elif line:
+            body_lines.append(line)
+
+    flush()
+    return items
 
 
 def command_memory_doctor(
@@ -262,6 +313,7 @@ def command_memory_search(
 
     query = str(getattr(args, "query", "") or "").strip()
     step = _run_engram([binary, "search", query], config=config, run_command=run_command)
+    items = parse_search_stdout(str(step["stdout"]))
     payload = {
         "ok": step["returncode"] == 0,
         "available": True,
@@ -269,6 +321,9 @@ def command_memory_search(
         "data_dir": config["data_dir"],
         "db_path": config["db_path"],
         "query": query,
+        "items": items,
+        "count": len(items),
+        "raw_stdout": step["stdout"],
         "step": step,
     }
     if bool(getattr(args, "json", False)):
@@ -276,6 +331,61 @@ def command_memory_search(
     else:
         print(step["stdout"] or step["stderr"])
     return 0 if payload["ok"] else 1
+
+
+def command_memory_export(
+    args: object,
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    json_dumps: Callable[[object], str],
+    which: Callable[[str], str | None] = shutil.which,
+    run_command: RunCommand = subprocess.run,
+) -> int:
+    config = _memory_config(root=root, workspace_config=workspace_config)
+    binary = which("engram")
+    if not binary:
+        payload = _missing_binary_payload(config)
+        _print_or_json(payload, json_mode=bool(getattr(args, "json", False)), json_dumps=json_dumps)
+        return 1
+
+    exported_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    output = getattr(args, "output", None)
+    if output:
+        output_path = Path(str(output)).expanduser()
+        if not output_path.is_absolute():
+            output_path = root / output_path
+    else:
+        stamp = exported_at.replace(":", "").replace("+00:00", "Z")
+        output_path = root / ".flow" / "memory" / "exports" / f"{config['project']}-{stamp}.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    step = _run_engram([binary, "export", str(output_path)], config=config, run_command=run_command)
+
+    export_payload: dict[str, object] = {}
+    if output_path.is_file():
+        try:
+            parsed = json.loads(output_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                export_payload = parsed
+        except json.JSONDecodeError:
+            export_payload = {}
+    observations = export_payload.get("observations")
+    observation_count = len(observations) if isinstance(observations, list) else 0
+
+    result = {
+        "ok": step["returncode"] == 0,
+        "available": True,
+        "project": config["project"],
+        "exported_at": exported_at,
+        "observation_count": observation_count,
+        "output": str(output_path),
+        "step": step,
+    }
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(result))
+    else:
+        print(str(output_path))
+    return 0 if result["ok"] else 1
 
 
 def command_memory_save(

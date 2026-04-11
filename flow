@@ -2846,6 +2846,15 @@ def command_memory_search(args: argparse.Namespace) -> int:
     )
 
 
+def command_memory_export(args: argparse.Namespace) -> int:
+    return flow_memory_ops.command_memory_export(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        json_dumps=json_dumps,
+    )
+
+
 def command_memory_save(args: argparse.Namespace) -> int:
     return flow_memory_ops.command_memory_save(
         args,
@@ -2874,6 +2883,7 @@ def build_parser() -> argparse.ArgumentParser:
         "memory_smoke": command_memory_smoke,
         "memory_stats": command_memory_stats,
         "memory_search": command_memory_search,
+        "memory_export": command_memory_export,
         "memory_save": command_memory_save,
         "stack_doctor": command_stack_doctor,
         "stack_ps": command_stack_ps,
