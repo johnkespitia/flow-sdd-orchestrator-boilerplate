@@ -174,6 +174,16 @@ def build_parser(
     memory_export.add_argument("--json", action="store_true", help="Print the result as JSON.")
     memory_export.set_defaults(func=commands["memory_export"])
 
+    memory_backup = memory_subparsers.add_parser("backup", help="Create a timestamped native Engram export under .flow/memory/backups.")
+    memory_backup.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    memory_backup.set_defaults(func=commands["memory_backup"])
+
+    memory_import = memory_subparsers.add_parser("import", help="Validate or import a native Engram export JSON file.")
+    memory_import.add_argument("file", help="Engram export JSON file to import.")
+    memory_import.add_argument("--confirm", action="store_true", help="Execute `engram import`. Without this flag the command is a dry-run.")
+    memory_import.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    memory_import.set_defaults(func=commands["memory_import"])
+
     memory_save = memory_subparsers.add_parser("save", help="Save an explicit consultive memory.")
     memory_save.add_argument("title", help="Short memory title.")
     memory_save_body = memory_save.add_mutually_exclusive_group(required=True)

@@ -46,6 +46,9 @@ python3 ./flow memory doctor --json
 python3 ./flow memory stats --json
 python3 ./flow memory search SoftOS --json
 python3 ./flow memory export --json
+python3 ./flow memory backup --json
+python3 ./flow memory import .flow/memory/backups/<file>.json --json
+python3 ./flow memory import .flow/memory/backups/<file>.json --confirm --json
 python3 ./flow memory save "SoftOS outcome" --body "TYPE: outcome
 Project: softos-sdd-orchestrator
 Area: memory

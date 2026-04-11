@@ -12,6 +12,8 @@ from unittest.mock import patch
 from flowctl.memory_ops import (
     command_memory_doctor,
     command_memory_export,
+    command_memory_backup,
+    command_memory_import,
     command_memory_save,
     command_memory_search,
     command_memory_smoke,
@@ -224,6 +226,92 @@ class MemoryOpsTests(unittest.TestCase):
         self.assertEqual(0, rc)
         self.assertEqual("/usr/local/bin/engram", commands[0][0])
         self.assertEqual("export", commands[0][1])
+
+    def test_backup_writes_under_memory_backups(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            Path(command[-1]).write_text(json.dumps({"observations": []}) + "\n", encoding="utf-8")
+            return subprocess.CompletedProcess(command, 0, stdout="exported\n", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rc = command_memory_backup(
+                Namespace(json=True),
+                root=root,
+                workspace_config={},
+                json_dumps=_json_dumps,
+                which=lambda _name: "/usr/local/bin/engram",
+                run_command=fake_run,
+            )
+
+        self.assertEqual(0, rc)
+        self.assertIn(".flow/memory/backups", commands[0][-1])
+
+    def test_import_dry_run_validates_export_without_running_engram(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout="imported\n", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            export = root / "export.json"
+            export.write_text(json.dumps({"observations": [{"id": 1, "title": "Safe", "content": "Body"}]}), encoding="utf-8")
+            rc = command_memory_import(
+                Namespace(json=True, file=str(export), confirm=False),
+                root=root,
+                workspace_config={},
+                json_dumps=_json_dumps,
+                which=lambda _name: "/usr/local/bin/engram",
+                run_command=fake_run,
+            )
+
+        self.assertEqual(0, rc)
+        self.assertEqual([], commands)
+
+    def test_import_confirm_runs_native_engram_import(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout="imported\n", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            export = root / "export.json"
+            export.write_text(json.dumps({"observations": []}), encoding="utf-8")
+            rc = command_memory_import(
+                Namespace(json=True, file=str(export), confirm=True),
+                root=root,
+                workspace_config={},
+                json_dumps=_json_dumps,
+                which=lambda _name: "/usr/local/bin/engram",
+                run_command=fake_run,
+            )
+
+        self.assertEqual(0, rc)
+        self.assertEqual("import", commands[0][1])
+
+    def test_import_blocks_potential_secret_like_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            export = root / "export.json"
+            export.write_text(
+                json.dumps({"observations": [{"id": 1, "title": "Bad", "content": "token=abc"}]}),
+                encoding="utf-8",
+            )
+            rc = command_memory_import(
+                Namespace(json=True, file=str(export), confirm=True),
+                root=root,
+                workspace_config={},
+                json_dumps=_json_dumps,
+                which=lambda _name: "/usr/local/bin/engram",
+            )
+
+        self.assertEqual(1, rc)
 
     def test_save_runs_project_scoped_engram_save_with_body(self) -> None:
         commands: list[list[str]] = []

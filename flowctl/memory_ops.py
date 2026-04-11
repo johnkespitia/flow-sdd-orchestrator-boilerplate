@@ -13,6 +13,7 @@ from typing import Any, Callable
 RunCommand = Callable[..., subprocess.CompletedProcess[str]]
 SEARCH_HEADER_RE = re.compile(r"^\[(?P<rank>\d+)\]\s+#(?P<id>\d+)\s+\((?P<kind>[^)]*)\)\s+[—-]\s+(?P<title>.*)$")
 SEARCH_META_RE = re.compile(r"^\s*(?P<created_at>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+\|\s+scope:\s*(?P<scope>\S+)\s*$")
+SENSITIVE_RE = re.compile(r"(token|secret|password|api[_-]?key|private[_-]?key)\s*[:=]", re.IGNORECASE)
 
 
 def _memory_config(*, root: Path, workspace_config: dict[str, object]) -> dict[str, str]:
@@ -164,6 +165,44 @@ def parse_search_stdout(stdout: str) -> list[dict[str, object]]:
 
     flush()
     return items
+
+
+def _load_export_file(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Export JSON invalido `{path}`: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Export JSON `{path}` debe ser un objeto.")
+    observations = payload.get("observations")
+    if observations is None:
+        observations = []
+    if not isinstance(observations, list):
+        raise SystemExit(f"Export JSON `{path}` tiene `observations` invalido.")
+    return payload
+
+
+def _export_secret_findings(payload: dict[str, object]) -> list[dict[str, object]]:
+    findings: list[dict[str, object]] = []
+    observations = payload.get("observations")
+    if not isinstance(observations, list):
+        return findings
+    for index, observation in enumerate(observations, start=1):
+        if not isinstance(observation, dict):
+            continue
+        content = str(observation.get("content") or "")
+        title = str(observation.get("title") or "")
+        haystack = f"{title}\n{content}"
+        if SENSITIVE_RE.search(haystack):
+            findings.append(
+                {
+                    "index": index,
+                    "id": observation.get("id", ""),
+                    "title": title,
+                    "reason": "potential secret-like key in title/content",
+                }
+            )
+    return findings
 
 
 def command_memory_doctor(
@@ -385,6 +424,89 @@ def command_memory_export(
         print(json_dumps(result))
     else:
         print(str(output_path))
+    return 0 if result["ok"] else 1
+
+
+def command_memory_backup(
+    args: object,
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    json_dumps: Callable[[object], str],
+    which: Callable[[str], str | None] = shutil.which,
+    run_command: RunCommand = subprocess.run,
+) -> int:
+    config = _memory_config(root=root, workspace_config=workspace_config)
+    stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(":", "").replace("+00:00", "Z")
+    output = root / ".flow" / "memory" / "backups" / f"{config['project']}-{stamp}.json"
+    setattr(args, "output", str(output))
+    return command_memory_export(
+        args,
+        root=root,
+        workspace_config=workspace_config,
+        json_dumps=json_dumps,
+        which=which,
+        run_command=run_command,
+    )
+
+
+def command_memory_import(
+    args: object,
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    json_dumps: Callable[[object], str],
+    which: Callable[[str], str | None] = shutil.which,
+    run_command: RunCommand = subprocess.run,
+) -> int:
+    config = _memory_config(root=root, workspace_config=workspace_config)
+    import_path = Path(str(getattr(args, "file"))).expanduser()
+    if not import_path.is_absolute():
+        import_path = root / import_path
+    payload = _load_export_file(import_path)
+    observations = payload.get("observations")
+    observation_count = len(observations) if isinstance(observations, list) else 0
+    findings = _export_secret_findings(payload)
+    confirmed = bool(getattr(args, "confirm", False))
+
+    result: dict[str, object] = {
+        "ok": not findings,
+        "available": bool(which("engram")),
+        "project": config["project"],
+        "file": str(import_path),
+        "dry_run": not confirmed,
+        "confirmed": confirmed,
+        "observation_count": observation_count,
+        "secret_findings": findings,
+    }
+    if findings:
+        result["error"] = "Import blocked by potential secret-like content."
+        if bool(getattr(args, "json", False)):
+            print(json_dumps(result))
+        else:
+            print(result["error"])
+        return 1
+    if not confirmed:
+        result["notes"] = "Dry-run only. Re-run with --confirm to execute `engram import`."
+        if bool(getattr(args, "json", False)):
+            print(json_dumps(result))
+        else:
+            print(result["notes"])
+        return 0
+
+    binary = which("engram")
+    if not binary:
+        missing = _missing_binary_payload(config)
+        missing.update(result)
+        _print_or_json(missing, json_mode=bool(getattr(args, "json", False)), json_dumps=json_dumps)
+        return 1
+    step = _run_engram([binary, "import", str(import_path)], config=config, run_command=run_command)
+    result["ok"] = step["returncode"] == 0
+    result["step"] = step
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(result))
+    else:
+        print(step["stdout"] or step["stderr"])
     return 0 if result["ok"] else 1
 
 

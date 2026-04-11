@@ -208,6 +208,9 @@ python3 ./flow memory doctor --json
 python3 ./flow memory stats --json
 python3 ./flow memory search "softos gateway release gotcha" --json
 python3 ./flow memory export --json
+python3 ./flow memory backup --json
+python3 ./flow memory import .flow/memory/backups/<file>.json --json
+python3 ./flow memory import .flow/memory/backups/<file>.json --confirm --json
 python3 ./flow memory save "SoftOS handoff outcome" --body "TYPE: outcome
 Project: softos-sdd-orchestrator
 Area: <spec-or-hot-area>
@@ -226,6 +229,8 @@ Resultado esperado:
 - `search` es el camino principal para recall de memorias existentes
 - `search --json` expone `items[]` parseado y conserva `raw_stdout`
 - `export` usa `engram export` nativo para crear respaldo JSON bajo `.flow/memory/exports/`
+- `backup` crea un export timestamped bajo `.flow/memory/backups/`
+- `import` es dry-run por defecto; solo ejecuta `engram import` con `--confirm`
 - `save` requiere input explicito y no debe usarse con secretos ni logs brutos
 - `smoke` valida `engram version`, `engram stats`, `engram context <project>` y `engram search <project>`
 - `smoke --save` persiste una memoria reusable de prueba en la DB local del workspace
