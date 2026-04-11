@@ -51,6 +51,7 @@ gateway/data/*.log
 .flow/plans/*
 .flow/reports/*
 .flow/runs/*
+.flow/memory/*
 .agents/
 !.agents/
 !.agents/skills/
@@ -60,6 +61,7 @@ gateway/data/*.log
 !.flow/plans/.gitkeep
 !.flow/reports/.gitkeep
 !.flow/runs/.gitignore
+!.flow/memory/.gitkeep
 releases/manifests/*
 releases/promotions/*
 contracts/generated/*

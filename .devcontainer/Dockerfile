@@ -60,6 +60,33 @@ RUN npm install -g @tessl/cli
 # ── BMAD CLI ─────────────────────────────────────────────────────────
 RUN npm install -g bmad-method
 
+# ── Engram agent memory ──────────────────────────────────────────────
+# Installed in the workspace image so memory tooling is reproducible and
+# project-scoped through ENGRAM_DATA_DIR instead of sharing a host-global DB.
+ARG INSTALL_ENGRAM=true
+RUN if [ "$INSTALL_ENGRAM" = "true" ]; then \
+      set -eux; \
+      arch="$(dpkg --print-architecture)"; \
+      case "$arch" in \
+        amd64) asset_arch="amd64" ;; \
+        arm64) asset_arch="arm64" ;; \
+        *) echo "Unsupported Engram architecture: $arch" >&2; exit 1 ;; \
+      esac; \
+      curl -fsSL https://api.github.com/repos/Gentleman-Programming/engram/releases/latest -o /tmp/engram-release.json; \
+      url="$(ENGRAM_ASSET_ARCH="$asset_arch" python3 -c 'import json, os; arch=os.environ["ENGRAM_ASSET_ARCH"]; data=json.load(open("/tmp/engram-release.json", encoding="utf-8")); aliases={arch, "x86_64" if arch=="amd64" else arch}; matches=[str(a.get("browser_download_url") or "") for a in data.get("assets", []) if "linux" in str(a.get("name") or "").lower() and any(alias in str(a.get("name") or "").lower() for alias in aliases) and (str(a.get("name") or "").lower().endswith(".tar.gz") or str(a.get("name") or "").lower().endswith(".tgz") or str(a.get("name") or "").lower().endswith(".zip"))]; print(matches[0] if matches else "")')"; \
+      test -n "$url"; \
+      mkdir -p /tmp/engram-extract; \
+      curl -fsSL "$url" -o /tmp/engram-archive; \
+      case "$url" in \
+        *.zip) unzip -q /tmp/engram-archive -d /tmp/engram-extract ;; \
+        *) tar -xzf /tmp/engram-archive -C /tmp/engram-extract ;; \
+      esac; \
+      find /tmp/engram-extract -type f -name engram -exec install -m 0755 {} /usr/local/bin/engram \; -quit; \
+      test -x /usr/local/bin/engram; \
+      engram version; \
+      rm -rf /tmp/engram-release.json /tmp/engram-archive /tmp/engram-extract; \
+    fi
+
 # ── Python tooling del control plane y gateway ───────────────────────
 RUN python3 -m pip install --no-cache-dir fastapi uvicorn httpx python-multipart pyyaml pytest
 

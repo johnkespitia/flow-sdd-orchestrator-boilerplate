@@ -11,6 +11,9 @@ services:
       - ..:/workspace:cached
       - /var/run/docker.sock:/var/run/docker.sock
       - workspace-pnpm-store:/home/vscode/.local/share/pnpm/store
+    environment:
+      ENGRAM_PROJECT: ${ENGRAM_PROJECT:-softos-sdd-orchestrator}
+      ENGRAM_DATA_DIR: /workspace/.flow/memory/engram
     working_dir: /workspace
     command: sleep infinity
     networks:

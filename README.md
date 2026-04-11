@@ -37,9 +37,23 @@ Template repo para levantar un workspace de `Spec As Source` con:
 
 No es un producto específico. Es una base reusable para crear workspaces agentic y spec-driven.
 
+### Memoria de agentes con Engram
+
+El devcontainer instala Engram automaticamente y lo aisla por workspace:
+
+```bash
+python3 ./flow memory doctor --json
+python3 ./flow memory smoke --json
+python3 ./flow memory smoke --save --json
+```
+
+La base local vive en `.flow/memory/engram` y no se versiona. Engram es consultivo: ayuda a
+recordar gotchas/outcomes entre sesiones, pero nunca reemplaza `specs/**`, reports, CI ni release
+evidence.
+
 ## Qué trae
 
-- `flow`: CLI del workspace para `stack`, `tessl`, `skills`, `bmad`, `workflow`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `submodule`, `secrets`, `drift`, `status`
+- `flow`: CLI del workspace para `stack`, `tessl`, `skills`, `bmad`, `memory`, `workflow`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `submodule`, `secrets`, `drift`, `status`
 - `workspace.config.json`: routing configurable de repos, targets y test runners
 - `flowctl/`: módulos internos del control plane para el refactor incremental
 - `workspace.skills.json`: capacidades del agente, separadas del scaffolding
@@ -54,7 +68,7 @@ No es un producto específico. Es una base reusable para crear workspaces agenti
 - `_bmad/`: instalación versionada del runtime BMAD del proyecto
 - `.flow/**`: estado operativo local del SDLC
 - `.agents/skills/softos-agent-memory-playbook/`: reglas para usar memoria de agentes sin reemplazar specs ni evidencia
-- `.devcontainer/**`: chasis reproducible con `workspace` y runtime packs listos para crecer
+- `.devcontainer/**`: chasis reproducible con `workspace`, Engram y runtime packs listos para crecer
 - `scripts/bootstrap_workspace.py`: scaffolder para generar un proyecto nuevo sin heredar Git
 
 ## Qué parte es boilerplate y qué parte es ejemplo

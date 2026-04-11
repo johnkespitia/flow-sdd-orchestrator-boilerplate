@@ -22,6 +22,8 @@
         "TODO.md",
         ".agents",
         ".cursor",
+        ".devcontainer",
+        ".flow/memory",
         "gateway",
         "flow",
         "templates",
@@ -72,6 +74,14 @@
     },
     "spec_inbound_lint": {
       "reject_on_error": false
+    }
+  },
+  "memory": {
+    "agent": {
+      "provider": "engram",
+      "project": "softos-sdd-orchestrator",
+      "data_dir": ".flow/memory/engram",
+      "source_boundary": "consultive"
     }
   },
   "examples": {

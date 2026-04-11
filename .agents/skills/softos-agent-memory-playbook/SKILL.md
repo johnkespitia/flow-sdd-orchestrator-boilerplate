@@ -36,9 +36,20 @@ If memory conflicts with an authoritative artifact, trust the artifact and optio
 
 ## Default workflow
 
+0. Check availability when the task can benefit from memory:
+
+```bash
+python3 ./flow memory doctor --json
+```
+
+Engram is installed automatically inside the SoftOS devcontainer. Project memory is isolated by
+`ENGRAM_DATA_DIR=/workspace/.flow/memory/engram`; do not use a host-global Engram database for
+SoftOS workspaces unless the user explicitly asks for cross-project memory.
+
 1. At task start, search memory by project plus task surface:
 
 ```bash
+python3 ./flow memory smoke --json
 engram search "softos <spec-or-area>"
 engram context softos-sdd-orchestrator
 ```
@@ -60,6 +71,12 @@ Learned: <reusable lesson>"
 ```
 
 5. If Engram is unavailable, continue without blocking the SDLC.
+
+For an installation/write smoke after a devcontainer rebuild:
+
+```bash
+python3 ./flow memory smoke --save --json
+```
 
 ## What to save
 

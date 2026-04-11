@@ -180,6 +180,13 @@ Secuencia recomendada para agentes:
 SoftOS puede usar Engram como memoria opcional para agentes. Esta memoria sirve para recuperar
 aprendizajes reutilizables, gotchas y outcomes entre sesiones, pero no es fuente de verdad.
 
+Instalacion y aislamiento:
+
+- Engram se instala automaticamente al reconstruir el devcontainer `workspace`.
+- La memoria queda en `/workspace/.flow/memory/engram` dentro del contenedor.
+- `.flow/memory/**` queda fuera de git para evitar contaminar el repo con memoria local.
+- `ENGRAM_PROJECT` identifica el workspace; por defecto este repo usa `softos-sdd-orchestrator`.
+
 Playbook:
 
 - `.agents/skills/softos-agent-memory-playbook/SKILL.md`
@@ -192,25 +199,19 @@ Reglas:
 - no usar memoria para saltar `spec review`, `ci`, `release` ni evidencia declarada
 - si Engram no está instalado, continuar el SDLC normalmente
 
-Smoke manual futuro cuando Engram esté instalado:
+Comandos operativos:
 
 ```bash
-engram context softos-sdd-orchestrator
-engram search "softos gateway release gotcha"
-engram save softos-sdd-orchestrator "TYPE: outcome
-Project: softos-sdd-orchestrator
-Area: smoke
-What: Engram memory smoke completed
-Why: Validate optional agent memory workflow
-Where: docs/softos-agent-dev-handbook.md
-Evidence: engram context/search/save
-Learned: Engram is consultive and does not block SoftOS when unavailable"
+python3 ./flow memory doctor --json
+python3 ./flow memory smoke --json
+python3 ./flow memory smoke --save --json
 ```
 
 Resultado esperado:
 
-- `context` y `search` devuelven información o vacío sin afectar `flow`
-- `save` persiste una memoria reusable
+- `doctor` retorna cero aunque Engram falte y muestra `available=false`
+- `smoke` valida `engram version`, `engram stats` y `engram context <project>`
+- `smoke --save` persiste una memoria reusable de prueba en la DB local del workspace
 - ningún comando de `flow` depende de esa memoria para pasar
 
 Checklist mínimo antes de declarar “done”:

@@ -148,6 +148,18 @@ def build_parser(
     gateway_watch.add_argument("--json", action="store_true", help="Print the result as JSON.")
     gateway_watch.set_defaults(func=commands["gateway_watch"])
 
+    memory = subparsers.add_parser("memory", help="Operate optional agent memory through Engram.")
+    memory_subparsers = memory.add_subparsers(dest="memory_command", required=True)
+
+    memory_doctor = memory_subparsers.add_parser("doctor", help="Inspect Engram availability and project-scoped storage.")
+    memory_doctor.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    memory_doctor.set_defaults(func=commands["memory_doctor"])
+
+    memory_smoke = memory_subparsers.add_parser("smoke", help="Run a non-blocking Engram install and storage smoke.")
+    memory_smoke.add_argument("--save", action="store_true", help="Also write a small smoke memory to the project database.")
+    memory_smoke.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    memory_smoke.set_defaults(func=commands["memory_smoke"])
+
     stack = subparsers.add_parser("stack", help="Operate the devcontainer stack from the control plane.")
     stack_subparsers = stack.add_subparsers(dest="stack_command", required=True)
     for name, help_text in [("doctor", "Show resolved Docker Compose context."), ("ps", "Show stack services.")]:

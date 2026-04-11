@@ -55,6 +55,21 @@ class AgentMemoryCapabilityTests(unittest.TestCase):
         self.assertIn("engram is unavailable", lower)
         self.assertIn("must not fail `flow` commands", lower)
 
+    def test_agent_memory_is_project_scoped_in_devcontainer(self) -> None:
+        root = self._root()
+        dockerfile = (root / ".devcontainer" / "Dockerfile").read_text(encoding="utf-8")
+        compose = (root / ".devcontainer" / "docker-compose.yml").read_text(encoding="utf-8")
+        gitignore = (root / ".gitignore").read_text(encoding="utf-8")
+        workspace = json.loads((root / "workspace.config.json").read_text(encoding="utf-8"))
+
+        self.assertIn("Gentleman-Programming/engram/releases/latest", dockerfile)
+        self.assertIn("/usr/local/bin/engram", dockerfile)
+        self.assertIn("ENGRAM_PROJECT", compose)
+        self.assertIn("ENGRAM_DATA_DIR: /workspace/.flow/memory/engram", compose)
+        self.assertIn(".flow/memory/*", gitignore)
+        self.assertEqual("engram", workspace["memory"]["agent"]["provider"])
+        self.assertEqual(".flow/memory/engram", workspace["memory"]["agent"]["data_dir"])
+
     def test_agent_memory_spec_targets_capability_manifest_and_skill(self) -> None:
         root = self._root()
         config = build_spec_config(
