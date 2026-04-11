@@ -50,8 +50,7 @@ SoftOS workspaces unless the user explicitly asks for cross-project memory.
 
 ```bash
 python3 ./flow memory smoke --json
-engram search "softos <spec-or-area>"
-engram context softos-sdd-orchestrator
+python3 ./flow memory search "softos <spec-or-area>" --json
 ```
 
 2. Use recalled memory only to guide discovery. Still read the relevant specs and files.
@@ -61,7 +60,8 @@ engram context softos-sdd-orchestrator
 4. At closeout, save reusable outcomes:
 
 ```bash
-engram save softos-sdd-orchestrator "TYPE: outcome
+python3 ./flow memory save "SoftOS outcome: <area>" --body "TYPE: outcome
+Project: softos-sdd-orchestrator
 Area: <spec-or-hot-area>
 What: <what changed or was validated>
 Why: <why it matters>

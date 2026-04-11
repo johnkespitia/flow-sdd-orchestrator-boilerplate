@@ -43,6 +43,16 @@ El devcontainer instala Engram automaticamente y lo aisla por workspace:
 
 ```bash
 python3 ./flow memory doctor --json
+python3 ./flow memory stats --json
+python3 ./flow memory search SoftOS --json
+python3 ./flow memory save "SoftOS outcome" --body "TYPE: outcome
+Project: softos-sdd-orchestrator
+Area: memory
+What: reusable fact
+Why: future agents can recall it
+Where: README.md
+Evidence: flow memory save
+Learned: use flow memory search for recall" --json
 python3 ./flow memory smoke --json
 python3 ./flow memory smoke --save --json
 ```

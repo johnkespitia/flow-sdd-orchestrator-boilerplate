@@ -160,6 +160,23 @@ def build_parser(
     memory_smoke.add_argument("--json", action="store_true", help="Print the result as JSON.")
     memory_smoke.set_defaults(func=commands["memory_smoke"])
 
+    memory_stats = memory_subparsers.add_parser("stats", help="Show Engram memory stats for the project-scoped database.")
+    memory_stats.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    memory_stats.set_defaults(func=commands["memory_stats"])
+
+    memory_search = memory_subparsers.add_parser("search", help="Search project-scoped Engram memories.")
+    memory_search.add_argument("query", help="Search query.")
+    memory_search.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    memory_search.set_defaults(func=commands["memory_search"])
+
+    memory_save = memory_subparsers.add_parser("save", help="Save an explicit consultive memory.")
+    memory_save.add_argument("title", help="Short memory title.")
+    memory_save_body = memory_save.add_mutually_exclusive_group(required=True)
+    memory_save_body.add_argument("--body", help="Memory body. Do not include secrets or sensitive data.")
+    memory_save_body.add_argument("--body-file", help="Path to a UTF-8 file containing the memory body.")
+    memory_save.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    memory_save.set_defaults(func=commands["memory_save"])
+
     stack = subparsers.add_parser("stack", help="Operate the devcontainer stack from the control plane.")
     stack_subparsers = stack.add_subparsers(dest="stack_command", required=True)
     for name, help_text in [("doctor", "Show resolved Docker Compose context."), ("ps", "Show stack services.")]:

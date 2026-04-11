@@ -2828,6 +2828,33 @@ def command_memory_smoke(args: argparse.Namespace) -> int:
     )
 
 
+def command_memory_stats(args: argparse.Namespace) -> int:
+    return flow_memory_ops.command_memory_stats(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        json_dumps=json_dumps,
+    )
+
+
+def command_memory_search(args: argparse.Namespace) -> int:
+    return flow_memory_ops.command_memory_search(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        json_dumps=json_dumps,
+    )
+
+
+def command_memory_save(args: argparse.Namespace) -> int:
+    return flow_memory_ops.command_memory_save(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        json_dumps=json_dumps,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     commands = {
         "doctor": command_doctor,
@@ -2845,6 +2872,9 @@ def build_parser() -> argparse.ArgumentParser:
         "gateway_reassign": command_gateway_reassign,
         "memory_doctor": command_memory_doctor,
         "memory_smoke": command_memory_smoke,
+        "memory_stats": command_memory_stats,
+        "memory_search": command_memory_search,
+        "memory_save": command_memory_save,
         "stack_doctor": command_stack_doctor,
         "stack_ps": command_stack_ps,
         "stack_up": command_stack_up,

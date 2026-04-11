@@ -203,6 +203,16 @@ Comandos operativos:
 
 ```bash
 python3 ./flow memory doctor --json
+python3 ./flow memory stats --json
+python3 ./flow memory search "softos gateway release gotcha" --json
+python3 ./flow memory save "SoftOS handoff outcome" --body "TYPE: outcome
+Project: softos-sdd-orchestrator
+Area: <spec-or-hot-area>
+What: <reusable fact>
+Why: <impact>
+Where: <source files/specs/reports>
+Evidence: <commands run>
+Learned: <instruction for future agents>" --json
 python3 ./flow memory smoke --json
 python3 ./flow memory smoke --save --json
 ```
@@ -210,7 +220,9 @@ python3 ./flow memory smoke --save --json
 Resultado esperado:
 
 - `doctor` retorna cero aunque Engram falte y muestra `available=false`
-- `smoke` valida `engram version`, `engram stats` y `engram context <project>`
+- `search` es el camino principal para recall de memorias existentes
+- `save` requiere input explicito y no debe usarse con secretos ni logs brutos
+- `smoke` valida `engram version`, `engram stats`, `engram context <project>` y `engram search <project>`
 - `smoke --save` persiste una memoria reusable de prueba en la DB local del workspace
 - ningún comando de `flow` depende de esa memoria para pasar
 
