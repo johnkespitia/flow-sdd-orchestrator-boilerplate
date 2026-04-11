@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "engram": {
+      "type": "local",
+      "command": [
+        "engram",
+        "mcp"
+      ],
+      "enabled": true,
+      "environment": {
+        "ENGRAM_PROJECT": "softos-sdd-orchestrator",
+        "ENGRAM_DATA_DIR": "/workspace/.flow/memory/engram"
+      }
+    }
+  }
+}

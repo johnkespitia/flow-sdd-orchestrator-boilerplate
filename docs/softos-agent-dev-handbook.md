@@ -230,14 +230,17 @@ Resultado esperado:
 
 MCP opcional:
 
-- `.mcp.example.json` muestra una configuracion opt-in para agentes compatibles con MCP.
-- No se activa automaticamente porque cada cliente maneja MCP de forma distinta.
-- La plantilla usa `engram mcp` y el mismo `ENGRAM_DATA_DIR=/workspace/.flow/memory/engram`.
-- Si se copia a la configuracion activa del cliente, verificar primero:
+- `.cursor/mcp.json` activa Engram para Cursor a nivel de proyecto cuando Cursor corre dentro del devcontainer.
+- `opencode.json` activa Engram para OpenCode a nivel de proyecto.
+- `.mcp.example.json` conserva una configuracion generica opt-in para clientes compatibles con `mcpServers`.
+- Codex usa configuracion de usuario; activar con `scripts/install_codex_engram_mcp.sh`.
+- Todas las variantes usan `engram mcp` y `ENGRAM_DATA_DIR=/workspace/.flow/memory/engram`.
+- Verificar primero:
 
 ```bash
 python3 ./flow memory doctor --json
 engram mcp --help
+scripts/install_codex_engram_mcp.sh
 ```
 
 Checklist mínimo antes de declarar “done”:

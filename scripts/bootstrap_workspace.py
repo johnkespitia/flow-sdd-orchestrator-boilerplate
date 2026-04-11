@@ -122,6 +122,8 @@ def build_repo_config(path: str, kind: str, source_repo: dict[str, object]) -> d
             target_roots.append(".flow/memory")
         if ".mcp.example.json" not in target_roots:
             target_roots.append(".mcp.example.json")
+        if "opencode.json" not in target_roots:
+            target_roots.append("opencode.json")
         if "flowctl" not in target_roots:
             target_roots.append("flowctl")
         if "capabilities" not in target_roots:
@@ -203,11 +205,17 @@ def patch_engram_project(destination: Path, root_repo: str) -> None:
         )
         compose_path.write_text(text, encoding="utf-8")
 
-    mcp_example = destination / ".mcp.example.json"
-    if mcp_example.exists():
-        text = mcp_example.read_text(encoding="utf-8")
+    for relative_path in [
+        ".mcp.example.json",
+        ".cursor/mcp.json",
+        "opencode.json",
+    ]:
+        target = destination / relative_path
+        if not target.exists():
+            continue
+        text = target.read_text(encoding="utf-8")
         text = text.replace("softos-sdd-orchestrator", root_repo)
-        mcp_example.write_text(text, encoding="utf-8")
+        target.write_text(text, encoding="utf-8")
 
 
 def rewrite_text_file(path: Path, replacements: dict[str, str]) -> None:
@@ -256,6 +264,7 @@ def rewrite_project_texts(
         "workspace.secrets.json",
         "workspace.skills.json",
         "workspace.stack.json",
+        "opencode.json",
         "Makefile",
         ".mcp.example.json",
     ]:

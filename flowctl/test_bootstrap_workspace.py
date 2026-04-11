@@ -81,24 +81,32 @@ class BootstrapWorkspaceTests(unittest.TestCase):
             self.assertIn(".devcontainer", target_roots)
             self.assertIn(".flow/memory", target_roots)
             self.assertIn(".mcp.example.json", target_roots)
+            self.assertIn("opencode.json", target_roots)
 
     def test_patch_engram_project_updates_compose_and_mcp_example(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             destination = Path(tmp_dir)
             compose = destination / ".devcontainer" / "docker-compose.yml"
+            cursor_mcp = destination / ".cursor" / "mcp.json"
             mcp = destination / ".mcp.example.json"
+            opencode = destination / "opencode.json"
             compose.parent.mkdir(parents=True, exist_ok=True)
+            cursor_mcp.parent.mkdir(parents=True, exist_ok=True)
             compose.write_text(
                 "ENGRAM_PROJECT: ${ENGRAM_PROJECT:-softos-sdd-orchestrator}\n",
                 encoding="utf-8",
             )
+            cursor_mcp.write_text('{"project":"softos-sdd-orchestrator"}\n', encoding="utf-8")
             mcp.write_text('{"project":"softos-sdd-orchestrator"}\n', encoding="utf-8")
+            opencode.write_text('{"project":"softos-sdd-orchestrator"}\n', encoding="utf-8")
 
             BOOTSTRAP.patch_engram_project(destination, "nuevo-root-repo")
 
             self.assertIn("ENGRAM_PROJECT: ${ENGRAM_PROJECT:-nuevo-root-repo}", compose.read_text(encoding="utf-8"))
-            self.assertIn("nuevo-root-repo", mcp.read_text(encoding="utf-8"))
-            self.assertNotIn("softos-sdd-orchestrator", mcp.read_text(encoding="utf-8"))
+            for path in [cursor_mcp, mcp, opencode]:
+                text = path.read_text(encoding="utf-8")
+                self.assertIn("nuevo-root-repo", text)
+                self.assertNotIn("softos-sdd-orchestrator", text)
 
     def test_reset_flow_state_creates_memory_placeholder(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
