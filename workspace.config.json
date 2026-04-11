@@ -84,6 +84,10 @@
       "project": "softos-sdd-orchestrator",
       "data_dir": ".flow/memory/engram",
       "source_boundary": "consultive"
+    },
+    "execution": {
+      "recall_before_plan": false,
+      "save_after_release_publish": false
     }
   },
   "examples": {

@@ -60,14 +60,20 @@ Evidence: flow memory save
 Learned: use flow memory search for recall" --json
 python3 ./flow memory smoke --json
 python3 ./flow memory smoke --save --json
+python3 ./flow plan <spec> --memory-recall
+python3 ./flow release publish --version v0.9.x --memory-save-outcome
 ```
 
 La base local vive en `.flow/memory/engram` y no se versiona. Engram es consultivo: ayuda a
 recordar gotchas/outcomes entre sesiones, pero nunca reemplaza `specs/**`, reports, CI ni release
 evidence.
 
-El smoke de memoria en GitHub Actions es manual (`Agent Memory Smoke`) y corre dentro del devcontainer;
+El smoke de memoria en GitHub Actions es manual (`Memory Smoke`) y corre dentro del devcontainer;
 no es gate de `push` ni de `pull_request`.
+
+Los hooks de ejecucion autonoma de memoria son opt-in: `plan --memory-recall` escribe un reporte
+consultivo en `.flow/reports/memory`, y `release publish --memory-save-outcome` guarda un outcome
+solo despues de un publish exitoso. Ambos quedan apagados por defecto en `workspace.config.json`.
 
 ## Qué trae
 

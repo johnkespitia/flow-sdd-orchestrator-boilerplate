@@ -2307,6 +2307,19 @@ def command_spec_approve(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     spec_path = resolve_spec(args.spec)
     slug = spec_slug(spec_path)
+    if flow_memory_ops.memory_execution_enabled(
+        args,
+        workspace_config=WORKSPACE_CONFIG,
+        arg_name="memory_recall",
+        config_name="recall_before_plan",
+    ):
+        flow_memory_ops.write_plan_recall_report(
+            root=ROOT,
+            workspace_config=WORKSPACE_CONFIG,
+            slug=slug,
+            spec_path=spec_path,
+            json_dumps=json_dumps,
+        )
 
     def _callback() -> int:
         return flow_features.command_plan(
@@ -2754,7 +2767,8 @@ def command_release_verify(args: argparse.Namespace) -> int:
 
 
 def command_release_publish(args: argparse.Namespace) -> int:
-    return flow_command_release_publish(
+    requested_version = str(getattr(args, "version", "") or "")
+    rc = flow_command_release_publish(
         args,
         root=ROOT,
         changelog_path=CHANGELOG_FILE,
@@ -2762,6 +2776,19 @@ def command_release_publish(args: argparse.Namespace) -> int:
         utc_now=utc_now,
         json_dumps=json_dumps,
     )
+    if rc == 0 and not bool(getattr(args, "dry_run", False)) and flow_memory_ops.memory_execution_enabled(
+        args,
+        workspace_config=WORKSPACE_CONFIG,
+        arg_name="memory_save_outcome",
+        config_name="save_after_release_publish",
+    ):
+        flow_memory_ops.save_release_outcome(
+            root=ROOT,
+            workspace_config=WORKSPACE_CONFIG,
+            version=requested_version or "auto",
+            json_dumps=json_dumps,
+        )
+    return rc
 
 
 def command_infra_plan(args: argparse.Namespace) -> int:

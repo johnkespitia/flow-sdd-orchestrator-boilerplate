@@ -50,6 +50,39 @@ def _engram_env(config: dict[str, str]) -> dict[str, str]:
     return env
 
 
+def _as_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if not text:
+        return default
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def memory_execution_enabled(
+    args: object,
+    *,
+    workspace_config: dict[str, object],
+    arg_name: str,
+    config_name: str,
+) -> bool:
+    requested = getattr(args, arg_name, None)
+    if requested is not None:
+        return bool(requested)
+
+    memory = workspace_config.get("memory")
+    memory_cfg = memory if isinstance(memory, dict) else {}
+    execution = memory_cfg.get("execution")
+    execution_cfg = execution if isinstance(execution, dict) else {}
+    return _as_bool(execution_cfg.get(config_name), default=False)
+
+
 def _version(
     *,
     binary: str,
@@ -96,6 +129,66 @@ def _missing_binary_payload(config: dict[str, str]) -> dict[str, object]:
         "data_dir": config["data_dir"],
         "db_path": config["db_path"],
         "error": "`engram` is not available in PATH. Rebuild the workspace devcontainer.",
+    }
+
+
+def search_memory(
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    query: str,
+    which: Callable[[str], str | None] = shutil.which,
+    run_command: RunCommand = subprocess.run,
+) -> dict[str, object]:
+    config = _memory_config(root=root, workspace_config=workspace_config)
+    binary = which("engram")
+    if not binary:
+        return _missing_binary_payload(config)
+
+    normalized_query = query.strip()
+    step = _run_engram([binary, "search", normalized_query], config=config, run_command=run_command)
+    items = parse_search_stdout(str(step["stdout"]))
+    return {
+        "ok": step["returncode"] == 0,
+        "available": True,
+        "project": config["project"],
+        "data_dir": config["data_dir"],
+        "db_path": config["db_path"],
+        "query": normalized_query,
+        "items": items,
+        "count": len(items),
+        "raw_stdout": step["stdout"],
+        "step": step,
+    }
+
+
+def save_memory(
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    title: str,
+    body: str,
+    which: Callable[[str], str | None] = shutil.which,
+    run_command: RunCommand = subprocess.run,
+) -> dict[str, object]:
+    config = _memory_config(root=root, workspace_config=workspace_config)
+    Path(config["data_dir"]).mkdir(parents=True, exist_ok=True)
+    binary = which("engram")
+    if not binary:
+        return _missing_binary_payload(config)
+
+    normalized_title = title.strip()
+    step = _run_engram([binary, "save", normalized_title, body], config=config, run_command=run_command)
+    safe_step = dict(step)
+    safe_step["command"] = f"{binary} save {normalized_title!r} <body>"
+    return {
+        "ok": step["returncode"] == 0,
+        "available": True,
+        "project": config["project"],
+        "data_dir": config["data_dir"],
+        "db_path": config["db_path"],
+        "title": normalized_title,
+        "step": safe_step,
     }
 
 
@@ -271,6 +364,28 @@ def _prune_candidates(
     return list(candidates.values())
 
 
+def _safe_report_slug(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip("-")
+    return slug or "memory"
+
+
+def _memory_execution_config(workspace_config: dict[str, object]) -> dict[str, object]:
+    memory = workspace_config.get("memory")
+    memory_cfg = memory if isinstance(memory, dict) else {}
+    execution = memory_cfg.get("execution")
+    return execution if isinstance(execution, dict) else {}
+
+
+def memory_recall_before_plan_enabled(args: object, workspace_config: dict[str, object]) -> bool:
+    execution = _memory_execution_config(workspace_config)
+    return bool(getattr(args, "memory_recall", False) or execution.get("recall_before_plan", False))
+
+
+def memory_save_after_release_enabled(args: object, workspace_config: dict[str, object]) -> bool:
+    execution = _memory_execution_config(workspace_config)
+    return bool(getattr(args, "memory_save_outcome", False) or execution.get("save_after_release_publish", False))
+
+
 def command_memory_doctor(
     args: object,
     *,
@@ -409,32 +524,19 @@ def command_memory_search(
     which: Callable[[str], str | None] = shutil.which,
     run_command: RunCommand = subprocess.run,
 ) -> int:
-    config = _memory_config(root=root, workspace_config=workspace_config)
-    binary = which("engram")
-    if not binary:
-        payload = _missing_binary_payload(config)
-        _print_or_json(payload, json_mode=bool(getattr(args, "json", False)), json_dumps=json_dumps)
-        return 1
-
     query = str(getattr(args, "query", "") or "").strip()
-    step = _run_engram([binary, "search", query], config=config, run_command=run_command)
-    items = parse_search_stdout(str(step["stdout"]))
-    payload = {
-        "ok": step["returncode"] == 0,
-        "available": True,
-        "project": config["project"],
-        "data_dir": config["data_dir"],
-        "db_path": config["db_path"],
-        "query": query,
-        "items": items,
-        "count": len(items),
-        "raw_stdout": step["stdout"],
-        "step": step,
-    }
+    payload = search_memory(
+        root=root,
+        workspace_config=workspace_config,
+        query=query,
+        which=which,
+        run_command=run_command,
+    )
     if bool(getattr(args, "json", False)):
         print(json_dumps(payload))
     else:
-        print(step["stdout"] or step["stderr"])
+        step = payload.get("step") if isinstance(payload.get("step"), dict) else {}
+        print(str(step.get("stdout") or step.get("stderr") or payload.get("error") or ""))
     return 0 if payload["ok"] else 1
 
 
@@ -652,14 +754,6 @@ def command_memory_save(
     which: Callable[[str], str | None] = shutil.which,
     run_command: RunCommand = subprocess.run,
 ) -> int:
-    config = _memory_config(root=root, workspace_config=workspace_config)
-    Path(config["data_dir"]).mkdir(parents=True, exist_ok=True)
-    binary = which("engram")
-    if not binary:
-        payload = _missing_binary_payload(config)
-        _print_or_json(payload, json_mode=bool(getattr(args, "json", False)), json_dumps=json_dumps)
-        return 1
-
     title = str(getattr(args, "title", "") or "").strip()
     body = str(getattr(args, "body", "") or "")
     body_file = getattr(args, "body_file", None)
@@ -668,6 +762,113 @@ def command_memory_save(
     if not body.strip():
         raise SystemExit("`flow memory save` requiere `--body` o `--body-file` con contenido.")
 
+    payload = save_memory(
+        root=root,
+        workspace_config=workspace_config,
+        title=title,
+        body=body,
+        which=which,
+        run_command=run_command,
+    )
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+    else:
+        step = payload.get("step") if isinstance(payload.get("step"), dict) else {}
+        print(str(step.get("stdout") or step.get("stderr") or payload.get("error") or ""))
+    return 0 if payload["ok"] else 1
+
+
+def write_plan_recall_report(
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    query: str | None = None,
+    slug: str | None = None,
+    spec_path: Path | None = None,
+    json_dumps: Callable[[object], str],
+    which: Callable[[str], str | None] = shutil.which,
+    run_command: RunCommand = subprocess.run,
+) -> dict[str, object]:
+    config = _memory_config(root=root, workspace_config=workspace_config)
+    effective_query = str(query or slug or spec_path or "").strip()
+    effective_slug = _safe_report_slug(str(slug or effective_query or "plan"))
+    report_dir = root / ".flow" / "reports" / "memory"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_path = report_dir / f"{effective_slug}-plan-recall.json"
+
+    binary = which("engram")
+    if not binary:
+        payload = {
+            "ok": False,
+            "available": False,
+            "project": config["project"],
+            "slug": effective_slug,
+            "spec": str(spec_path or ""),
+            "query": effective_query,
+            "items": [],
+            "count": 0,
+            "source_boundary": config["source_boundary"],
+            "output": str(report_path),
+            "notes": "Engram unavailable; plan recall is optional and non-blocking.",
+        }
+        report_path.write_text(json_dumps(payload) + "\n", encoding="utf-8")
+        return {**payload, "report": str(report_path)}
+
+    step = _run_engram([binary, "search", effective_query], config=config, run_command=run_command)
+    items = parse_search_stdout(str(step["stdout"]))
+    payload = {
+        "ok": step["returncode"] == 0,
+        "available": True,
+        "project": config["project"],
+        "slug": effective_slug,
+        "spec": str(spec_path or ""),
+        "query": effective_query,
+        "items": items,
+        "count": len(items),
+        "source_boundary": config["source_boundary"],
+        "output": str(report_path),
+        "notes": "Consultive recall only; specs and CI remain authoritative.",
+        "step": step,
+    }
+    report_path.write_text(json_dumps(payload) + "\n", encoding="utf-8")
+    return {**payload, "report": str(report_path)}
+
+
+def save_release_outcome(
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    version: str,
+    evidence: str | None = None,
+    json_dumps: Callable[[object], str],
+    which: Callable[[str], str | None] = shutil.which,
+    run_command: RunCommand = subprocess.run,
+) -> dict[str, object]:
+    config = _memory_config(root=root, workspace_config=workspace_config)
+    binary = which("engram")
+    if not binary:
+        return {
+            "ok": False,
+            "available": False,
+            "project": config["project"],
+            "version": version,
+            "source_boundary": config["source_boundary"],
+            "notes": "Engram unavailable; release outcome memory is optional and non-blocking.",
+        }
+
+    safe_version = version.strip() or "unknown"
+    safe_evidence = evidence or f"flow release publish --version {safe_version}"
+    title = f"SoftOS release publish outcome {safe_version}"
+    body = (
+        "TYPE: outcome\n"
+        f"Project: {config['project']}\n"
+        "Area: release-publish\n"
+        f"What: Published release {safe_version}\n"
+        "Why: Preserve verified release outcome for future agent recall\n"
+        "Where: CHANGELOG.md, Git tag, GitHub Release when enabled\n"
+        f"Evidence: {safe_evidence}\n"
+        "Learned: Release memories are consultive and must not replace tags, changelog or CI evidence"
+    )
     step = _run_engram([binary, "save", title, body], config=config, run_command=run_command)
     safe_step = dict(step)
     safe_step["command"] = f"{binary} save {title!r} <body>"
@@ -675,13 +876,13 @@ def command_memory_save(
         "ok": step["returncode"] == 0,
         "available": True,
         "project": config["project"],
-        "data_dir": config["data_dir"],
-        "db_path": config["db_path"],
+        "version": safe_version,
+        "source_boundary": config["source_boundary"],
         "title": title,
         "step": safe_step,
     }
-    if bool(getattr(args, "json", False)):
-        print(json_dumps(payload))
-    else:
-        print(step["stdout"] or step["stderr"])
-    return 0 if payload["ok"] else 1
+    report_dir = root / ".flow" / "reports" / "memory"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_path = report_dir / f"release-{safe_version}-memory-save.json"
+    report_path.write_text(json_dumps(payload) + "\n", encoding="utf-8")
+    return {**payload, "report": str(report_path)}

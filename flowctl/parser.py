@@ -646,6 +646,19 @@ def build_parser(
         action="store_true",
         help="Preview version, notes and changelog content without mutating git or files.",
     )
+    release_publish.add_argument(
+        "--memory-save-outcome",
+        dest="memory_save_outcome",
+        action="store_true",
+        default=None,
+        help="After a successful publish, save a consultive Engram release outcome memory.",
+    )
+    release_publish.add_argument(
+        "--no-memory-save-outcome",
+        dest="memory_save_outcome",
+        action="store_false",
+        help="Disable release outcome memory even if workspace config enables it.",
+    )
     release_publish.add_argument("--no-worktree-cleanup", action="store_true", help="Skip automatic stale worktree cleanup after a successful publish.")
     release_publish.add_argument("--json", action="store_true", help="Print the publish plan/result as JSON.")
     release_publish.set_defaults(func=commands["release_publish"])
@@ -785,6 +798,19 @@ def build_parser(
 
     plan = subparsers.add_parser("plan", help="Create a default worktree plan from a spec.")
     plan.add_argument("spec", help="Spec path or slug.")
+    plan.add_argument(
+        "--memory-recall",
+        dest="memory_recall",
+        action="store_true",
+        default=None,
+        help="Before planning, write a consultive Engram recall report for this spec.",
+    )
+    plan.add_argument(
+        "--no-memory-recall",
+        dest="memory_recall",
+        action="store_false",
+        help="Disable plan recall even if workspace config enables it.",
+    )
     plan.set_defaults(func=commands["plan"])
 
     slice_cmd = subparsers.add_parser("slice", help="Prepare slice execution or verification.")

@@ -19,7 +19,10 @@ from flowctl.memory_ops import (
     command_memory_search,
     command_memory_smoke,
     command_memory_stats,
+    memory_execution_enabled,
     parse_search_stdout,
+    save_release_outcome,
+    write_plan_recall_report,
 )
 
 
@@ -364,6 +367,96 @@ class MemoryOpsTests(unittest.TestCase):
         self.assertEqual("export", commands[0][1])
         self.assertFalse(report["destructive"])
         self.assertGreaterEqual(report["candidate_count"], 1)
+
+    def test_memory_execution_gates_are_off_by_default(self) -> None:
+        args = Namespace(memory_recall=None, memory_save_outcome=None)
+
+        self.assertFalse(memory_execution_enabled(args, workspace_config={}, arg_name="memory_recall", config_name="recall_before_plan"))
+        self.assertFalse(
+            memory_execution_enabled(
+                args,
+                workspace_config={},
+                arg_name="memory_save_outcome",
+                config_name="save_after_release_publish",
+            )
+        )
+
+    def test_memory_execution_gates_can_use_flags_or_config(self) -> None:
+        cfg = {"memory": {"execution": {"recall_before_plan": True, "save_after_release_publish": True}}}
+
+        self.assertTrue(memory_execution_enabled(Namespace(memory_recall=None), workspace_config=cfg, arg_name="memory_recall", config_name="recall_before_plan"))
+        self.assertTrue(memory_execution_enabled(Namespace(memory_recall=True), workspace_config={}, arg_name="memory_recall", config_name="recall_before_plan"))
+        self.assertFalse(memory_execution_enabled(Namespace(memory_recall=False), workspace_config=cfg, arg_name="memory_recall", config_name="recall_before_plan"))
+        self.assertTrue(
+            memory_execution_enabled(
+                Namespace(memory_save_outcome=None),
+                workspace_config=cfg,
+                arg_name="memory_save_outcome",
+                config_name="save_after_release_publish",
+            )
+        )
+        self.assertFalse(
+            memory_execution_enabled(
+                Namespace(memory_save_outcome=False),
+                workspace_config=cfg,
+                arg_name="memory_save_outcome",
+                config_name="save_after_release_publish",
+            )
+        )
+
+    def test_write_plan_recall_report_runs_search_and_writes_report(self) -> None:
+        commands: list[list[str]] = []
+        stdout = """Found 1 memories:
+
+[1] #7 (manual) — Planning gotcha
+    Use explicit gates
+    2026-04-11 14:25:54 | scope: project
+"""
+
+        def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = write_plan_recall_report(
+                root=root,
+                workspace_config={},
+                slug="feature-spec",
+                spec_path=root / "specs" / "features" / "feature-spec.spec.md",
+                json_dumps=_json_dumps,
+                which=lambda _name: "/usr/local/bin/engram",
+                run_command=fake_run,
+            )
+            output = Path(str(payload["report"]))
+            self.assertTrue(output.exists())
+            self.assertEqual(1, json.loads(output.read_text(encoding="utf-8"))["count"])
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual([["/usr/local/bin/engram", "search", "feature-spec"]], commands)
+
+    def test_save_release_outcome_runs_engram_save_with_safe_command(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout="saved\n", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = save_release_outcome(
+                root=Path(tmp),
+                workspace_config={},
+                version="v0.9.6",
+                json_dumps=_json_dumps,
+                which=lambda _name: "/usr/local/bin/engram",
+                run_command=fake_run,
+            )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual("save", commands[0][1])
+        self.assertIn("SoftOS release publish outcome v0.9.6", commands[0][2])
+        self.assertIn("TYPE: outcome", commands[0][3])
+        self.assertEqual("/usr/local/bin/engram save 'SoftOS release publish outcome v0.9.6' <body>", payload["step"]["command"])
 
     def test_save_runs_project_scoped_engram_save_with_body(self) -> None:
         commands: list[list[str]] = []

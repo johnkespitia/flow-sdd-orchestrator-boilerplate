@@ -222,6 +222,8 @@ Evidence: <commands run>
 Learned: <instruction for future agents>" --json
 python3 ./flow memory smoke --json
 python3 ./flow memory smoke --save --json
+python3 ./flow plan <spec> --memory-recall
+python3 ./flow release publish --version v0.9.x --memory-save-outcome
 ```
 
 Resultado esperado:
@@ -237,7 +239,9 @@ Resultado esperado:
 - `smoke` valida `engram version`, `engram stats`, `engram context <project>` y `engram search <project>`
 - `smoke --save` persiste una memoria reusable de prueba en la DB local del workspace
 - ningún comando de `flow` depende de esa memoria para pasar
-- `.github/workflows/memory-smoke.yml` ofrece `Agent Memory Smoke` manual en devcontainer; no corre en `push` ni `pull_request`
+- `.github/workflows/memory-smoke.yml` ofrece `Memory Smoke` manual en devcontainer; no corre en `push` ni `pull_request`
+- `plan --memory-recall` y `release publish --memory-save-outcome` son gates explicitos; la config
+  `memory.execution` los deja apagados por defecto para evitar guardar basura
 
 MCP opcional:
 
