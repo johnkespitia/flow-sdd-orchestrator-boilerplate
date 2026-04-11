@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.9.3 - 2026-04-11
+
+### Added
+
+- add guarded import and backup
+
 ## v0.9.2 - 2026-04-11
 
 ### Added
