@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.6.0 - 2026-04-11
+
+### Added
+
+- add optional Engram capability
+
+### Docs
+
+- add v0.5.1 release notes
+- improve v0.5.0 release notes
+
 ## v0.5.1 - 2026-04-10
 
 ### Docs
