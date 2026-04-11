@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.9.0 - 2026-04-11
+
+### Added
+
+- scope Engram during bootstrap
+
 ## v0.8.0 - 2026-04-11
 
 ### Added
