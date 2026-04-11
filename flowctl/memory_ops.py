@@ -205,6 +205,72 @@ def _export_secret_findings(payload: dict[str, object]) -> list[dict[str, object
     return findings
 
 
+def _observation_timestamp(observation: dict[str, object]) -> datetime:
+    for key in ("updated_at", "last_seen_at", "created_at"):
+        raw = str(observation.get(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except ValueError:
+            continue
+    return datetime.fromtimestamp(0, timezone.utc)
+
+
+def _prune_candidates(
+    observations: list[object],
+    *,
+    query: str,
+    older_than_days: int | None,
+    keep_latest: int | None,
+    now: datetime,
+) -> list[dict[str, object]]:
+    candidates: dict[str, dict[str, object]] = {}
+    normalized_query = query.lower().strip()
+    typed_observations = [item for item in observations if isinstance(item, dict)]
+    sorted_observations = sorted(typed_observations, key=_observation_timestamp, reverse=True)
+    keep_ids = {
+        str(item.get("id") or item.get("sync_id") or index)
+        for index, item in enumerate(sorted_observations[: keep_latest or 0], start=1)
+    } if keep_latest else set()
+
+    seen_fingerprints: dict[str, str] = {}
+    for index, observation in enumerate(sorted_observations, start=1):
+        obs_id = str(observation.get("id") or observation.get("sync_id") or index)
+        title = str(observation.get("title") or "")
+        content = str(observation.get("content") or "")
+        fingerprint = f"{title}\n{content}".strip().lower()
+        reasons: list[str] = []
+        if normalized_query and normalized_query in fingerprint:
+            reasons.append(f"query:{query}")
+        if older_than_days is not None:
+            age_days = (now - _observation_timestamp(observation)).days
+            if age_days >= older_than_days:
+                reasons.append(f"older_than_days:{older_than_days}")
+        if keep_latest is not None and obs_id not in keep_ids:
+            reasons.append(f"beyond_keep_latest:{keep_latest}")
+        if fingerprint and fingerprint in seen_fingerprints:
+            reasons.append(f"duplicate_of:{seen_fingerprints[fingerprint]}")
+        elif fingerprint:
+            seen_fingerprints[fingerprint] = obs_id
+        duplicate_count = observation.get("duplicate_count")
+        if isinstance(duplicate_count, int) and duplicate_count > 0:
+            reasons.append(f"duplicate_count:{duplicate_count}")
+        if reasons:
+            candidates[obs_id] = {
+                "id": obs_id,
+                "title": title,
+                "scope": observation.get("scope", ""),
+                "created_at": observation.get("created_at", ""),
+                "updated_at": observation.get("updated_at", ""),
+                "reasons": reasons,
+            }
+    return list(candidates.values())
+
+
 def command_memory_doctor(
     args: object,
     *,
@@ -507,6 +573,73 @@ def command_memory_import(
         print(json_dumps(result))
     else:
         print(step["stdout"] or step["stderr"])
+    return 0 if result["ok"] else 1
+
+
+def command_memory_prune(
+    args: object,
+    *,
+    root: Path,
+    workspace_config: dict[str, object],
+    json_dumps: Callable[[object], str],
+    which: Callable[[str], str | None] = shutil.which,
+    run_command: RunCommand = subprocess.run,
+) -> int:
+    config = _memory_config(root=root, workspace_config=workspace_config)
+    binary = which("engram")
+    if not binary:
+        payload = _missing_binary_payload(config)
+        _print_or_json(payload, json_mode=bool(getattr(args, "json", False)), json_dumps=json_dumps)
+        return 1
+
+    stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(":", "").replace("+00:00", "Z")
+    source_path = root / ".flow" / "memory" / "prune" / f"{config['project']}-{stamp}-source.json"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    step = _run_engram([binary, "export", str(source_path)], config=config, run_command=run_command)
+    payload = _load_export_file(source_path)
+    observations = payload.get("observations")
+    obs_list = observations if isinstance(observations, list) else []
+    older_than_days = getattr(args, "older_than_days", None)
+    keep_latest = getattr(args, "keep_latest", None)
+    query = str(getattr(args, "query", "") or "")
+    candidates = _prune_candidates(
+        obs_list,
+        query=query,
+        older_than_days=older_than_days,
+        keep_latest=keep_latest,
+        now=datetime.now(timezone.utc),
+    )
+    result = {
+        "ok": step["returncode"] == 0,
+        "mode": "advisory",
+        "destructive": False,
+        "project": config["project"],
+        "source_export": str(source_path),
+        "observation_count": len(obs_list),
+        "candidate_count": len(candidates),
+        "candidates": candidates,
+        "criteria": {
+            "query": query,
+            "older_than_days": older_than_days,
+            "keep_latest": keep_latest,
+        },
+        "notes": "Engram v1.11.0 exposes no safe granular delete; prune only reports candidates.",
+        "step": step,
+    }
+    output = getattr(args, "output", None)
+    if output:
+        output_path = Path(str(output)).expanduser()
+        if not output_path.is_absolute():
+            output_path = root / output_path
+    else:
+        output_path = root / ".flow" / "memory" / "prune" / f"{config['project']}-{stamp}-report.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(result, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    result["output"] = str(output_path)
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(result))
+    else:
+        print(str(output_path))
     return 0 if result["ok"] else 1
 
 

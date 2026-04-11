@@ -2873,6 +2873,15 @@ def command_memory_import(args: argparse.Namespace) -> int:
     )
 
 
+def command_memory_prune(args: argparse.Namespace) -> int:
+    return flow_memory_ops.command_memory_prune(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        json_dumps=json_dumps,
+    )
+
+
 def command_memory_save(args: argparse.Namespace) -> int:
     return flow_memory_ops.command_memory_save(
         args,
@@ -2904,6 +2913,7 @@ def build_parser() -> argparse.ArgumentParser:
         "memory_export": command_memory_export,
         "memory_backup": command_memory_backup,
         "memory_import": command_memory_import,
+        "memory_prune": command_memory_prune,
         "memory_save": command_memory_save,
         "stack_doctor": command_stack_doctor,
         "stack_ps": command_stack_ps,

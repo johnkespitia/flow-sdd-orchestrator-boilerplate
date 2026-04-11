@@ -14,6 +14,7 @@ from flowctl.memory_ops import (
     command_memory_export,
     command_memory_backup,
     command_memory_import,
+    command_memory_prune,
     command_memory_save,
     command_memory_search,
     command_memory_smoke,
@@ -312,6 +313,57 @@ class MemoryOpsTests(unittest.TestCase):
             )
 
         self.assertEqual(1, rc)
+
+    def test_prune_generates_advisory_report(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            Path(command[-1]).write_text(
+                json.dumps(
+                    {
+                        "observations": [
+                            {
+                                "id": 1,
+                                "title": "Old smoke",
+                                "content": "memory smoke",
+                                "scope": "project",
+                                "created_at": "2020-01-01T00:00:00+00:00",
+                                "updated_at": "2020-01-01T00:00:00+00:00",
+                            },
+                            {
+                                "id": 2,
+                                "title": "Keep",
+                                "content": "recent",
+                                "scope": "project",
+                                "created_at": "2026-01-01T00:00:00+00:00",
+                                "updated_at": "2026-01-01T00:00:00+00:00",
+                            },
+                        ]
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(command, 0, stdout="exported\n", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "prune-report.json"
+            rc = command_memory_prune(
+                Namespace(json=True, query="smoke", older_than_days=90, keep_latest=1, output=str(output)),
+                root=root,
+                workspace_config={},
+                json_dumps=_json_dumps,
+                which=lambda _name: "/usr/local/bin/engram",
+                run_command=fake_run,
+            )
+            report = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(0, rc)
+        self.assertEqual("export", commands[0][1])
+        self.assertFalse(report["destructive"])
+        self.assertGreaterEqual(report["candidate_count"], 1)
 
     def test_save_runs_project_scoped_engram_save_with_body(self) -> None:
         commands: list[list[str]] = []

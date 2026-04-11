@@ -184,6 +184,14 @@ def build_parser(
     memory_import.add_argument("--json", action="store_true", help="Print the result as JSON.")
     memory_import.set_defaults(func=commands["memory_import"])
 
+    memory_prune = memory_subparsers.add_parser("prune", help="Generate a non-destructive advisory prune report.")
+    memory_prune.add_argument("--query", help="Mark memories matching a query as prune candidates.")
+    memory_prune.add_argument("--older-than-days", type=int, help="Mark memories at least this old as prune candidates.")
+    memory_prune.add_argument("--keep-latest", type=int, help="Mark all but the latest N memories as prune candidates.")
+    memory_prune.add_argument("--output", help="Output report path. Defaults to .flow/memory/prune/<project>-<timestamp>-report.json.")
+    memory_prune.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    memory_prune.set_defaults(func=commands["memory_prune"])
+
     memory_save = memory_subparsers.add_parser("save", help="Save an explicit consultive memory.")
     memory_save.add_argument("title", help="Short memory title.")
     memory_save_body = memory_save.add_mutually_exclusive_group(required=True)
