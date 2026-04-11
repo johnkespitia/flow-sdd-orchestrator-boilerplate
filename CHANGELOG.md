@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.9.6 - 2026-04-11
+
+### Added
+
+- add autonomous memory hooks
+
 ## v0.9.5 - 2026-04-11
 
 ### Added
