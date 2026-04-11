@@ -45,6 +45,7 @@ No es un producto específico. Es una base reusable para crear workspaces agenti
 - `workspace.skills.json`: capacidades del agente, separadas del scaffolding
 - `workspace.runtimes.json`: catálogo versionado de runtime packs
 - `workspace.capabilities.json`: catálogo versionado de capabilities como GraphQL
+- `capabilities/agent-memory-engram.capability.json`: memoria consultiva opcional para agentes via Engram
 - `workspace.stack.json`: manifiesto declarativo del stack inferido o planeado
 - `workspace.providers.json`: manifest versionado de providers de release e infraestructura
 - `gateway/`: ingress FastAPI del SoftOS para Jira, Slack y GitHub
@@ -52,6 +53,7 @@ No es un producto específico. Es una base reusable para crear workspaces agenti
 - `.tessl/**`: tile local de SDD centrado en root
 - `_bmad/`: instalación versionada del runtime BMAD del proyecto
 - `.flow/**`: estado operativo local del SDLC
+- `.agents/skills/softos-agent-memory-playbook/`: reglas para usar memoria de agentes sin reemplazar specs ni evidencia
 - `.devcontainer/**`: chasis reproducible con `workspace` y runtime packs listos para crecer
 - `scripts/bootstrap_workspace.py`: scaffolder para generar un proyecto nuevo sin heredar Git
 

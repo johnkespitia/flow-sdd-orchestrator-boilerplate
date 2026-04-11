@@ -175,6 +175,44 @@ Secuencia recomendada para agentes:
 4. Ejecutar `ci spec`, luego `ci repo`/`ci integration`.
 5. No cerrar ciclo sin evidencia de `release verify`.
 
+### 7.1 Memoria consultiva de agentes
+
+SoftOS puede usar Engram como memoria opcional para agentes. Esta memoria sirve para recuperar
+aprendizajes reutilizables, gotchas y outcomes entre sesiones, pero no es fuente de verdad.
+
+Playbook:
+
+- `.agents/skills/softos-agent-memory-playbook/SKILL.md`
+
+Reglas:
+
+- consultar memoria al iniciar tareas donde haya historial útil de spec, repo, release o gateway
+- guardar solo aprendizajes reutilizables al cerrar tareas verificadas
+- no guardar secretos, tokens, PII ni logs brutos
+- no usar memoria para saltar `spec review`, `ci`, `release` ni evidencia declarada
+- si Engram no está instalado, continuar el SDLC normalmente
+
+Smoke manual futuro cuando Engram esté instalado:
+
+```bash
+engram context softos-sdd-orchestrator
+engram search "softos gateway release gotcha"
+engram save softos-sdd-orchestrator "TYPE: outcome
+Project: softos-sdd-orchestrator
+Area: smoke
+What: Engram memory smoke completed
+Why: Validate optional agent memory workflow
+Where: docs/softos-agent-dev-handbook.md
+Evidence: engram context/search/save
+Learned: Engram is consultive and does not block SoftOS when unavailable"
+```
+
+Resultado esperado:
+
+- `context` y `search` devuelven información o vacío sin afectar `flow`
+- `save` persiste una memoria reusable
+- ningún comando de `flow` depende de esa memoria para pasar
+
 Checklist mínimo antes de declarar “done”:
 
 - Spec en `approved`.

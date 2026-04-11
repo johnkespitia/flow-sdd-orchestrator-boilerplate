@@ -1,0 +1,38 @@
+{
+  "title": "Agent Memory With Engram",
+  "summary": "Define una capacidad opcional de memoria consultiva para agentes usando Engram local-first via MCP/CLI, sin convertir memorias en fuente de verdad del SDLC.",
+  "target_roots": [
+    ".agents/skills",
+    "docs",
+    "workspace.config.json"
+  ],
+  "foundation_specs": [
+    {
+      "path": "specs/000-foundation/generated/agent-memory-engram-foundation.spec.md",
+      "name": "Agent Memory With Engram Foundation",
+      "description": "Foundation opcional para usar Engram como memoria consultiva de agentes en `{primary_project}`.",
+      "owner": "platform",
+      "body": [
+        "## Scope",
+        "",
+        "- Permitir que agentes consulten y guarden aprendizajes reutilizables entre sesiones.",
+        "- Mantener `specs/**`, `AGENTS.md`, `workspace.config.json`, `.flow/reports/**` y CI como fuentes autoritativas.",
+        "- Usar memoria solo como contexto consultivo para reducir redescubrimiento y mejorar handoffs.",
+        "",
+        "## Requirements",
+        "",
+        "- Nunca guardar secretos, tokens, credenciales, PII o datos sensibles.",
+        "- Nunca usar memorias para saltarse `flow spec review`, `flow ci`, `flow release` o gates declarados.",
+        "- Cada memoria debe ser accionable, reusable y tener scope claro de proyecto/spec/hot_area cuando aplique.",
+        "- La ausencia de Engram no debe bloquear el SDLC; la capacidad es opcional.",
+        "",
+        "## Routing hints",
+        "",
+        "- `../../.agents/skills/softos-agent-memory-playbook/**`",
+        "- `../../docs/**`",
+        "- `../../workspace.capabilities.json`",
+        "- `../../capabilities/agent-memory-engram.capability.json`"
+      ]
+    }
+  ]
+}

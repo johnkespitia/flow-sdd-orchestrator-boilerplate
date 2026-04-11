@@ -39,6 +39,10 @@
     "vite-vue": {
       "enabled": true,
       "source": "capabilities/vite-vue.capability.json"
+    },
+    "agent-memory-engram": {
+      "enabled": true,
+      "source": "capabilities/agent-memory-engram.capability.json"
     }
   }
 }
