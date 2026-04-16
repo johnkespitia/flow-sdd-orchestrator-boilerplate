@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.9.9 - 2026-04-16
+
+### Added
+
+- add central stage checks
+
 ## v0.9.8 - 2026-04-16
 
 ### Added
