@@ -672,6 +672,143 @@ def command_spec_approval_status(
     return 0
 
 
+def _approval_identity(args: object) -> str:
+    approver = (
+        str(getattr(args, "approver", "") or "").strip()
+        or os.environ.get("FLOW_APPROVER", "").strip()
+        or os.environ.get("USER", "").strip()
+        or os.environ.get("USERNAME", "").strip()
+    )
+    if not approver:
+        raise SystemExit("La aprobacion requiere `--approver` o una identidad en `FLOW_APPROVER/USER`.")
+    return approver
+
+
+def plan_approval_status_payload(
+    *,
+    slug: str,
+    spec_path: Path,
+    plan_path: Path,
+    state: dict[str, object],
+    rel: Callable[[Path], str],
+) -> dict[str, object]:
+    approval = state.get("plan_approval")
+    approval_payload = approval if isinstance(approval, dict) else {}
+    current_spec_hash = file_sha256(spec_path) if spec_path.exists() else ""
+    current_plan_hash = file_sha256(plan_path) if plan_path.exists() else ""
+    recorded_spec_hash = str(approval_payload.get("spec_hash", "") or "")
+    recorded_plan_hash = str(approval_payload.get("plan_hash", "") or "")
+    approved = bool(
+        approval_payload
+        and recorded_spec_hash
+        and recorded_plan_hash
+        and recorded_spec_hash == current_spec_hash
+        and recorded_plan_hash == current_plan_hash
+    )
+    invalid_reasons: list[str] = []
+    if not plan_path.exists():
+        invalid_reasons.append("missing_plan")
+    if not approval_payload:
+        invalid_reasons.append("missing_plan_approval")
+    elif not recorded_plan_hash:
+        invalid_reasons.append("missing_plan_hash")
+    elif recorded_plan_hash != current_plan_hash:
+        invalid_reasons.append("plan_hash_changed")
+    if approval_payload and not recorded_spec_hash:
+        invalid_reasons.append("missing_spec_hash")
+    elif approval_payload and recorded_spec_hash != current_spec_hash:
+        invalid_reasons.append("spec_hash_changed")
+    return {
+        "feature": slug,
+        "spec_path": rel(spec_path),
+        "plan_path": rel(plan_path),
+        "approved": approved,
+        "approval": approval_payload,
+        "current_spec_hash": current_spec_hash,
+        "current_plan_hash": current_plan_hash,
+        "invalid_reasons": invalid_reasons,
+        "next_required_action": "" if approved else f"python3 ./flow plan-approve {slug}",
+    }
+
+
+def command_plan_approval_status(
+    args,
+    *,
+    resolve_spec: Callable[[str], Path],
+    spec_slug: Callable[[Path], str],
+    plan_root: Path,
+    read_state: Callable[[str], dict[str, object]],
+    rel: Callable[[Path], str],
+    json_dumps: Callable[[object], str],
+) -> int:
+    spec_path = resolve_spec(args.spec)
+    slug = spec_slug(spec_path)
+    payload = plan_approval_status_payload(
+        slug=slug,
+        spec_path=spec_path,
+        plan_path=plan_root / f"{slug}.json",
+        state=read_state(slug),
+        rel=rel,
+    )
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+        return 0
+    status = "approved" if payload["approved"] else "not-approved"
+    print(f"Plan approval: {status}")
+    print(f"Plan: {payload['plan_path']}")
+    if payload["invalid_reasons"]:
+        print("Invalid reasons:")
+        for reason in payload["invalid_reasons"]:
+            print(f"- {reason}")
+    return 0
+
+
+def command_plan_approve(
+    args,
+    *,
+    resolve_spec: Callable[[str], Path],
+    spec_slug: Callable[[Path], str],
+    plan_root: Path,
+    read_state: Callable[[str], dict[str, object]],
+    write_state: Callable[[str, dict[str, object]], None],
+    rel: Callable[[Path], str],
+    utc_now: Callable[[], str],
+) -> int:
+    spec_path = resolve_spec(args.spec)
+    slug = spec_slug(spec_path)
+    plan_path = plan_root / f"{slug}.json"
+    if not plan_path.exists():
+        raise SystemExit(f"No existe plan para `{slug}`. Ejecuta `python3 ./flow plan {slug}` primero.")
+    state = read_state(slug)
+    spec_status = spec_approval_status_payload(spec_path=spec_path, slug=slug, state=state, rel=rel)
+    if not bool(spec_status["approved"]):
+        raise SystemExit(
+            f"La spec `{slug}` requiere aprobacion vigente antes de aprobar el plan. "
+            f"Ejecuta `{spec_status['next_required_action']}`."
+        )
+    approver = _approval_identity(args)
+    approval = {
+        "status": "approved",
+        "approver": approver,
+        "approved_at": utc_now(),
+        "spec_hash": spec_status["current_spec_hash"],
+        "plan_hash": file_sha256(plan_path),
+        "plan_json": rel(plan_path),
+    }
+    state.update(
+        {
+            "feature": slug,
+            "spec_path": rel(spec_path),
+            "plan_json": rel(plan_path),
+            "status": "plan-approved",
+            "plan_approval": approval,
+        }
+    )
+    write_state(slug, state)
+    print(f"Plan aprobado por {approver}: {rel(plan_path)}")
+    return 0
+
+
 def command_plan(
     args,
     *,
@@ -815,6 +952,7 @@ def command_plan(
     plan_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     state = read_state(slug)
+    previous_plan_approval = state.get("plan_approval")
     state.update(
         {
             "feature": slug,
@@ -825,6 +963,10 @@ def command_plan(
             "plan_markdown": rel(plan_md),
         }
     )
+    if isinstance(previous_plan_approval, dict):
+        state["previous_plan_approval"] = previous_plan_approval
+        state.pop("plan_approval", None)
+        state["plan_approval_invalidated_at"] = utc_now()
     write_state(slug, state)
 
     print(rel(plan_json))
@@ -844,7 +986,24 @@ def command_slice_start(
     rel: Callable[[Path], str],
 ) -> int:
     slug = slugify(args.spec)
-    _, selected, _ = load_plan_and_slice(slug, args.slice)
+    plan, selected, plan_path = load_plan_and_slice(slug, args.slice)
+    spec_path = Path(str(plan.get("spec_path", "")))
+    if not spec_path.is_absolute():
+        spec_path = plan_path.parents[2] / spec_path
+    state = read_state(slug)
+    plan_status = plan_approval_status_payload(
+        slug=slug,
+        spec_path=spec_path,
+        plan_path=plan_path,
+        state=state,
+        rel=rel,
+    )
+    if not bool(plan_status["approved"]):
+        reasons = ", ".join(str(item) for item in plan_status["invalid_reasons"]) or "not_approved"
+        raise SystemExit(
+            f"El plan de `{slug}` requiere aprobacion vigente antes de iniciar slices: {reasons}. "
+            f"Ejecuta `{plan_status['next_required_action']}`."
+        )
 
     repo_path = Path(str(selected["repo_path"]))
     worktree = Path(str(selected["worktree"]))
@@ -932,7 +1091,6 @@ def command_slice_start(
     )
     handoff_path.write_text(handoff, encoding="utf-8")
 
-    state = read_state(slug)
     state["status"] = "slice-started"
     slice_results = state.get("slice_results")
     if not isinstance(slice_results, dict):

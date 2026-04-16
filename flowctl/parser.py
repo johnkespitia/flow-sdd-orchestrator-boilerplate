@@ -818,6 +818,16 @@ def build_parser(
     )
     plan.set_defaults(func=commands["plan"])
 
+    plan_approve = subparsers.add_parser("plan-approve", help="Approve the current generated plan for a spec.")
+    plan_approve.add_argument("spec", help="Spec path or slug.")
+    plan_approve.add_argument("--approver", help="Identity recorded for the approval. Defaults to FLOW_APPROVER/USER.")
+    plan_approve.set_defaults(func=commands["plan_approve"])
+
+    plan_approval_status = subparsers.add_parser("plan-approval-status", help="Inspect the formal approval gate for a generated plan.")
+    plan_approval_status.add_argument("spec", help="Spec path or slug.")
+    plan_approval_status.add_argument("--json", action="store_true", help="Print plan approval status as JSON.")
+    plan_approval_status.set_defaults(func=commands["plan_approval_status"])
+
     slice_cmd = subparsers.add_parser("slice", help="Prepare slice execution or verification.")
     slice_subparsers = slice_cmd.add_subparsers(dest="slice_command", required=True)
     slice_start = slice_subparsers.add_parser("start", help="Prepare a slice handoff.")

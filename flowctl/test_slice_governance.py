@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from flowctl.features import command_plan, command_slice_start, load_plan_and_slice
+from flowctl.features import command_plan, command_slice_start, file_sha256, load_plan_and_slice
 from flowctl.specs import (
     SpecConfig,
     analyze_spec,
@@ -203,6 +203,7 @@ targets:
         plan_root=plan_root,
         read_state=lambda _slug: state.copy(),
         write_state=lambda _slug, payload: state.update(payload),
+        ensure_remote_claim_for_plan=None,
         rel=lambda path: str(path),
         utc_now=lambda: "2026-03-29T00:00:00+00:00",
     )
@@ -325,6 +326,7 @@ targets:
         plan_root=plan_root,
         read_state=lambda _slug: state.copy(),
         write_state=lambda _slug, payload: state.update(payload),
+        ensure_remote_claim_for_plan=None,
         rel=lambda path: str(path),
         utc_now=lambda: "2026-03-29T00:00:00+00:00",
     )
@@ -333,6 +335,16 @@ targets:
     payload = json.loads((plan_root / "demo.json").read_text(encoding="utf-8"))
     assert payload["slices"][0]["executor_mode"] == "compliance-closeout"
     assert payload["slices"][0]["surface_policy"] == "forbidden"
+    state["last_approval"] = {
+        "spec_hash": file_sha256(spec_path),
+        "spec_mtime_ns": spec_path.stat().st_mtime_ns,
+    }
+    state["plan_approval"] = {
+        "status": "approved",
+        "spec_hash": file_sha256(spec_path),
+        "plan_hash": file_sha256(plan_root / "demo.json"),
+        "plan_json": str(plan_root / "demo.json"),
+    }
 
     report_root.mkdir(parents=True, exist_ok=True)
 
@@ -366,6 +378,66 @@ targets:
     assert "Validated no-op allowed: `yes`" in handoff
     assert "solo reabrir alcance ante bloqueo tecnico real" in handoff
     assert f"python3 ./flow repo exec api --workdir {worktree_root / 'api-demo-verify-contract'} -- <cmd>" in handoff
+
+
+def test_slice_start_requires_approved_plan_before_worktree(tmp_path: Path) -> None:
+    plan_root = tmp_path / ".flow" / "plans"
+    report_root = tmp_path / ".flow" / "reports"
+    worktree_root = tmp_path / ".worktrees"
+    plan_root.mkdir(parents=True)
+    spec_path = _write_spec(
+        tmp_path,
+        """---
+schema_version: 3
+name: demo
+description: demo
+status: approved
+owner: platform
+targets:
+  - ../../api/app/**
+---
+
+# demo
+""",
+    )
+    (plan_root / "demo.json").write_text(
+        json.dumps(
+            {
+                "feature": "demo",
+                "spec_path": str(spec_path),
+                "slices": [
+                    {
+                        "name": "api",
+                        "repo": "api",
+                        "repo_path": str(tmp_path / "api"),
+                        "worktree": str(worktree_root / "api-demo-api"),
+                        "branch": "flow/demo-api",
+                        "targets": ["../../api/app/**"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="missing_plan_approval"):
+        command_slice_start(
+            argparse.Namespace(spec="demo", slice="api"),
+            slugify=lambda value: value,
+            load_plan_and_slice=lambda slug, slice_name: load_plan_and_slice(
+                slug,
+                slice_name,
+                plan_root=plan_root,
+                rel=lambda path: str(path),
+            ),
+            worktree_root=worktree_root,
+            report_root=report_root,
+            read_state=lambda _slug: {},
+            write_state=lambda _slug, payload: None,
+            rel=lambda path: str(path),
+        )
+
+    assert not worktree_root.exists()
 
 
 def test_workflow_next_step_blocks_invalid_slice_governance(tmp_path: Path) -> None:
