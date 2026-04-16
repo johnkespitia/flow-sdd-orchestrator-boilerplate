@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.9.10 - 2026-04-16
+
+### Fixed
+
+- support standalone docker-compose
+
 ## v0.9.9 - 2026-04-16
 
 ### Added
