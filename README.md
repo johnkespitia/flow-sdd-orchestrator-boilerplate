@@ -37,6 +37,12 @@ Template repo para levantar un workspace de `Spec As Source` con:
 
 No es un producto específico. Es una base reusable para crear workspaces agentic y spec-driven.
 
+### Herramientas externas
+
+El devcontainer instala pnpm, Tessl CLI, BMAD CLI y Engram. Por defecto toma `latest` al
+reconstruir la imagen, pero cada runtime puede pinnearse con build args para releases
+reproducibles. Ver [docs/external-tooling-updates.md](docs/external-tooling-updates.md).
+
 ### Memoria de agentes con Engram
 
 El devcontainer instala Engram automaticamente y lo aisla por workspace:
@@ -676,6 +682,7 @@ make help
 ## Documentación
 
 - [docs/softos-agent-dev-handbook.md](docs/softos-agent-dev-handbook.md)
+- [docs/external-tooling-updates.md](docs/external-tooling-updates.md)
 - [docs/spec-driven-orchestration.md](docs/spec-driven-orchestration.md)
 - [docs/softos-full-workflow.md](docs/softos-full-workflow.md)
 - [docs/flow-json-contract.md](docs/flow-json-contract.md)

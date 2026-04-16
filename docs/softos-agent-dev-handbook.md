@@ -177,6 +177,19 @@ Secuencia recomendada para agentes:
 6. Ejecutar `ci spec`, luego `ci repo`/`ci integration`.
 7. No cerrar ciclo sin evidencia de `release verify`.
 
+### 7.0 Tooling externo
+
+BMAD, Tessl, Engram y skills externos se actualizan por capas: binarios del devcontainer,
+assets versionados del workspace y estado operativo local. El manual operativo vive en
+[`docs/external-tooling-updates.md`](external-tooling-updates.md).
+
+Regla practica:
+
+- usar `latest` solo para workspaces de desarrollo reconstruidos conscientemente
+- pinnear versiones con build args para staging, produccion, demos o releases reproducibles
+- revisar cualquier diff en `_bmad/**`, `.tessl/**` o `.agents/skills/**` como cambio versionado normal
+- respaldar Engram con `flow memory backup` antes de upgrades de runtime
+
 ### 7.1 Memoria consultiva de agentes
 
 SoftOS puede usar Engram como memoria opcional para agentes. Esta memoria sirve para recuperar

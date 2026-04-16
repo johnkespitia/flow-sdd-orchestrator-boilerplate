@@ -49,16 +49,25 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
+# ── Toolchain versions ───────────────────────────────────────────────
+# Defaults track latest upstream versions on image rebuild. Override these
+# build args to pin reproducible versions for release/staging rollouts.
+ARG PNPM_VERSION=latest
+ARG TESSL_CLI_VERSION=latest
+ARG BMAD_METHOD_VERSION=latest
+ARG ENGRAM_VERSION=latest
+
 # ── pnpm ─────────────────────────────────────────────────────────────
-RUN npm install -g pnpm
+RUN npm install -g "pnpm@${PNPM_VERSION}"
 
 # ── Tessl CLI ────────────────────────────────────────────────────────
 # npm method works best inside containers (native curl installer
 # targets ~/.local/bin which complicates multi-user setups)
-RUN npm install -g @tessl/cli
+RUN npm install -g "@tessl/cli@${TESSL_CLI_VERSION}" \
+    && tessl --version
 
 # ── BMAD CLI ─────────────────────────────────────────────────────────
-RUN npm install -g bmad-method
+RUN npm install -g "bmad-method@${BMAD_METHOD_VERSION}"
 
 # ── Engram agent memory ──────────────────────────────────────────────
 # Installed in the workspace image so memory tooling is reproducible and
@@ -72,7 +81,11 @@ RUN if [ "$INSTALL_ENGRAM" = "true" ]; then \
         arm64) asset_arch="arm64" ;; \
         *) echo "Unsupported Engram architecture: $arch" >&2; exit 1 ;; \
       esac; \
-      curl -fsSL https://api.github.com/repos/Gentleman-Programming/engram/releases/latest -o /tmp/engram-release.json; \
+      release_url="https://api.github.com/repos/Gentleman-Programming/engram/releases/latest"; \
+      if [ "$ENGRAM_VERSION" != "latest" ]; then \
+        release_url="https://api.github.com/repos/Gentleman-Programming/engram/releases/tags/${ENGRAM_VERSION}"; \
+      fi; \
+      curl -fsSL "$release_url" -o /tmp/engram-release.json; \
       url="$(ENGRAM_ASSET_ARCH="$asset_arch" python3 -c 'import json, os; arch=os.environ["ENGRAM_ASSET_ARCH"]; data=json.load(open("/tmp/engram-release.json", encoding="utf-8")); aliases={arch, "x86_64" if arch=="amd64" else arch}; matches=[str(a.get("browser_download_url") or "") for a in data.get("assets", []) if "linux" in str(a.get("name") or "").lower() and any(alias in str(a.get("name") or "").lower() for alias in aliases) and (str(a.get("name") or "").lower().endswith(".tar.gz") or str(a.get("name") or "").lower().endswith(".tgz") or str(a.get("name") or "").lower().endswith(".zip"))]; print(matches[0] if matches else "")')"; \
       test -n "$url"; \
       mkdir -p /tmp/engram-extract; \

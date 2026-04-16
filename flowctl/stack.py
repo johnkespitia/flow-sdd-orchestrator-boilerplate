@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Callable, Optional
@@ -387,8 +388,9 @@ def detect_compose_context(
         "active": False,
     }
 
+    compose_command = compose_command_prefix()
     result = subprocess.run(
-        ["docker", "compose", "ls", "--format", "json"],
+        [*compose_command, "ls", "--format", "json"],
         capture_output=True,
         text=True,
         check=False,
@@ -436,12 +438,26 @@ def detect_compose_context(
     return context
 
 
-def compose_base_command(project: str, compose_files: list[Path]) -> list[str]:
+def compose_command_prefix() -> list[str]:
+    if shutil.which("docker"):
+        docker_compose = subprocess.run(
+            ["docker", "compose", "version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if docker_compose.returncode == 0:
+            return ["docker", "compose"]
+    if shutil.which("docker-compose"):
+        return ["docker-compose"]
+    raise SystemExit("No encontre `docker compose` ni `docker-compose` en PATH para operar el stack del workspace.")
+
+
+def compose_base_command(project: str, compose_files: list[Path], compose_command: Optional[list[str]] = None) -> list[str]:
     if not compose_files:
         raise SystemExit("No hay archivos docker-compose configurados para el workspace.")
     command = [
-        "docker",
-        "compose",
+        *(compose_command or compose_command_prefix()),
         "-p",
         str(project),
         "--project-directory",
@@ -471,7 +487,7 @@ def run_compose(base_command: list[str], cwd: Path, extra_args: list[str]) -> in
     try:
         return subprocess.run(base_command + extra_args, cwd=cwd, check=False).returncode
     except FileNotFoundError as exc:
-        raise SystemExit("No encontre `docker` en PATH para operar el stack del workspace.") from exc
+        raise SystemExit("No encontre el runtime Compose configurado en PATH para operar el stack del workspace.") from exc
 
 
 def capture_compose(base_command: list[str], cwd: Path, extra_args: list[str]) -> dict[str, object]:
@@ -484,7 +500,7 @@ def capture_compose(base_command: list[str], cwd: Path, extra_args: list[str]) -
             check=False,
         )
     except FileNotFoundError as exc:
-        raise SystemExit("No encontre `docker` en PATH para operar el stack del workspace.") from exc
+        raise SystemExit("No encontre el runtime Compose configurado en PATH para operar el stack del workspace.") from exc
 
     combined = (result.stdout + "\n" + result.stderr).strip()
     tail = "\n".join(combined.splitlines()[-40:]) if combined else ""

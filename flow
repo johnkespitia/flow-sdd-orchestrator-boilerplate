@@ -1121,7 +1121,7 @@ def infra_hook(action: str) -> Optional[Path]:
 
 def detect_compose_context() -> dict[str, object]:
     expected_files = compose_control_files()
-    if not shutil.which("docker"):
+    if not shutil.which("docker") and not shutil.which("docker-compose"):
         return {
             "project": DEFAULT_COMPOSE_PROJECT,
             "files": expected_files,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from flowctl import stack
 
@@ -47,7 +48,7 @@ class StackComposeFilesTests(unittest.TestCase):
             primary.write_text("services: {}\n", encoding="utf-8")
             secondary.write_text("services: {}\n", encoding="utf-8")
 
-            command = stack.compose_base_command("softos", [primary, secondary])
+            command = stack.compose_base_command("softos", [primary, secondary], compose_command=["docker", "compose"])
             self.assertEqual(
                 command,
                 [
@@ -63,6 +64,54 @@ class StackComposeFilesTests(unittest.TestCase):
                     str(secondary.resolve()),
                 ],
             )
+
+    def test_compose_base_command_can_render_standalone_docker_compose(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            primary = root / ".devcontainer" / "docker-compose.yml"
+            primary.parent.mkdir(parents=True, exist_ok=True)
+            primary.write_text("services: {}\n", encoding="utf-8")
+
+            command = stack.compose_base_command("softos", [primary], compose_command=["docker-compose"])
+
+            self.assertEqual(
+                command,
+                [
+                    "docker-compose",
+                    "-p",
+                    "softos",
+                    "--project-directory",
+                    str(primary.resolve().parent),
+                    "-f",
+                    str(primary.resolve()),
+                ],
+            )
+
+    def test_compose_command_prefix_prefers_plugin_when_available(self) -> None:
+        completed = Mock(returncode=0)
+        with patch("flowctl.stack.shutil.which", side_effect=lambda name: "/bin/docker" if name == "docker" else None):
+            with patch("flowctl.stack.subprocess.run", return_value=completed) as run:
+                self.assertEqual(["docker", "compose"], stack.compose_command_prefix())
+                run.assert_called_once_with(
+                    ["docker", "compose", "version"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+    def test_compose_command_prefix_falls_back_to_standalone(self) -> None:
+        completed = Mock(returncode=1)
+
+        def _which(name: str) -> str | None:
+            if name == "docker":
+                return "/bin/docker"
+            if name == "docker-compose":
+                return "/usr/local/bin/docker-compose"
+            return None
+
+        with patch("flowctl.stack.shutil.which", side_effect=_which):
+            with patch("flowctl.stack.subprocess.run", return_value=completed):
+                self.assertEqual(["docker-compose"], stack.compose_command_prefix())
 
 
 if __name__ == "__main__":
