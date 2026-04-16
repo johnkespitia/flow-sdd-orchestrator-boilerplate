@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.10.0 - 2026-04-16
+
+### Added
+
+- add human-gated runner mode
+
 ## v0.9.10 - 2026-04-16
 
 ### Fixed
