@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.10.1 - 2026-04-16
+
+### Added
+
+- add spec evidence bundles
+
 ## v0.10.0 - 2026-04-16
 
 ### Added
