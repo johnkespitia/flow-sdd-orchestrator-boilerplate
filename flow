@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from flowctl import features as flow_features
+from flowctl import evidence as flow_evidence
 from flowctl import gateway_ops as flow_gateway_ops
 from flowctl import locks as flow_locks
 from flowctl import memory_ops as flow_memory_ops
@@ -198,6 +199,7 @@ SECRET_SCAN_REPORT_ROOT = REPORT_ROOT / "secret-scan"
 WORKFLOW_REPORT_ROOT = REPORT_ROOT / "workflows"
 OPERATIONS_REPORT_ROOT = REPORT_ROOT / "operations"
 OPERATIONS_REPORT_ROOT = REPORT_ROOT / "operations"
+EVIDENCE_REPORT_ROOT = REPORT_ROOT / "evidence"
 SPECS_ROOT = ROOT / "specs"
 FEATURE_SPECS = SPECS_ROOT / "features"
 DEVCONTAINER_COMPOSE_FILE = ROOT / ".devcontainer" / "docker-compose.yml"
@@ -491,6 +493,7 @@ def require_dirs() -> None:
             CONTRACT_REPORT_ROOT,
             SECRET_SCAN_REPORT_ROOT,
             WORKFLOW_REPORT_ROOT,
+            EVIDENCE_REPORT_ROOT,
             FLOW_ROOT / "runs",
             RELEASE_ROOT,
             RELEASE_MANIFEST_ROOT,
@@ -2660,6 +2663,36 @@ def command_status(args: argparse.Namespace) -> int:
     )
 
 
+def command_evidence_status(args: argparse.Namespace) -> int:
+    return flow_evidence.command_evidence_status(
+        args,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        plan_root=PLAN_ROOT,
+        report_root=REPORT_ROOT,
+        read_state=read_state,
+        rel=rel,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
+    )
+
+
+def command_evidence_bundle(args: argparse.Namespace) -> int:
+    return flow_evidence.command_evidence_bundle(
+        args,
+        root=ROOT,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        plan_root=PLAN_ROOT,
+        report_root=REPORT_ROOT,
+        evidence_report_root=EVIDENCE_REPORT_ROOT,
+        read_state=read_state,
+        rel=rel,
+        utc_now=utc_now,
+        json_dumps=json_dumps,
+    )
+
+
 def command_ci_spec(args: argparse.Namespace) -> int:
     return flow_command_ci_spec(
         args,
@@ -3064,6 +3097,8 @@ def build_parser() -> argparse.ArgumentParser:
         "slice_start": command_slice_start,
         "slice_verify": command_slice_verify,
         "status": command_status,
+        "evidence_status": command_evidence_status,
+        "evidence_bundle": command_evidence_bundle,
         "ops_metrics": command_ops_metrics,
         "ops_dashboard": command_ops_dashboard,
         "ops_sla": command_ops_sla,

@@ -859,6 +859,17 @@ def build_parser(
     status.add_argument("--json", action="store_true", help="Print the tracked state as JSON.")
     status.set_defaults(func=commands["status"])
 
+    evidence = subparsers.add_parser("evidence", help="Inspect and bundle evidence for a spec.")
+    evidence_subparsers = evidence.add_subparsers(dest="evidence_command", required=True)
+    evidence_status = evidence_subparsers.add_parser("status", help="Summarize release readiness evidence for a spec.")
+    evidence_status.add_argument("spec", help="Spec path or slug.")
+    evidence_status.add_argument("--json", action="store_true", help="Print evidence status as JSON.")
+    evidence_status.set_defaults(func=commands["evidence_status"])
+    evidence_bundle = evidence_subparsers.add_parser("bundle", help="Write an evidence bundle under .flow/reports/evidence.")
+    evidence_bundle.add_argument("spec", help="Spec path or slug.")
+    evidence_bundle.add_argument("--json", action="store_true", help="Print evidence bundle as JSON.")
+    evidence_bundle.set_defaults(func=commands["evidence_bundle"])
+
     ops = subparsers.add_parser("ops", help="Operational observability commands (metrics, dashboards).")
     ops_subparsers = ops.add_subparsers(dest="ops_command", required=True)
     ops_metrics = ops_subparsers.add_parser("metrics", help="Print aggregated workflow metrics (throughput, failure_rate, latency, retries, DLQ).")
