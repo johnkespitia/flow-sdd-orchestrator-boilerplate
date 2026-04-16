@@ -2304,6 +2304,17 @@ def command_spec_approve(args: argparse.Namespace) -> int:
     )
 
 
+def command_spec_approval_status(args: argparse.Namespace) -> int:
+    return flow_features.command_spec_approval_status(
+        args,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        read_state=read_state,
+        rel=rel,
+        json_dumps=json_dumps,
+    )
+
+
 def command_plan(args: argparse.Namespace) -> int:
     spec_path = resolve_spec(args.spec)
     slug = spec_slug(spec_path)
@@ -3004,6 +3015,7 @@ def build_parser() -> argparse.ArgumentParser:
         "spec_review": command_spec_review,
         "spec_guard": command_spec_guard,
         "spec_approve": command_spec_approve,
+        "spec_approval_status": command_spec_approval_status,
         "spec_generate_contracts": command_spec_generate_contracts,
         "plan": command_plan,
         "slice_start": command_slice_start,

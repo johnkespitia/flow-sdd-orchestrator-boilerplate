@@ -791,6 +791,11 @@ def build_parser(
     spec_approve.add_argument("--approver", help="Identity recorded for the approval. Defaults to FLOW_APPROVER/USER.")
     spec_approve.set_defaults(func=commands["spec_approve"])
 
+    spec_approval_status = spec_subparsers.add_parser("approval-status", help="Inspect the formal approval gate for a spec.")
+    spec_approval_status.add_argument("spec", help="Spec path or slug.")
+    spec_approval_status.add_argument("--json", action="store_true", help="Print approval status as JSON.")
+    spec_approval_status.set_defaults(func=commands["spec_approval_status"])
+
     spec_generate_contracts = spec_subparsers.add_parser("generate-contracts", help="Generate derived contract artifacts from `json contract` blocks in a spec.")
     spec_generate_contracts.add_argument("spec", help="Spec path or slug.")
     spec_generate_contracts.add_argument("--json", action="store_true", help="Print generated artifacts as JSON.")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 import os
 import shlex
@@ -17,6 +18,14 @@ from .specs import (
     slice_governance_findings,
     verification_matrix_findings,
 )
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def render_yaml_list(key: str, values: list[str]) -> list[str]:
@@ -391,6 +400,7 @@ def command_spec_review(
     slug = spec_slug(spec_path)
     analysis = analyze_spec(spec_path)
     frontmatter = analysis["frontmatter"]
+    spec_hash = file_sha256(spec_path)
 
     high_priority: list[str] = []
     medium_priority: list[str] = []
@@ -507,6 +517,7 @@ def command_spec_review(
                 "ready_to_approve": ready_to_approve,
                 "reviewed_at": payload["reviewed_at"],
                 "result": payload["result"],
+                "spec_hash": spec_hash,
                 "spec_mtime_ns": spec_path.stat().st_mtime_ns,
             },
         }
@@ -562,8 +573,17 @@ def command_spec_approve(
     if not approver:
         raise SystemExit("`spec approve` requiere `--approver` o una identidad en `FLOW_APPROVER/USER`.")
 
+    review_hash = str(review.get("spec_hash", "") or "")
+    current_hash = file_sha256(spec_path)
+    if review_hash and review_hash != current_hash:
+        raise SystemExit(
+            f"La spec `{rel(spec_path)}` cambio despues de la ultima review. Ejecuta `python3 ./flow spec review {slug}` de nuevo."
+        )
+
     analysis = ensure_spec_ready_for_approval(spec_path)
     replace_frontmatter_status(spec_path, "approved")
+    approved_hash = file_sha256(spec_path)
+    approved_mtime = spec_path.stat().st_mtime_ns
     state.update(
         {
             "feature": slug,
@@ -575,11 +595,80 @@ def command_spec_approve(
                 "approver": approver,
                 "approved_at": utc_now(),
                 "review_report": review.get("report"),
+                "review_spec_hash": current_hash,
+                "spec_hash": approved_hash,
+                "spec_mtime_ns": approved_mtime,
+                "frontmatter_status": "approved",
             },
         }
     )
     write_state(slug, state)
     print(f"Spec aprobada por {approver}: {rel(spec_path)}")
+    return 0
+
+
+def spec_approval_status_payload(
+    *,
+    spec_path: Path,
+    slug: str,
+    state: dict[str, object],
+    rel: Callable[[Path], str],
+) -> dict[str, object]:
+    approval = state.get("last_approval")
+    approval_payload = approval if isinstance(approval, dict) else {}
+    current_hash = file_sha256(spec_path)
+    current_mtime = spec_path.stat().st_mtime_ns
+    recorded_hash = str(approval_payload.get("spec_hash", "") or "")
+    recorded_mtime = int(approval_payload.get("spec_mtime_ns", 0) or 0)
+    approved = bool(recorded_hash and recorded_hash == current_hash)
+    invalid_reasons: list[str] = []
+    if not approval_payload:
+        invalid_reasons.append("missing_approval")
+    elif not recorded_hash:
+        invalid_reasons.append("missing_spec_hash")
+    elif recorded_hash != current_hash:
+        invalid_reasons.append("spec_hash_changed")
+    if recorded_mtime and recorded_mtime != current_mtime:
+        invalid_reasons.append("spec_mtime_changed")
+    return {
+        "feature": slug,
+        "spec_path": rel(spec_path),
+        "approved": approved,
+        "approval": approval_payload,
+        "current_spec_hash": current_hash,
+        "current_spec_mtime_ns": current_mtime,
+        "invalid_reasons": invalid_reasons,
+        "next_required_action": "" if approved else f"python3 ./flow spec approve {slug}",
+    }
+
+
+def command_spec_approval_status(
+    args,
+    *,
+    resolve_spec: Callable[[str], Path],
+    spec_slug: Callable[[Path], str],
+    read_state: Callable[[str], dict[str, object]],
+    rel: Callable[[Path], str],
+    json_dumps: Callable[[object], str],
+) -> int:
+    spec_path = resolve_spec(args.spec)
+    slug = spec_slug(spec_path)
+    payload = spec_approval_status_payload(
+        spec_path=spec_path,
+        slug=slug,
+        state=read_state(slug),
+        rel=rel,
+    )
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+        return 0
+    status = "approved" if payload["approved"] else "not-approved"
+    print(f"Spec approval: {status}")
+    print(f"Spec: {payload['spec_path']}")
+    if payload["invalid_reasons"]:
+        print("Invalid reasons:")
+        for reason in payload["invalid_reasons"]:
+            print(f"- {reason}")
     return 0
 
 

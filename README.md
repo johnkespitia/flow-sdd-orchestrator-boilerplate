@@ -603,6 +603,7 @@ python3 ./flow stack apply
 python3 ./flow workflow intake identity-bootstrap --title "Identity Bootstrap" --repo root --runtime go-api --service postgres-service --capability graphql --depends-on spec-as-source-operating-model
 python3 ./flow spec review identity-bootstrap
 python3 ./flow spec approve identity-bootstrap --approver alice
+python3 ./flow spec approval-status identity-bootstrap --json
 python3 ./flow workflow execute-feature identity-bootstrap --start-slices --json
 python3 ./flow workflow next-step identity-bootstrap --json
 python3 ./flow ci spec --all

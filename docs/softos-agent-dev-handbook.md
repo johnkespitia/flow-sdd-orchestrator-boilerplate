@@ -171,7 +171,7 @@ Secuencia recomendada para agentes:
 
 1. `flow doctor` + `flow workflow doctor`.
 2. Resolver spec objetivo y foundations (`specs/000-foundation/**`).
-3. Ejecutar gates (`spec review` / `spec approve`) antes de implementación.
+3. Ejecutar gates (`spec review` / `spec approve` / `spec approval-status --json`) antes de implementación.
 4. Ejecutar `ci spec`, luego `ci repo`/`ci integration`.
 5. No cerrar ciclo sin evidencia de `release verify`.
 
