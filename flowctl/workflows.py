@@ -1338,11 +1338,13 @@ def command_workflow_run(
     run_slice_scheduler_callable: Callable[..., dict[str, object]] = run_slice_scheduler,
     lock_backend_factory: Callable[[], object] | None = None,
     sleep_fn: Callable[[float], None] = time.sleep,
+    policy_check_callable: Callable[..., dict[str, object]] | None = None,
 ) -> int:
     require_dirs()
     workflow_report_root.mkdir(parents=True, exist_ok=True)
     _ = workflow_orchestrator_settings(args, workspace_config=workspace_config)
-    slug = spec_slug(resolve_spec(args.spec))
+    spec_path = resolve_spec(args.spec)
+    slug = spec_slug(spec_path)
     state = read_state(slug)
     engine = _ensure_engine_state(state, utc_now=utc_now)
     stage_reports: list[dict[str, object]] = []
@@ -1350,6 +1352,7 @@ def command_workflow_run(
     resume_from = str(getattr(args, "resume_from_stage", "") or "").strip()
     retry_stage = str(getattr(args, "retry_stage", "") or "").strip()
     explicit_pause = str(getattr(args, "pause_at_stage", "") or "").strip()
+    human_gated = bool(getattr(args, "human_gated", False))
     inherited_pause = str(engine.get("paused_at_stage") or "").strip()
     pause_at = explicit_pause or inherited_pause
     if resume_from or retry_stage:
@@ -1414,6 +1417,12 @@ def command_workflow_run(
     finalized_status = "completed"
     workflow_dlq: list[dict[str, object]] = []
     scheduler_report_cache: dict[str, object] | None = None
+    policy_stage_by_engine_stage = {
+        "plan": "plan",
+        "slice_start": "slice-start",
+        "release_promote": "release",
+        "release_verify": "release",
+    }
     for stage_name in WORKFLOW_ENGINE_STAGES:
         if start_from_stage and not started_execution:
             if stage_name != start_from_stage:
@@ -1431,6 +1440,29 @@ def command_workflow_run(
         if record.get("status") == "passed" and retry_stage != stage_name:
             stage_reports.append({"stage_name": stage_name, "status": "skipped", "reason": "idempotent-already-passed"})
             continue
+        policy_stage = policy_stage_by_engine_stage.get(stage_name)
+        if human_gated and policy_stage and policy_check_callable is not None and not retry_stage:
+            policy_payload = policy_check_callable(
+                stage=policy_stage,
+                slug=slug,
+                spec_path=spec_path,
+                plan_path=plan_root / f"{slug}.json",
+                state=read_state(slug),
+            )
+            if not bool(policy_payload.get("allowed")):
+                record["stage_name"] = stage_name
+                record["status"] = "blocked"
+                record["failure_reason"] = "human-gate-blocked"
+                record["human_gate"] = policy_payload
+                record["finished_at"] = utc_now()
+                engine["status"] = "paused"
+                engine["paused_at_stage"] = stage_name
+                engine["human_gate"] = policy_payload
+                engine["updated_at"] = utc_now()
+                write_state(slug, state)
+                stage_reports.append(dict(record))
+                finalized_status = "paused"
+                break
 
         record["attempt"] = int(record.get("attempt", 0) or 0) + 1
         record["stage_name"] = stage_name
@@ -1797,10 +1829,10 @@ def command_workflow_run(
 
     rollback_payload: dict[str, object]
     rollback_last_failure: dict[str, object] | None = None
-    if finalized_status == "completed":
-        engine["status"] = "completed"
-        # En runs exitosos no ejecutamos rollback: reportamos rollback neutral
-        # para esta corrida y, si existe, exponemos el historial previo de forma separada.
+    if finalized_status in {"completed", "paused"}:
+        engine["status"] = finalized_status
+        # En runs exitosos o pausados no ejecutamos rollback: una pausa humana
+        # no representa fallo tecnico ni compensacion pendiente.
         existing_rb = engine.get("rollback")
         if isinstance(existing_rb, dict) and existing_rb:
             rollback_last_failure = dict(existing_rb)

@@ -332,6 +332,7 @@ def build_parser(
     workflow_run.add_argument("--pause-at-stage", help="Pause before executing the given stage.")
     workflow_run.add_argument("--resume-from-stage", help="Resume execution from the given stage.")
     workflow_run.add_argument("--retry-stage", help="Retry a specific failed stage and continue.")
+    workflow_run.add_argument("--human-gated", action="store_true", help="Pause instead of executing when central policy requires human approval.")
     add_workflow_orchestrator_args(workflow_run)
     workflow_run.add_argument("--json", action="store_true", help="Print the engine result as JSON.")
     workflow_run.set_defaults(func=commands["workflow_run"])

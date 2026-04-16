@@ -1583,6 +1583,7 @@ def command_workflow_run(args: argparse.Namespace) -> int:
         utc_now=utc_now,
         json_dumps=json_dumps,
         lock_backend_factory=lambda: flow_locks.SQLiteGlobalLockBackend(flow_locks.default_global_lock_db_path(ROOT), utc_now_fn=utc_now),
+        policy_check_callable=lambda **kwargs: flow_policy.policy_check_payload(rel=rel, **kwargs),
     )
 
 

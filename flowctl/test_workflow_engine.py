@@ -36,6 +36,7 @@ class WorkflowEngineTests(unittest.TestCase):
             "resume_from_stage": "",
             "retry_stage": "",
             "pause_at_stage": "",
+            "human_gated": False,
             "json": True,
             "orchestrator": "bmad",
             "force_orchestrator": False,
@@ -50,6 +51,113 @@ class WorkflowEngineTests(unittest.TestCase):
             return 0
 
         return _run
+
+    def test_human_gated_run_pauses_on_policy_block(self) -> None:
+        slug = "softos-autonomous-sdlc-execution-engine"
+
+        def _policy_block(**_kwargs: object) -> dict[str, object]:
+            return {
+                "stage": "plan",
+                "allowed": False,
+                "blocked_reasons": ["spec_approval:missing_approval"],
+                "next_required_actions": ["python3 ./flow spec approve softos-autonomous-sdlc-execution-engine"],
+            }
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = workflows.command_workflow_run(
+                self._args(human_gated=True),
+                require_dirs=lambda: None,
+                workspace_config={"project": {"workflow": {"default_orchestrator": "bmad", "force_orchestrator": True}}},
+                resolve_spec=lambda value: Path(value),
+                spec_slug=lambda path: path.name,
+                read_state=self._read_state,
+                write_state=self._write_state,
+                command_plan=self._callable_ok(),
+                command_slice_start=self._callable_ok(),
+                command_ci_spec=self._callable_ok(),
+                command_ci_repo=self._callable_ok(),
+                command_ci_integration=self._callable_ok(),
+                command_release_promote=self._callable_ok(),
+                command_release_verify=self._callable_ok(),
+                command_infra_apply=self._callable_ok(),
+                command_workflow_execute_feature=self._callable_ok(),
+                command_drift_check=self._callable_ok(),
+                command_contract_verify=self._callable_ok(),
+                command_spec_generate_contracts=self._callable_ok(),
+                plan_root=self.workflow_report_root,
+                workflow_report_root=self.workflow_report_root,
+                rel=lambda path: str(path),
+                utc_now=self._now,
+                json_dumps=lambda obj: json.dumps(obj, ensure_ascii=True),
+                policy_check_callable=_policy_block,
+            )
+
+        self.assertEqual(0, rc)
+        payload = json.loads(out.getvalue().strip())
+        self.assertEqual("paused", payload["status"])
+        self.assertEqual("paused", payload["engine_status"])
+        self.assertEqual("plan", self.state_store[slug]["workflow_engine"]["paused_at_stage"])
+        self.assertEqual("blocked", payload["stages"][0]["status"])
+        self.assertEqual(["spec_approval:missing_approval"], payload["stages"][0]["human_gate"]["blocked_reasons"])
+        self.assertEqual("idle", payload["rollback"]["status"])
+        self.assertEqual([], payload["workflow_dlq"])
+
+    def test_human_gated_resume_can_continue_after_policy_approval(self) -> None:
+        slug = "softos-autonomous-sdlc-execution-engine"
+        self.state_store[slug] = {
+            "workflow_engine": {
+                "status": "paused",
+                "updated_at": self._now(),
+                "paused_at_stage": "plan",
+                "stages": {
+                    "plan": {
+                        "stage_name": "plan",
+                        "status": "blocked",
+                        "attempt": 0,
+                        "failure_reason": "human-gate-blocked",
+                    }
+                },
+            }
+        }
+
+        def _policy_allow(**_kwargs: object) -> dict[str, object]:
+            return {"allowed": True, "blocked_reasons": [], "next_required_actions": []}
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = workflows.command_workflow_run(
+                self._args(human_gated=True, resume_from_stage="plan"),
+                require_dirs=lambda: None,
+                workspace_config={"project": {"workflow": {"default_orchestrator": "bmad", "force_orchestrator": True}}},
+                resolve_spec=lambda value: Path(value),
+                spec_slug=lambda path: path.name,
+                read_state=self._read_state,
+                write_state=self._write_state,
+                command_plan=self._callable_ok(),
+                command_slice_start=self._callable_ok(),
+                command_ci_spec=self._callable_ok(),
+                command_ci_repo=self._callable_ok(),
+                command_ci_integration=self._callable_ok(),
+                command_release_promote=self._callable_ok(),
+                command_release_verify=self._callable_ok(),
+                command_infra_apply=self._callable_ok(),
+                command_workflow_execute_feature=self._callable_ok(),
+                command_drift_check=self._callable_ok(),
+                command_contract_verify=self._callable_ok(),
+                command_spec_generate_contracts=self._callable_ok(),
+                plan_root=self.workflow_report_root,
+                workflow_report_root=self.workflow_report_root,
+                rel=lambda path: str(path),
+                utc_now=self._now,
+                json_dumps=lambda obj: json.dumps(obj, ensure_ascii=True),
+                policy_check_callable=_policy_allow,
+            )
+
+        self.assertEqual(0, rc)
+        payload = json.loads(out.getvalue().strip())
+        self.assertEqual("completed", payload["status"])
+        self.assertEqual("completed", payload["engine_status"])
 
     def test_pause_then_resume_continues(self) -> None:
         slug = "softos-autonomous-sdlc-execution-engine"
