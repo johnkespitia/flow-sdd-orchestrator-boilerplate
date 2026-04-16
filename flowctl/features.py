@@ -984,6 +984,7 @@ def command_slice_start(
     read_state: Callable[[str], dict[str, object]],
     write_state: Callable[[str, dict[str, object]], None],
     rel: Callable[[Path], str],
+    policy_check: Callable[..., dict[str, object]] | None = None,
 ) -> int:
     slug = slugify(args.spec)
     plan, selected, plan_path = load_plan_and_slice(slug, args.slice)
@@ -991,19 +992,33 @@ def command_slice_start(
     if not spec_path.is_absolute():
         spec_path = plan_path.parents[2] / spec_path
     state = read_state(slug)
-    plan_status = plan_approval_status_payload(
-        slug=slug,
-        spec_path=spec_path,
-        plan_path=plan_path,
-        state=state,
-        rel=rel,
-    )
-    if not bool(plan_status["approved"]):
-        reasons = ", ".join(str(item) for item in plan_status["invalid_reasons"]) or "not_approved"
-        raise SystemExit(
-            f"El plan de `{slug}` requiere aprobacion vigente antes de iniciar slices: {reasons}. "
-            f"Ejecuta `{plan_status['next_required_action']}`."
+    if policy_check is not None:
+        policy_status = policy_check(
+            stage="slice-start",
+            slug=slug,
+            spec_path=spec_path,
+            plan_path=plan_path,
+            state=state,
         )
+        if not bool(policy_status["allowed"]):
+            reasons = ", ".join(str(item) for item in policy_status["blocked_reasons"]) or "blocked"
+            actions = ", ".join(str(item) for item in policy_status["next_required_actions"])
+            action_hint = f" Ejecuta `{actions}`." if actions else ""
+            raise SystemExit(f"Policy bloqueo `slice start` para `{slug}`: {reasons}.{action_hint}")
+    else:
+        plan_status = plan_approval_status_payload(
+            slug=slug,
+            spec_path=spec_path,
+            plan_path=plan_path,
+            state=state,
+            rel=rel,
+        )
+        if not bool(plan_status["approved"]):
+            reasons = ", ".join(str(item) for item in plan_status["invalid_reasons"]) or "not_approved"
+            raise SystemExit(
+                f"El plan de `{slug}` requiere aprobacion vigente antes de iniciar slices: {reasons}. "
+                f"Ejecuta `{plan_status['next_required_action']}`."
+            )
 
     repo_path = Path(str(selected["repo_path"]))
     worktree = Path(str(selected["worktree"]))

@@ -20,6 +20,7 @@ from flowctl import features as flow_features
 from flowctl import gateway_ops as flow_gateway_ops
 from flowctl import locks as flow_locks
 from flowctl import memory_ops as flow_memory_ops
+from flowctl import policy as flow_policy
 from flowctl import skills_ops as flow_skills_ops
 from flowctl import specs as flow_specs
 from flowctl import stack_design as flow_stack_design
@@ -2401,6 +2402,18 @@ def command_plan_approval_status(args: argparse.Namespace) -> int:
     )
 
 
+def command_policy_check(args: argparse.Namespace) -> int:
+    return flow_policy.command_policy_check(
+        args,
+        resolve_spec=resolve_spec,
+        spec_slug=spec_slug,
+        plan_root=PLAN_ROOT,
+        read_state=read_state,
+        rel=rel,
+        json_dumps=json_dumps,
+    )
+
+
 def command_gateway_list(args: argparse.Namespace) -> int:
     return flow_gateway_ops.command_gateway_list(
         args,
@@ -2551,6 +2564,7 @@ def command_slice_start(args: argparse.Namespace) -> int:
             read_state=read_state,
             write_state=write_state,
             rel=rel,
+            policy_check=lambda **kwargs: flow_policy.policy_check_payload(rel=rel, **kwargs),
         )
 
     rc = flow_gateway_ops.run_with_remote_claim_heartbeat(
@@ -3045,6 +3059,7 @@ def build_parser() -> argparse.ArgumentParser:
         "plan": command_plan,
         "plan_approve": command_plan_approve,
         "plan_approval_status": command_plan_approval_status,
+        "policy_check": command_policy_check,
         "slice_start": command_slice_start,
         "slice_verify": command_slice_verify,
         "status": command_status,

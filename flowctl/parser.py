@@ -568,6 +568,19 @@ def build_parser(
     ci_integration.add_argument("--json", action="store_true", help="Print the integration report as JSON.")
     ci_integration.set_defaults(func=commands["ci_integration"])
 
+    policy = subparsers.add_parser("policy", help="Run central SoftOS policy checks for sensitive stages.")
+    policy_subparsers = policy.add_subparsers(dest="policy_command", required=True)
+    policy_check = policy_subparsers.add_parser("check", help="Check whether a spec may enter a sensitive stage.")
+    policy_check.add_argument("spec", help="Spec path or slug.")
+    policy_check.add_argument(
+        "--stage",
+        required=True,
+        choices=["plan", "slice-start", "workflow-run", "release"],
+        help="Sensitive stage to evaluate.",
+    )
+    policy_check.add_argument("--json", action="store_true", help="Print the policy decision as JSON.")
+    policy_check.set_defaults(func=commands["policy_check"])
+
     release = subparsers.add_parser("release", help="Manage release manifests, promotions and post-release verification.")
     release_subparsers = release.add_subparsers(dest="release_command", required=True)
     release_cut = release_subparsers.add_parser("cut", help="Create a release manifest.")

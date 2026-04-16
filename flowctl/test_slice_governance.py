@@ -440,6 +440,60 @@ targets:
     assert not worktree_root.exists()
 
 
+def test_slice_start_uses_injected_policy_before_worktree(tmp_path: Path) -> None:
+    plan_root = tmp_path / ".flow" / "plans"
+    report_root = tmp_path / ".flow" / "reports"
+    worktree_root = tmp_path / ".worktrees"
+    plan_root.mkdir(parents=True)
+    spec_path = _write_spec(tmp_path, "# demo\n")
+    (plan_root / "demo.json").write_text(
+        json.dumps(
+            {
+                "feature": "demo",
+                "spec_path": str(spec_path),
+                "slices": [
+                    {
+                        "name": "api",
+                        "repo": "api",
+                        "repo_path": str(tmp_path / "api"),
+                        "worktree": str(worktree_root / "api-demo-api"),
+                        "branch": "flow/demo-api",
+                        "targets": ["../../api/app/**"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def deny_policy(**_kwargs: object) -> dict[str, object]:
+        return {
+            "allowed": False,
+            "blocked_reasons": ["spec_approval:missing_approval"],
+            "next_required_actions": ["python3 ./flow spec approve demo"],
+        }
+
+    with pytest.raises(SystemExit, match="Policy bloqueo `slice start`"):
+        command_slice_start(
+            argparse.Namespace(spec="demo", slice="api"),
+            slugify=lambda value: value,
+            load_plan_and_slice=lambda slug, slice_name: load_plan_and_slice(
+                slug,
+                slice_name,
+                plan_root=plan_root,
+                rel=lambda path: str(path),
+            ),
+            worktree_root=worktree_root,
+            report_root=report_root,
+            read_state=lambda _slug: {},
+            write_state=lambda _slug, payload: None,
+            rel=lambda path: str(path),
+            policy_check=deny_policy,
+        )
+
+    assert not worktree_root.exists()
+
+
 def test_workflow_next_step_blocks_invalid_slice_governance(tmp_path: Path) -> None:
     spec_path = _write_spec(tmp_path, "# demo\n")
     analysis = {

@@ -173,8 +173,9 @@ Secuencia recomendada para agentes:
 2. Resolver spec objetivo y foundations (`specs/000-foundation/**`).
 3. Ejecutar gates (`spec review` / `spec approve` / `spec approval-status --json`) antes de planear.
 4. Ejecutar `flow plan`, luego `plan-approve` y `plan-approval-status --json` antes de iniciar slices.
-5. Ejecutar `ci spec`, luego `ci repo`/`ci integration`.
-6. No cerrar ciclo sin evidencia de `release verify`.
+5. Ejecutar `flow policy check <spec> --stage slice-start --json` antes de comandos sensibles.
+6. Ejecutar `ci spec`, luego `ci repo`/`ci integration`.
+7. No cerrar ciclo sin evidencia de `release verify`.
 
 ### 7.1 Memoria consultiva de agentes
 
