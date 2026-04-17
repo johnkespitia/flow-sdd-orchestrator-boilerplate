@@ -1336,6 +1336,10 @@ def command_slice_verify(
         "status": "passed" if not has_failures else "failed",
         "report": rel(report_path),
         "repo": repo_name,
+        "changed_files": changed_files,
+        "owned_patterns": owned_patterns,
+        "linked_test_patterns": linked_test_patterns,
+        "materialized_tests": materialized_tests,
         "verified_at": utc_now(),
     }
     write_state(slug, state)

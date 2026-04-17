@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import re
@@ -268,6 +269,91 @@ def _release_slice_findings(
             continue
         if not (root / report).exists():
             findings.append(f"La slice `{slice_name}` referencia un reporte inexistente: `{report}`.")
+    return findings
+
+
+def _release_scope_drift_findings(
+    slug: str,
+    state: dict[str, object],
+    analysis: dict[str, object],
+    *,
+    plan_root: Path,
+    root: Path,
+    rel: Callable[[Path], str],
+) -> list[str]:
+    plan_path = plan_root / f"{slug}.json"
+    if not plan_path.exists():
+        return [f"No existe plan para `{slug}`. Ejecuta `python3 ./flow plan {slug}` antes del release."]
+
+    try:
+        plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"El plan `{rel(plan_path)}` no contiene JSON valido: {exc}."]
+
+    slices = plan_payload.get("slices", [])
+    if not isinstance(slices, list) or not slices:
+        return [f"El plan `{rel(plan_path)}` no declara slices verificables."]
+
+    slice_results = state.get("slice_results", {})
+    if not isinstance(slice_results, dict):
+        slice_results = {}
+
+    target_index = analysis.get("target_index", {})
+    if not isinstance(target_index, dict):
+        target_index = {}
+    test_index = analysis.get("test_index", {})
+    if not isinstance(test_index, dict):
+        test_index = {}
+
+    findings: list[str] = []
+    for slice_payload in slices:
+        if not isinstance(slice_payload, dict):
+            continue
+        slice_name = str(slice_payload.get("name", "")).strip()
+        if not slice_name:
+            continue
+        result = slice_results.get(slice_name)
+        if not isinstance(result, dict):
+            findings.append(f"La slice `{slice_name}` no tiene inventario de scope drift; verifica la slice antes del release.")
+            continue
+        if "changed_files" not in result:
+            findings.append(
+                f"La slice `{slice_name}` fue verificada sin inventario `changed_files`; vuelve a ejecutar `slice verify`."
+            )
+            continue
+        raw_changed_files = result.get("changed_files", [])
+        if not isinstance(raw_changed_files, list):
+            findings.append(f"La slice `{slice_name}` tiene `changed_files` invalido; vuelve a ejecutar `slice verify`.")
+            continue
+        changed_files = [str(path).replace("\\", "/") for path in raw_changed_files if str(path).strip()]
+        if not changed_files:
+            continue
+        repo_name = str(result.get("repo") or slice_payload.get("repo") or "").strip()
+        if not repo_name:
+            findings.append(f"La slice `{slice_name}` no registra repo para validar scope drift.")
+            continue
+        allowed_patterns = [
+            str(item.get("relative", "")).replace("\\", "/")
+            for item in target_index.get(repo_name, [])
+            if isinstance(item, dict) and str(item.get("relative", "")).strip()
+        ]
+        allowed_patterns.extend(
+            str(item.get("relative", "")).replace("\\", "/")
+            for item in test_index.get(repo_name, [])
+            if isinstance(item, dict) and str(item.get("relative", "")).strip()
+        )
+        if not allowed_patterns:
+            findings.append(f"La spec `{slug}` no declara targets/tests para el repo `{repo_name}`.")
+            continue
+        unexpected = [
+            path
+            for path in changed_files
+            if not any(fnmatch.fnmatch(path, pattern) for pattern in allowed_patterns)
+        ]
+        findings.extend(
+            f"La slice `{slice_name}` cambio `{repo_name}:{path}` fuera de targets/tests aprobados."
+            for path in unexpected
+        )
     return findings
 
 
@@ -1037,6 +1123,17 @@ def command_release_cut(
         if slice_findings:
             joined = "\n".join(f"- {finding}" for finding in slice_findings)
             raise SystemExit(f"La feature `{slug}` no esta lista para release:\n{joined}")
+        scope_drift_findings = _release_scope_drift_findings(
+            slug,
+            state,
+            analysis,
+            plan_root=plan_root,
+            root=root,
+            rel=rel,
+        )
+        if scope_drift_findings:
+            joined = "\n".join(f"- {finding}" for finding in scope_drift_findings)
+            raise SystemExit(f"La feature `{slug}` tiene scope drift antes de release:\n{joined}")
         features.append(
             {
                 "slug": slug,

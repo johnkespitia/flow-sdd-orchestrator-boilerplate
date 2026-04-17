@@ -178,7 +178,8 @@ Secuencia recomendada para agentes:
 7. Ejecutar `flow evidence status <spec> --json` y `flow evidence bundle <spec> --json` para consolidar evidencia.
 8. Ejecutar `flow agent handoff <spec> --json` cuando otro agente deba retomar sin contexto del chat.
 9. Ejecutar `ci spec`, luego `ci repo`/`ci integration`.
-10. No cerrar ciclo sin evidencia de `release verify`.
+10. Antes de `release cut`, asegurar que cada `slice verify` sea reciente: el release bloquea si el inventario `changed_files` no existe o si toca rutas fuera de targets/tests aprobados.
+11. No cerrar ciclo sin evidencia de `release verify`.
 
 ### 7.0 Tooling externo
 

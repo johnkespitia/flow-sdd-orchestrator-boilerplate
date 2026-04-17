@@ -97,6 +97,7 @@ solo despues de un publish exitoso. Ambos quedan apagados por defecto en `worksp
 - `.tessl/**`: tile local de SDD centrado en root
 - `_bmad/`: instalación versionada del runtime BMAD del proyecto
 - `.flow/**`: estado operativo local del SDLC
+- `release cut`: gatea specs verificadas y bloquea scope drift si una slice cambio rutas fuera de `targets` o `[@test]`
 - `.agents/skills/softos-agent-memory-playbook/`: reglas para usar memoria de agentes sin reemplazar specs ni evidencia
 - `.devcontainer/**`: chasis reproducible con `workspace`, Engram y runtime packs listos para crecer
 - `.mcp.example.json`: plantilla opt-in para conectar Engram como MCP usando la misma memoria aislada del devcontainer
