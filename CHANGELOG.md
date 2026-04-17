@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.10.3 - 2026-04-17
+
+### Added
+
+- enforce scope drift before cut
+
 ## v0.10.2 - 2026-04-17
 
 ### Added
