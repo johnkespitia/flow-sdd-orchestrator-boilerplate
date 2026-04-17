@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.10.2 - 2026-04-17
+
+### Added
+
+- add handoff packages
+
 ## v0.10.1 - 2026-04-16
 
 ### Added
