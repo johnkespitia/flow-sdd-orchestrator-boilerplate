@@ -40,7 +40,7 @@ def _matching_reports(*, report_root: Path, slug: str, rel: Callable[[Path], str
             "size_bytes": path.stat().st_size,
             "mtime_ns": path.stat().st_mtime_ns,
         }
-        if item["kind"] == "evidence":
+        if item["kind"] in {"evidence", "agent-handoffs"}:
             continue
         if path.suffix == ".json":
             payload = _read_json(path)

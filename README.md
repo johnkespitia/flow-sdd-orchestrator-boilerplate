@@ -617,6 +617,7 @@ python3 ./flow policy check identity-bootstrap --stage slice-start --json
 python3 ./flow workflow run identity-bootstrap --human-gated --json
 python3 ./flow evidence status identity-bootstrap --json
 python3 ./flow evidence bundle identity-bootstrap --json
+python3 ./flow agent handoff identity-bootstrap --json
 python3 ./flow workflow execute-feature identity-bootstrap --start-slices --json
 python3 ./flow workflow next-step identity-bootstrap --json
 python3 ./flow ci spec --all

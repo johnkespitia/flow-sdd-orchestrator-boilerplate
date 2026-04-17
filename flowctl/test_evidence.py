@@ -19,10 +19,15 @@ class EvidenceTests(unittest.TestCase):
             spec_path.parent.mkdir(parents=True)
             plan_path.parent.mkdir(parents=True)
             (report_root / "ci").mkdir(parents=True)
+            (report_root / "agent-handoffs").mkdir(parents=True)
             spec_path.write_text("---\nname: Sample\nstatus: approved\n---\n# Sample\n", encoding="utf-8")
             plan_path.write_text('{"feature":"sample","slices":[]}\n', encoding="utf-8")
             (report_root / "ci" / "spec-sample.json").write_text(
                 json.dumps({"items": [{"spec": str(spec_path), "status": "passed"}]}),
+                encoding="utf-8",
+            )
+            (report_root / "agent-handoffs" / "sample-agent-handoff.json").write_text(
+                json.dumps({"feature": "sample"}),
                 encoding="utf-8",
             )
             state = {

@@ -870,6 +870,13 @@ def build_parser(
     evidence_bundle.add_argument("--json", action="store_true", help="Print evidence bundle as JSON.")
     evidence_bundle.set_defaults(func=commands["evidence_bundle"])
 
+    agent = subparsers.add_parser("agent", help="Prepare agent execution handoffs.")
+    agent_subparsers = agent.add_subparsers(dest="agent_command", required=True)
+    agent_handoff = agent_subparsers.add_parser("handoff", help="Write a self-contained handoff package for another agent.")
+    agent_handoff.add_argument("spec", help="Spec path or slug.")
+    agent_handoff.add_argument("--json", action="store_true", help="Print the agent handoff package as JSON.")
+    agent_handoff.set_defaults(func=commands["agent_handoff"])
+
     ops = subparsers.add_parser("ops", help="Operational observability commands (metrics, dashboards).")
     ops_subparsers = ops.add_subparsers(dest="ops_command", required=True)
     ops_metrics = ops_subparsers.add_parser("metrics", help="Print aggregated workflow metrics (throughput, failure_rate, latency, retries, DLQ).")

@@ -176,8 +176,9 @@ Secuencia recomendada para agentes:
 5. Ejecutar `flow policy check <spec> --stage slice-start --json` antes de comandos sensibles.
 6. Para ejecucion autonoma con aprobaciones humanas, usar `flow workflow run <spec> --human-gated --json`.
 7. Ejecutar `flow evidence status <spec> --json` y `flow evidence bundle <spec> --json` para consolidar evidencia.
-8. Ejecutar `ci spec`, luego `ci repo`/`ci integration`.
-9. No cerrar ciclo sin evidencia de `release verify`.
+8. Ejecutar `flow agent handoff <spec> --json` cuando otro agente deba retomar sin contexto del chat.
+9. Ejecutar `ci spec`, luego `ci repo`/`ci integration`.
+10. No cerrar ciclo sin evidencia de `release verify`.
 
 ### 7.0 Tooling externo
 
