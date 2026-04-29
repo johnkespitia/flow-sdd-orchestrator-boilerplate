@@ -385,6 +385,28 @@ def build_parser(
     skills_discover.add_argument("--json", action="store_true", help="Print the result as JSON.")
     skills_discover.set_defaults(func=commands["skills_discover"])
 
+    skills_autoskills = skills_subparsers.add_parser(
+        "autoskills",
+        help="Run `npx autoskills` as an optional detector/installer for project-required skills.",
+    )
+    skills_autoskills.add_argument(
+        "--path",
+        default=".",
+        help="Project directory where autoskills will detect technologies. Defaults to workspace root.",
+    )
+    skills_autoskills.add_argument(
+        "--apply",
+        action="store_true",
+        help="Install detected skills. Default mode is preview (`--dry-run`).",
+    )
+    skills_autoskills.add_argument(
+        "--agent",
+        action="append",
+        help="Target agent(s) passed to autoskills (e.g. codex, cursor, claude-code). Repeatable.",
+    )
+    skills_autoskills.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    skills_autoskills.set_defaults(func=commands["skills_autoskills"])
+
     skills_add = skills_subparsers.add_parser("add", help="Register a skill entry in `workspace.skills.json`.")
     skills_add.add_argument("name", help="Stable manifest name for the skill entry.")
     skills_add.add_argument("--provider", required=True, help="Provider id: `tessl` or `skills-sh`.")

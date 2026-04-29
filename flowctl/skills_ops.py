@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import shutil
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -318,6 +320,62 @@ def command_skills_discover(
         if desc:
             print(f"    {desc[:80]}{'...' if len(desc) > 80 else ''}")
     return 0
+
+
+def command_skills_autoskills(
+    args,
+    *,
+    root: Path,
+    json_dumps: Callable[[object], str],
+) -> int:
+    """
+    Wrapper opcional sobre `npx autoskills`.
+    - Por defecto ejecuta en modo `--dry-run`.
+    - Con `--apply`, instala skills detectadas en el agente indicado.
+    """
+    project_dir = Path(str(getattr(args, "path", ".") or ".")).expanduser()
+    if not project_dir.is_absolute():
+        project_dir = (root / project_dir).resolve()
+    if not project_dir.exists() or not project_dir.is_dir():
+        raise SystemExit(f"El path `{project_dir}` no existe o no es un directorio.")
+
+    command = ["npx", "-y", "autoskills", "--yes"]
+    if not bool(getattr(args, "apply", False)):
+        command.append("--dry-run")
+    agents = [str(a).strip() for a in (getattr(args, "agent", None) or []) if str(a).strip()]
+    if agents:
+        command.extend(["--agent", *agents])
+
+    env = dict(os.environ)
+    env["CI"] = env.get("CI", "1")
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=project_dir,
+            text=True,
+            capture_output=True,
+            check=False,
+            env=env,
+        )
+    except OSError as exc:
+        raise SystemExit(f"No pude ejecutar `npx autoskills`: {exc}") from exc
+
+    combined = (completed.stdout + "\n" + completed.stderr).strip()
+    output_tail = "\n".join(combined.splitlines()[-80:]) if combined else ""
+    payload = {
+        "mode": "apply" if bool(getattr(args, "apply", False)) else "dry-run",
+        "path": str(project_dir),
+        "command": command,
+        "returncode": int(completed.returncode),
+        "output_tail": output_tail,
+    }
+    if bool(getattr(args, "json", False)):
+        print(json_dumps(payload))
+    else:
+        print(f"autoskills mode={payload['mode']} path={payload['path']}")
+        print(f"command: {' '.join(shlex.quote(part) for part in command)}")
+        print(output_tail or "(sin salida)")
+    return int(completed.returncode)
 
 
 def command_skills_doctor(

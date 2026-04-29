@@ -413,6 +413,8 @@ python3 ./flow skills sync --dry-run
 python3 ./flow skills add team-review --provider skills-sh --source your-org/agent-skills --arg=--copy
 python3 ./flow skills add github-review --provider skills-sh --source your-org/agent-skills --require gh
 python3 ./flow skills install demo/skill --provider tessl --runtime go-api
+python3 ./flow skills autoskills --path . --json
+python3 ./flow skills autoskills --path . --agent codex --apply
 ```
 
 Los runtimes de `flow add-project` se resuelven desde `workspace.runtimes.json` y `runtimes/*.runtime.json`,

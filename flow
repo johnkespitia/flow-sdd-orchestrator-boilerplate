@@ -1769,6 +1769,14 @@ def command_skills_discover(args: argparse.Namespace) -> int:
     )
 
 
+def command_skills_autoskills(args: argparse.Namespace) -> int:
+    return flow_skills_ops.command_skills_autoskills(
+        args,
+        root=ROOT,
+        json_dumps=json_dumps,
+    )
+
+
 def command_skills_add(args: argparse.Namespace) -> int:
     return flow_skills_ops.command_skills_add(
         args,
@@ -3073,6 +3081,7 @@ def build_parser() -> argparse.ArgumentParser:
         "skills_list": command_skills_list,
         "skills_context": command_skills_context,
         "skills_discover": command_skills_discover,
+        "skills_autoskills": command_skills_autoskills,
         "skills_add": command_skills_add,
         "skills_sync": command_skills_sync,
         "skills_install": command_skills_install,

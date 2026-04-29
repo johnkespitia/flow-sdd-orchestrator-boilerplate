@@ -131,6 +131,8 @@ python3 ./flow skills sync --dry-run
 python3 ./flow skills sync --name <skill-name>
 python3 ./flow skills discover <query> --limit 10 --json
 python3 ./flow skills install <identifier> --provider <tessl|skills-sh> --runtime <runtime>
+python3 ./flow skills autoskills --path . --json
+python3 ./flow skills autoskills --path . --agent codex --apply
 ```
 
 Most local SoftOS playbooks intentionally use `"sync": false`; they should not be overwritten by a broad sync. Use `--name` when you intentionally want to refresh a specific entry.
