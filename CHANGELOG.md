@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.11.0 - 2026-04-29
+
+### Added
+
+- add optional autoskills integration and update tooling docs
+
 ## v0.10.3 - 2026-04-17
 
 ### Added
