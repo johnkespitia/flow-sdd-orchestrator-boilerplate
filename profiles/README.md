@@ -25,3 +25,5 @@ A profile owns:
 Core policies must remain project-neutral. Profiles may include
 project-specific conventions, but should avoid secrets and private links unless
 the profile is kept private/local.
+
+Usage/cost telemetry is enabled through `usage_telemetry` in each profile. The reporting contract requires progress-update checkpoints and closeout summaries, with every value labeled as `exact`, `provider_reconciled`, or `estimated`.

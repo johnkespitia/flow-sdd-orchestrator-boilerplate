@@ -25,3 +25,5 @@ Un profile define:
 Las politicas core deben permanecer neutrales al proyecto. Los profiles pueden
 incluir convenciones especificas, pero deben evitar secretos y enlaces privados
 salvo que el profile se mantenga privado/local.
+
+La telemetria de uso/costo se activa con `usage_telemetry` en cada profile. El contrato exige checkpoints en progress updates y resumen de closeout, marcando cada valor como `exact`, `provider_reconciled` o `estimated`.

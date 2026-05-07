@@ -19,6 +19,7 @@ repo-local planning formats, and communication surfaces.
 - `progress-and-communication.md` — progress/retry transparency and hypercommunication.
 - `pr-readiness.md` — branch/commit/PR readiness contract.
 - `automation.md` — dry-run-first automation model.
+- `usage-and-cost.md` — token/cost telemetry, budget gates, and final reports.
 
 ## Design rule
 

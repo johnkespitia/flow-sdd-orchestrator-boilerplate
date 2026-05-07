@@ -6,9 +6,17 @@
   "visibility": "open-source-example",
   "description": "Generic API ticket profile demonstrating how projects bind Harness Core to local conventions.",
   "work_item": {
-    "systems": ["issue-tracker"],
-    "key_patterns": ["PROJ-[0-9]+"],
-    "required_links": ["work item", "spec", "PR"]
+    "systems": [
+      "issue-tracker"
+    ],
+    "key_patterns": [
+      "PROJ-[0-9]+"
+    ],
+    "required_links": [
+      "work item",
+      "spec",
+      "PR"
+    ]
   },
   "repo_mirror": {
     "enabled": true,
@@ -17,14 +25,32 @@
   },
   "pull_request": {
     "title_pattern": "<type>: <ticket> - <summary>",
-    "required_body_sections": ["Summary", "Work Item", "Planning", "Validation", "Risks"],
+    "required_body_sections": [
+      "Summary",
+      "Work Item",
+      "Planning",
+      "Validation",
+      "Risks"
+    ],
     "label_discovery": "query_target_repo",
-    "required_labels": ["automation-assisted"],
-    "forbidden_manual_labels": ["do not merge", "security", "autorelease:*"],
+    "required_labels": [
+      "automation-assisted"
+    ],
+    "forbidden_manual_labels": [
+      "do not merge",
+      "security",
+      "autorelease:*"
+    ],
     "default_state": "draft_until_gates_pass"
   },
   "reviews": {
-    "required_gates": ["R1", "R2", "R3", "R4", "R5"]
+    "required_gates": [
+      "R1",
+      "R2",
+      "R3",
+      "R4",
+      "R5"
+    ]
   },
   "validation": {
     "e2e_default": "profile-defined",
@@ -32,11 +58,103 @@
     "non_applicability_requires_reason": true
   },
   "communication": {
-    "surfaces": ["PR", "work item", "owner thread", "planning artifact", "evidence registry"],
+    "surfaces": [
+      "PR",
+      "work item",
+      "owner thread",
+      "planning artifact",
+      "evidence registry"
+    ],
     "ledger_required": true
   },
   "automation": {
     "dry_run_first": true,
     "external_writes_default": "draft_only"
+  },
+  "usage_telemetry": {
+    "enabled": true,
+    "report_in_progress_updates": true,
+    "report_in_closeout": true,
+    "modes": [
+      "exact",
+      "provider_reconciled",
+      "estimated"
+    ],
+    "default_mode_when_unavailable": "estimated",
+    "checkpoint_triggers": [
+      "process_start",
+      "phase_start",
+      "phase_end",
+      "long_running_progress_update",
+      "retry_or_rerun",
+      "agent_handoff",
+      "external_tool_run",
+      "validation_or_deploy_run",
+      "closeout"
+    ],
+    "dimensions": [
+      "ticket",
+      "phase",
+      "gate",
+      "agent",
+      "process",
+      "model",
+      "tool",
+      "repo",
+      "mode"
+    ],
+    "progress_update_fields": [
+      "window",
+      "phase/gate",
+      "agent/process",
+      "mode",
+      "requests",
+      "input tokens",
+      "cached input tokens",
+      "output tokens",
+      "tool calls/sessions",
+      "cost",
+      "budget used",
+      "confidence",
+      "notes/caveats"
+    ],
+    "final_report_required": true,
+    "final_report_breakdown": [
+      "phase",
+      "gate",
+      "agent",
+      "model",
+      "tool",
+      "repo",
+      "mode"
+    ],
+    "budget": {
+      "enabled": true,
+      "currency": "usd",
+      "limit_source": "ticket/process override or operator config",
+      "default_limit": null,
+      "warn_at_percent": 70,
+      "pause_at_percent": 100,
+      "pause_requires_user_approval": true
+    },
+    "evidence": {
+      "default_json_path_template": "docs/evidence/{ticket}-usage-and-cost.json",
+      "default_markdown_path_template": "docs/evidence/{ticket}-usage-and-cost.md",
+      "include_in_closeout": true,
+      "redact_credentials": true,
+      "do_not_store_raw_prompts_by_default": true
+    },
+    "reconciliation": {
+      "provider_cost_is_financial_source_of_truth": true,
+      "provider_usage_may_lag": true,
+      "record_query_window": true,
+      "record_grouping_dimensions": true
+    },
+    "data_sources": [
+      "response usage object when available",
+      "provider usage/cost API when configured",
+      "local estimator/manual checkpoint when exact usage is unavailable"
+    ],
+    "reporting_command": "python3 scripts/harness/usage_report.py checkpoint --ticket PROJ-123 --profile example-api-ticket ..."
   }
 }
