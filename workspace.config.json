@@ -45,14 +45,19 @@
         "workspace.skills.json",
         "workspace.stack.json",
         "tessl.json",
-        "Makefile"
+        "Makefile",
+        "policies",
+        "profiles"
       ],
       "default_targets": [
         "../../specs/**/*.spec.md",
         "../../docs/**/*.md",
         "../../flow",
         "../../workspace.config.json",
-        "../../workspace.stack.json"
+        "../../workspace.stack.json",
+        "../../policies/**/*.md",
+        "../../profiles/**/*.md",
+        "../../profiles/**/*.json"
       ]
     }
   },

@@ -16,6 +16,7 @@ profiles.
 - Stdlib-only validator at `scripts/harness/validate_profile.py`.
 - Feature source spec at
   `specs/features/softos-harness-core-and-profiles.spec.md`.
+- Usage and Cost Harness policy at `policies/harness-core/usage-and-cost.md`.
 
 ## Why
 
@@ -28,7 +29,7 @@ allowing each project to bind the core to its own workflow.
 
 | Layer | Owns | Example |
 | --- | --- | --- |
-| Core | lifecycle, gates, reviewer contracts, evidence, progress, PR readiness concepts | R1-R5, empty open questions, dry-run first |
+| Core | lifecycle, gates, reviewer contracts, evidence, progress, PR readiness concepts, usage/cost telemetry | R1-R5, empty open questions, dry-run first, usage checkpoints |
 | Profile | local tools, repo conventions, labels, deploy/E2E commands, mirror format, communication surfaces | repository labels, staging command, E2E runner |
 
 ## Included profiles
@@ -51,7 +52,7 @@ The validator ensures:
 - core does not leak obvious project-private terms
 - profiles extend `policies/harness-core`
 - R1-R5 gates are declared
-- label discovery, communication ledger, and dry-run-first automation are present
+- label discovery, communication ledger, usage telemetry, and dry-run-first automation are present
 
 ## Adoption path
 

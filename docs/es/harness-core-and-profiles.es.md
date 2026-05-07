@@ -41,6 +41,14 @@ Los proyectos deberian crear perfiles privados para repositorios especificos,
 labels, sistemas de tickets, comandos de deploy, canales de comunicacion y
 runners de validacion.
 
+
+## Usage and Cost Harness
+
+El Harness Core incluye una politica de telemetria de uso/costo en
+`policies/harness-core/usage-and-cost.md`. Los profiles pueden activar
+`usage_telemetry` para emitir checkpoints en progress updates y resumen final,
+marcando cada valor como `exact`, `provider_reconciled` o `estimated`.
+
 ## Validacion
 
 ```bash

@@ -21,6 +21,7 @@ REQUIRED_CORE_FILES = [
     "progress-and-communication.md",
     "pr-readiness.md",
     "automation.md",
+    "usage-and-cost.md",
 ]
 
 REQUIRED_PROFILE_KEYS = [
@@ -34,6 +35,7 @@ REQUIRED_PROFILE_KEYS = [
     "validation",
     "communication",
     "automation",
+    "usage_telemetry",
 ]
 
 REQUIRED_GATES = {"R1", "R2", "R3", "R4", "R5"}
@@ -86,6 +88,39 @@ def discover_profiles(root: Path) -> list[str]:
     )
 
 
+def validate_usage_telemetry(profile_id: str, profile: dict) -> list[str]:
+    errors: list[str] = []
+    usage = profile.get("usage_telemetry", {})
+    if usage.get("enabled") is not True:
+        errors.append(f"profile {profile_id} must set usage_telemetry.enabled=true")
+    if usage.get("report_in_progress_updates") is not True:
+        errors.append(f"profile {profile_id} must report usage in progress updates")
+    if usage.get("report_in_closeout") is not True:
+        errors.append(f"profile {profile_id} must report usage in closeout")
+    modes = set(usage.get("modes", []))
+    missing_modes = {"exact", "provider_reconciled", "estimated"} - modes
+    if missing_modes:
+        errors.append(f"profile {profile_id} usage_telemetry missing modes: {sorted(missing_modes)}")
+    for key in ["checkpoint_triggers", "dimensions", "progress_update_fields", "final_report_breakdown"]:
+        if not usage.get(key):
+            errors.append(f"profile {profile_id} usage_telemetry.{key} must be non-empty")
+    if usage.get("final_report_required") is not True:
+        errors.append(f"profile {profile_id} must require a final usage/cost report")
+    budget = usage.get("budget", {})
+    if budget.get("enabled") is not True:
+        errors.append(f"profile {profile_id} usage_telemetry.budget.enabled must be true")
+    if budget.get("warn_at_percent") is None or budget.get("pause_at_percent") is None:
+        errors.append(f"profile {profile_id} usage_telemetry.budget must define warn_at_percent and pause_at_percent")
+    evidence = usage.get("evidence", {})
+    for key in ["default_json_path_template", "default_markdown_path_template"]:
+        if not evidence.get(key):
+            errors.append(f"profile {profile_id} usage_telemetry.evidence.{key} must be set")
+    reconciliation = usage.get("reconciliation", {})
+    if reconciliation.get("provider_cost_is_financial_source_of_truth") is not True:
+        errors.append(f"profile {profile_id} must identify provider-reconciled cost as financial source of truth")
+    return errors
+
+
 def validate_profile(root: Path, profile_id: str) -> list[str]:
     errors: list[str] = []
     profile_path = root / "profiles" / profile_id / "profile.json"
@@ -113,6 +148,7 @@ def validate_profile(root: Path, profile_id: str) -> list[str]:
     communication = profile.get("communication", {})
     if communication.get("ledger_required") is not True:
         errors.append(f"profile {profile_id} must require a communication ledger")
+    errors.extend(validate_usage_telemetry(profile_id, profile))
     return errors
 
 
