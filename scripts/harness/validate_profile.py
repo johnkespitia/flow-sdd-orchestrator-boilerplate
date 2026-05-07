@@ -42,13 +42,12 @@ REQUIRED_GATES = {"R1", "R2", "R3", "R4", "R5"}
 
 # These are allowed in profiles but should not appear in reusable core docs.
 CORE_FORBIDDEN_TERMS = [
-    "gametime",
-    "gametimesf",
-    "mobileapi",
-    "seeds-database",
-    "NUA-",
-    "BE-14825",
-    "go.postman.co/workspace",
+    "company-internal",
+    "internal-repo",
+    "private-ticket-",
+    "private-slack",
+    "private-postman-workspace",
+    "customer-data-example",
 ]
 
 
