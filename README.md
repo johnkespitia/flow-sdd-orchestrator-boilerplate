@@ -31,6 +31,50 @@ Base template to bootstrap a **Spec-Driven Delivery (SDD)** workspace with `flow
 - Core/profile validator in `scripts/harness/validate_profile.py`.
 - Bilingual docs policy (EN default + ES mirror) in `docs/documentation-i18n-policy.md`.
 
+## Harness Profiles: How To Use
+
+Profiles let you bind neutral harness policy to your real project conventions.
+
+1. Start from the example:
+   - `profiles/example-api-ticket/profile.json`
+2. Create your profile:
+   - `profiles/<your-profile-id>/profile.json`
+3. Keep private conventions private when needed (internal repo names, channels, links, deploy commands).
+4. Validate profile and core contract:
+   - `python3 scripts/harness/validate_profile.py --root . --json`
+5. Reference profile docs:
+   - `profiles/README.md`
+   - `docs/harness-core-and-profiles.md`
+
+Minimum profile responsibilities:
+
+- work-item and ticket key conventions
+- repository mirror format
+- PR labels and review/discovery behavior
+- staging/deploy/E2E automation details
+- communication ledger expectations
+
+## Feature Map (Added)
+
+- Harness Core policy pack:
+  - `policies/harness-core/*`
+- Profile contract and example:
+  - `profiles/<profile-id>/profile.json`
+  - `profiles/example-api-ticket/profile.json`
+- Core/profile validator:
+  - `scripts/harness/validate_profile.py`
+- Human implementation playbook:
+  - `docs/softos-human-implementation-step-by-step.md`
+- AI full-power operating guide:
+  - `docs/softos-ai-fullstack-usage-guide.md`
+- Documentation language policy + CI checks:
+  - `docs/documentation-i18n-policy.md`
+  - `scripts/ci/validate_docs_i18n.py`
+- Optional autoskills integration:
+  - discover: `python3 ./flow skills discover <query> --json`
+  - install: `python3 ./flow skills install <identifier> --provider <tessl|skills-sh> --runtime <runtime>`
+  - context: `python3 ./flow skills context --repo <repo> --json`
+
 ## What Is Included
 
 - `flow`: workspace CLI for `stack`, `tessl`, `skills`, `bmad`, `memory`, `workflow`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `submodule`, `secrets`, `drift`, `status`.

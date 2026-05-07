@@ -47,6 +47,50 @@ No es un producto específico. Es una base reusable para crear workspaces agenti
 - Documentación de adopción en [docs/harness-core-and-profiles.md](docs/harness-core-and-profiles.md).
 - Política de documentación bilingüe (EN default + ES mirror) en [docs/documentation-i18n-policy.md](docs/documentation-i18n-policy.md).
 
+## Uso de Harness Profiles (paso a paso)
+
+Los profiles conectan la política neutral del core con las convenciones reales de tu proyecto.
+
+1. Parte del ejemplo:
+   - `profiles/example-api-ticket/profile.json`
+2. Crea tu profile:
+   - `profiles/<tu-profile-id>/profile.json`
+3. Mantén privados los datos sensibles cuando aplique (repos internos, canales, links, comandos de deploy).
+4. Valida contrato core/profile:
+   - `python3 scripts/harness/validate_profile.py --root . --json`
+5. Consulta documentación de soporte:
+   - `profiles/README.md`
+   - `docs/harness-core-and-profiles.md`
+
+Responsabilidades mínimas del profile:
+
+- convenciones de work-item y ticket keys
+- formato de mirror de repositorios
+- labels de PR y reglas de review/discovery
+- detalles de automatización staging/deploy/E2E
+- expectativas de communication ledger
+
+## Mapa de features agregadas
+
+- Policy pack Harness Core:
+  - `policies/harness-core/*`
+- Contrato de profiles y ejemplo:
+  - `profiles/<profile-id>/profile.json`
+  - `profiles/example-api-ticket/profile.json`
+- Validador core/profile:
+  - `scripts/harness/validate_profile.py`
+- Guía humana de implementación:
+  - `docs/softos-human-implementation-step-by-step.md`
+- Guía de operación full-power para IA:
+  - `docs/softos-ai-fullstack-usage-guide.md`
+- Política de idioma y validación CI:
+  - `docs/documentation-i18n-policy.md`
+  - `scripts/ci/validate_docs_i18n.py`
+- Integración opcional de autoskills:
+  - discovery: `python3 ./flow skills discover <query> --json`
+  - instalación: `python3 ./flow skills install <identifier> --provider <tessl|skills-sh> --runtime <runtime>`
+  - contexto por repo: `python3 ./flow skills context --repo <repo> --json`
+
 ### Herramientas externas
 
 El devcontainer instala pnpm, Tessl CLI, BMAD CLI y Engram. Por defecto toma `latest` al
