@@ -95,6 +95,22 @@ python3 ./flow stack ps
 
 Treat "container up + app down" as not ready; run runtime-specific readiness checks before closing.
 
+### 7) Multi-agent execution contract (when requested)
+
+When the user explicitly requests multi-agent execution:
+
+1. Define disjoint slices by explicit write ownership.
+2. Assign one agent per slice.
+3. Require per-agent handoff artifacts with evidence.
+4. Enforce gate progression:
+   - `G2` before coding
+   - `G3` after implementation diff artifact
+   - `G4` after validation evidence
+   - `G5` before PR/promotion
+   - `G6` at closeout
+5. If ownership overlap appears, re-slice before continuing.
+6. Do not close multi-agent execution without handoff artifacts for every slice.
+
 ## Rules
 
 - Prefer `flow workflow ...` as the primary BMAD entrypoint.
