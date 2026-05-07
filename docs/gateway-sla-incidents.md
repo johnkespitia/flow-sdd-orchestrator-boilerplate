@@ -1,5 +1,10 @@
 # SLA de procesamiento de tasks (gateway) y política de incidentes (T22)
 
+Spanish mirror: [docs/es/gateway-sla-incidents.es.md](./es/gateway-sla-incidents.es.md)
+
+Source: `docs/gateway-sla-incidents.md`  
+Last updated: 2026-05-06
+
 ## Métricas
 
 - `GET /metrics` del gateway incluye `gateway_intent_metrics.by_intent_provider` con `avg_latency_seconds`, `p95_latency_seconds`, `failure_rate` por par `(source, intent)`.

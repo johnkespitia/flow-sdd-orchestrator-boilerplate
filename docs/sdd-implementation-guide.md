@@ -1,5 +1,10 @@
 # SDD Implementation Guide
 
+Spanish mirror: [docs/es/sdd-implementation-guide.es.md](./es/sdd-implementation-guide.es.md)
+
+Source: `docs/sdd-implementation-guide.md`  
+Last updated: 2026-05-06
+
 Guia completa de la implementacion actual de `Spec As Source` y de la orquestacion IA en
 `workspace-root`.
 

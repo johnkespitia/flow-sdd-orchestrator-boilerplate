@@ -1,3 +1,8 @@
+Spanish mirror: [docs/es/softos-recovery-playbook.es.md](./es/softos-recovery-playbook.es.md)
+
+Source: `docs/softos-recovery-playbook.md`  
+Last updated: 2026-05-06
+
 ## SoftOS Recovery Playbook
 
 ### 1. Clasificación de fallos
@@ -195,4 +200,3 @@ Uso:
 7. **Reintentar workflow**
    - Una vez resueltos los pendientes:
      - Ejecutar de nuevo `python3 ./flow workflow run <slug> --json` o usar `workflow retry`/`resume` según convenga.
-

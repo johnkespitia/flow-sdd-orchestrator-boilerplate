@@ -1,5 +1,10 @@
 # Contrato oficial: perfil `smoke:ci-clean` (Ola C / T07)
 
+Spanish mirror: [docs/es/smoke-ci-clean-contract.es.md](./es/smoke-ci-clean-contract.es.md)
+
+Source: `docs/smoke-ci-clean-contract.md`  
+Last updated: 2026-05-06
+
 ## Alcance
 
 El perfil `smoke:ci-clean` de `python3 ./flow ci integration` es el **gate de integración estricto** del workspace: valida Compose, opcionalmente levanta el stack (`--auto-up`), ejecuta comprobaciones de **preflight** por runtime y **smoke** por servicio, y **bloquea** el pipeline si cualquier check termina en `FAIL`.

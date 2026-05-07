@@ -1,10 +1,15 @@
 # Workflow Stage Engine Contract
 
-## Stage Order
+Spanish mirror: [docs/es/workflow-stage-engine-contract.es.md](./es/workflow-stage-engine-contract.es.md)
+
+Source: `docs/workflow-stage-engine-contract.md`  
+Last updated: 2026-05-07
+
+## Stage order
 
 `plan -> slice_start -> ci_spec -> ci_repo -> ci_integration -> release_promote -> release_verify -> infra_apply`
 
-## Persisted Stage Record
+## Persisted stage record
 
 Each stage persists:
 
@@ -19,7 +24,7 @@ Each stage persists:
 
 State lives in `.flow/state/<slug>.json` under `workflow_engine`.
 
-## Operational Controls
+## Operational controls
 
 - Pause at stage:
   - `python3 ./flow workflow pause <slug> --stage <stage> --json`
@@ -31,13 +36,13 @@ State lives in `.flow/state/<slug>.json` under `workflow_engine`.
   - `python3 ./flow workflow retry <slug> --stage <stage> --json`
   - `python3 ./flow workflow run <slug> --retry-stage <stage> --json`
 
-## Idempotency Rules
+## Idempotency rules
 
 - If a stage is already `passed`, future runs mark it `skipped` unless explicitly retried.
 - Retry increments `attempt` for the selected stage and continues execution.
 - Failed stages stop the engine and preserve deterministic `failure_reason`.
 
-## Gateway Callbacks
+## Gateway callbacks
 
 If `SOFTOS_GATEWAY_WORKFLOW_CALLBACK_URL` is configured, the engine emits:
 
@@ -46,22 +51,22 @@ If `SOFTOS_GATEWAY_WORKFLOW_CALLBACK_URL` is configured, the engine emits:
 - `stage_failed`
 - `finalized`
 
-## Multiagent Scheduler
+## Multiagent scheduler
 
 - During `slice_start`, the engine can run concurrent workers with queue controls.
 - Scheduler report files:
   - `.flow/reports/workflows/<slug>-scheduler.json`
   - `.flow/reports/workflows/<slug>-scheduler.md`
-- Report includes queue size, capacity limits, wait reasons, semantic locks, DLQ and traceability (`spec -> slice -> worker -> resultado`).
+- Report includes queue size, capacity limits, wait reasons, semantic locks, DLQ and traceability (`spec -> slice -> worker -> result`).
 
-## Quality Gates
+## Quality gates
 
-- `workflow run` now includes additive fields:
-  - `quality_checkpoints`: resultado por checkpoint (required/status/reason)
-  - `quality`: riesgo agregado, umbrales, scores por slice y matriz `spec->slice->commit->test->release`
-- Checkpoints requeridos dependen de etapa + riesgo (`low|medium|high|critical`) y bloquean avance cuando fallan.
-- Enforcement API/DTO:
-  - si hay cambios `api/dto/contract/schema`, en `ci_spec` se exige:
+- `workflow run` includes additive fields:
+  - `quality_checkpoints`: result by checkpoint (required/status/reason)
+  - `quality`: aggregated risk, thresholds, slice scores, and matrix `spec->slice->commit->test->release`
+- Required checkpoints depend on stage + risk (`low|medium|high|critical`) and block progression when failing.
+- API/DTO enforcement:
+  - if there are `api/dto/contract/schema` changes, `ci_spec` requires:
     - `spec generate-contracts`
     - `contract verify`
-  - failure reason queda auditado como `checkpoint-failed:<checkpoint>:<reason>`.
+  - failure reason is audited as `checkpoint-failed:<checkpoint>:<reason>`.

@@ -1,5 +1,10 @@
 # SoftOS Full Workflow
 
+Spanish mirror: [docs/es/softos-full-workflow.es.md](./es/softos-full-workflow.es.md)
+
+Source: `docs/softos-full-workflow.md`  
+Last updated: 2026-05-06
+
 Este documento resume el workflow completo que el SoftOS soporta hoy, sin hablar de una visión
 futura. Todo lo que aparece aquí ya existe en `flow`, en el stack del devcontainer o en el gateway.
 

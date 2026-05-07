@@ -22,6 +22,7 @@ Plantilla base para levantar un workspace **Spec-Driven Delivery (SDD)** con `fl
 - [Perfiles master/slave](#perfiles-de-bootstrap-master-y-slave)
 - [Después de crear tu workspace](#después-de-crear-tu-workspace)
 - [Gateway de Integraciones](#gateway-de-integraciones)
+- [Nuevas funcionalidades](#nuevas-funcionalidades)
 - [Contribuir](./CONTRIBUTING.md)
 - [Seguridad](./SECURITY.md)
 - [Código de conducta](./CODE_OF_CONDUCT.md)
@@ -36,6 +37,15 @@ Template repo para levantar un workspace de `Spec As Source` con:
 - repos de implementación separados del root del workspace
 
 No es un producto específico. Es una base reusable para crear workspaces agentic y spec-driven.
+
+## Nuevas funcionalidades
+
+- Harness Core reusable policy pack en `policies/harness-core/`.
+- Project profiles contract en `profiles/<profile-id>/profile.json`.
+- Example profile OSS-safe en `profiles/example-api-ticket/profile.json`.
+- Validador de core/profile en `scripts/harness/validate_profile.py`.
+- Documentación de adopción en [docs/harness-core-and-profiles.md](docs/harness-core-and-profiles.md).
+- Política de documentación bilingüe (EN default + ES mirror) en [docs/documentation-i18n-policy.md](docs/documentation-i18n-policy.md).
 
 ### Herramientas externas
 

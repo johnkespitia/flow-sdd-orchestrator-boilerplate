@@ -1,5 +1,10 @@
 # Multiagent Locking Policy
 
+Spanish mirror: [docs/es/multiagent-locking-policy.es.md](./es/multiagent-locking-policy.es.md)
+
+Source: `docs/multiagent-locking-policy.md`  
+Last updated: 2026-05-06
+
 ## Lock Rules
 
 | Lock type | Scope | TTL | Acquire | Release |

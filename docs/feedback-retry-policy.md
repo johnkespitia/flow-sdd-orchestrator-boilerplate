@@ -1,5 +1,10 @@
 # Política de reintentos: feedback a providers externos (Ola B / T06)
 
+Spanish mirror: [docs/es/feedback-retry-policy.es.md](./es/feedback-retry-policy.es.md)
+
+Source: `docs/feedback-retry-policy.md`  
+Last updated: 2026-05-06
+
 ## Comportamiento
 
 `gateway/app/feedback.py` ejecuta el script del provider (`workspace.providers.json` → `feedback.providers.*.entrypoint`) con reintentos ante fallos **transitorios**.

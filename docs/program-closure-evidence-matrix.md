@@ -1,5 +1,10 @@
 # Matriz de evidencia de cierre del programa
 
+Spanish mirror: [docs/es/program-closure-evidence-matrix.es.md](./es/program-closure-evidence-matrix.es.md)
+
+Source: `docs/program-closure-evidence-matrix.md`  
+Last updated: 2026-05-06
+
 Esta tabla fija la evidencia versionada de los ítems de cierre ya resueltos en `softos-program-closure-and-operational-readiness`.
 La intención es que el artefacto sea consumible por humanos y verificable por CI, sin depender de estado efímero en `.flow/**`.
 

@@ -1,5 +1,10 @@
 # Quality Gates Risk Policy
 
+Spanish mirror: [docs/es/quality-gates-risk-policy.es.md](./es/quality-gates-risk-policy.es.md)
+
+Source: `docs/quality-gates-risk-policy.md`  
+Last updated: 2026-05-06
+
 ## Umbrales de riesgo
 
 | Risk level | Reglas deterministicas | Umbral score minimo |

@@ -1,5 +1,10 @@
 # SoftOS Agent & Dev Handbook
 
+Spanish mirror: [docs/es/softos-agent-dev-handbook.es.md](./es/softos-agent-dev-handbook.es.md)
+
+Source: `docs/softos-agent-dev-handbook.md`  
+Last updated: 2026-05-06
+
 Esta guía concentra el proceso operativo completo para que cualquier agente o developer pueda usar este SoftOS de punta a punta sin adivinar pasos.
 
 ## 1) Modelo mental

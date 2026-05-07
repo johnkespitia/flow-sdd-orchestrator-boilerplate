@@ -1,5 +1,10 @@
 # Spec-Driven Orchestration
 
+Spanish mirror: [docs/es/spec-driven-orchestration.es.md](./es/spec-driven-orchestration.es.md)
+
+Source: `docs/spec-driven-orchestration.md`  
+Last updated: 2026-05-06
+
 Este workspace usa un modelo de `Spec As Source` centralizado en el root y una capa operativa
 ligera para orquestar el SDLC.
 

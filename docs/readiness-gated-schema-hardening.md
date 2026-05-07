@@ -1,5 +1,10 @@
 # Readiness-Gated Schema Hardening
 
+Spanish mirror: [docs/es/readiness-gated-schema-hardening.es.md](./es/readiness-gated-schema-hardening.es.md)
+
+Source: `docs/readiness-gated-schema-hardening.md`  
+Last updated: 2026-05-06
+
 This note captures the reusable SoftOS pattern for schema hardening that depends on real data quality.
 
 ## Use this when

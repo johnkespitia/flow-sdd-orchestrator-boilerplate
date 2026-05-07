@@ -1,5 +1,10 @@
 # Spec-Driven SDLC Map
 
+Spanish mirror: [docs/es/spec-driven-sdlc-map.es.md](./es/spec-driven-sdlc-map.es.md)
+
+Source: `docs/spec-driven-sdlc-map.md`  
+Last updated: 2026-05-06
+
 Nota:
 
 - el boilerplate nace sin repos de implementacion

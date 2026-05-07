@@ -1,3 +1,8 @@
+Spanish mirror: [docs/es/softos-operations-runbook.es.md](./es/softos-operations-runbook.es.md)
+
+Source: `docs/softos-operations-runbook.md`  
+Last updated: 2026-05-06
+
 ## SoftOS Operations Runbook
 
 ### 1. Métricas operativas (`/metrics` en gateway + `flow ops metrics`)

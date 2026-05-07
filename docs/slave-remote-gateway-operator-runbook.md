@@ -1,5 +1,10 @@
 # Runbook: operador `slave` contra gateway remoto
 
+Spanish mirror: [docs/es/slave-remote-gateway-operator-runbook.es.md](./es/slave-remote-gateway-operator-runbook.es.md)
+
+Source: `docs/slave-remote-gateway-operator-runbook.md`  
+Last updated: 2026-05-06
+
 ## Objetivo
 
 Operar un workspace `slave` conectado a un gateway `master` remoto para tomar una spec/intake,

@@ -1,5 +1,10 @@
 # Spec Registry State Contract
 
+Spanish mirror: [docs/es/spec-registry-state-contract.es.md](./es/spec-registry-state-contract.es.md)
+
+Source: `docs/spec-registry-state-contract.md`  
+Last updated: 2026-05-06
+
 ## Estados obligatorios
 
 Cadena valida y estricta:

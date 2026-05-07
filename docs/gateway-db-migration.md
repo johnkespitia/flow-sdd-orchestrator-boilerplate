@@ -1,3 +1,8 @@
+Spanish mirror: [docs/es/gateway-db-migration.es.md](./es/gateway-db-migration.es.md)
+
+Source: `docs/gateway-db-migration.md`  
+Last updated: 2026-05-06
+
 ## Gateway DB Migration (SQLite -> Postgres)
 
 ### Objetivo
@@ -81,4 +86,3 @@ python3 scripts/gateway_db_verify.py \
   --sqlite-path "$SOFTOS_GATEWAY_DB" \
   --target-url "sqlite:///$(pwd)/gateway/data/tasks.rollback.db"
 ```
-

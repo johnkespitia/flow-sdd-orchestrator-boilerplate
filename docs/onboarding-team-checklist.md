@@ -1,10 +1,15 @@
-# Checklist de onboarding — operación SoftOS (T25)
+# Onboarding Checklist - SoftOS Operations (T25)
 
-- [ ] Acceso al repositorio y política de ramas acordada.
-- [ ] `python3 ./flow doctor` sin errores bloqueantes en máquina local.
-- [ ] Tokens: `SOFTOS_GATEWAY_API_TOKEN` (si API), secretos GitHub/Jira/Slack según rol.
-- [ ] Webhooks apuntando al gateway correcto (`/webhooks/*`) y firma/HMAC verificada.
-- [ ] Ejecutar `python3 ./flow ci integration --profile smoke:ci-clean --auto-up --json` en entorno de prueba.
-- [ ] Leer `docs/gateway-central-deployment-runbook.md` si operas gateway central.
-- [ ] Saber ubicación de métricas: `GET /metrics`, `flow ops metrics`, `flow ops sla`.
-- [ ] Saber decisión registrada: `flow ops decision-log list --limit 20 --json`.
+Spanish mirror: [docs/es/onboarding-team-checklist.es.md](./es/onboarding-team-checklist.es.md)
+
+Source: `docs/onboarding-team-checklist.md`  
+Last updated: 2026-05-07
+
+- [ ] Repository access and branch policy agreed.
+- [ ] `python3 ./flow doctor` has no blocking errors on local machine.
+- [ ] Tokens ready: `SOFTOS_GATEWAY_API_TOKEN` (if API), plus GitHub/Jira/Slack secrets by role.
+- [ ] Webhooks point to correct gateway (`/webhooks/*`) and signature/HMAC is verified.
+- [ ] Run `python3 ./flow ci integration --profile smoke:ci-clean --auto-up --json` in a test environment.
+- [ ] Read `docs/gateway-central-deployment-runbook.md` if you operate the central gateway.
+- [ ] Know metrics locations: `GET /metrics`, `flow ops metrics`, `flow ops sla`.
+- [ ] Know decision log command: `flow ops decision-log list --limit 20 --json`.

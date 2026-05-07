@@ -1,5 +1,10 @@
 # Global Lock Manager
 
+Spanish mirror: [docs/es/global-lock-manager.es.md](./es/global-lock-manager.es.md)
+
+Source: `docs/global-lock-manager.md`  
+Last updated: 2026-05-06
+
 ## Objetivo
 
 Coordinar locks persistentes entre `workflow run` distintos para evitar colisiones cross-run sobre el mismo `semantic_lock`, `hot_area` o repo legacy sin desactivar el paralelismo fino dentro de una misma spec.

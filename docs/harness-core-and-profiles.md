@@ -1,13 +1,27 @@
 # SoftOS Harness Core and Profiles
 
+Spanish mirror: [docs/es/harness-core-and-profiles.es.md](./es/harness-core-and-profiles.es.md)
+
+Source: `docs/harness-core-and-profiles.md`  
+Last updated: 2026-05-07
+
 This package separates reusable Harness Core policy from project-specific
 profiles.
+
+## What is new
+
+- Reusable policy pack at `policies/harness-core/*`.
+- Project profile contract at `profiles/<profile-id>/profile.json`.
+- Open-source-safe profile example at `profiles/example-api-ticket/profile.json`.
+- Stdlib-only validator at `scripts/harness/validate_profile.py`.
+- Feature source spec at
+  `specs/features/softos-harness-core-and-profiles.spec.md`.
 
 ## Why
 
 Harness practices often mix universal delivery controls with local conventions
 such as repository labels, deploy commands, E2E runners, ticket systems, and
-communication tools. This split keeps the reusable policy open-source-safe while
+communication tools. This split keeps reusable policy open-source-safe while
 allowing each project to bind the core to its own workflow.
 
 ## Core vs profile
@@ -19,11 +33,11 @@ allowing each project to bind the core to its own workflow.
 
 ## Included profiles
 
-- `profiles/example-api-ticket/profile.json` — open-source-safe example profile.
+- `profiles/example-api-ticket/profile.json` - open-source-safe example profile.
 
-Projects should create their own private profiles for organization-specific
-repositories, labels, ticket systems, deploy commands, communication channels,
-and validation runners.
+Projects should create private profiles for organization-specific repositories,
+labels, ticket systems, deploy commands, communication channels, and validation
+runners.
 
 ## Validation
 
@@ -43,7 +57,5 @@ The validator ensures:
 
 1. Copy or vendor the core policies.
 2. Start with `profiles/example-api-ticket/profile.json` as a template.
-3. Create a private project profile outside public source control if it contains
-   internal repository names, ticket-system URLs, deploy commands, or channel
-   references.
+3. Keep private profile data outside public source control when needed.
 4. Run the validator in CI or before publishing profile changes.

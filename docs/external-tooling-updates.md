@@ -1,5 +1,10 @@
 # External Tooling Updates
 
+Spanish mirror: [docs/es/external-tooling-updates.es.md](./es/external-tooling-updates.es.md)
+
+Source: `docs/external-tooling-updates.md`  
+Last updated: 2026-05-06
+
 SoftOS uses external tooling in three separate layers:
 
 - container-installed binaries: pnpm, Tessl CLI, BMAD CLI and Engram

@@ -1,5 +1,10 @@
 # Staging Promote Preflight
 
+Spanish mirror: [docs/es/staging-promote-preflight.es.md](./es/staging-promote-preflight.es.md)
+
+Source: `docs/staging-promote-preflight.md`  
+Last updated: 2026-05-06
+
 Use this playbook when promoting work to `staging` in SoftOS.
 
 ## The four gates

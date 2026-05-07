@@ -1,5 +1,10 @@
 # Flow JSON Contract
 
+Spanish mirror: [docs/es/flow-json-contract.es.md](./es/flow-json-contract.es.md)
+
+Source: `docs/flow-json-contract.md`  
+Last updated: 2026-05-06
+
 `flow` sigue entregando salida legible por humanos por defecto, pero los comandos operativos del
 control plane aceptan `--json` para agentes, CI y tooling.
 

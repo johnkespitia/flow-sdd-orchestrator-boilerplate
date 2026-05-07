@@ -1,5 +1,10 @@
 # Payloads canónicos de webhooks (gateway)
 
+Spanish mirror: [docs/es/webhook-canonical-payloads.es.md](./es/webhook-canonical-payloads.es.md)
+
+Source: `docs/webhook-canonical-payloads.md`  
+Last updated: 2026-05-06
+
 Este documento cumple el criterio de **runbook operativo con payloads canónicos** para integraciones Jira, GitHub y Slack contra `gateway/`. Los ejemplos son mínimos y alineados con `gateway/tests/fixtures/*_v1.*` y con la validación en `gateway/app/webhook_validation.py`.
 
 ## Convenciones comunes

@@ -1,5 +1,10 @@
 # SoftOS PR Promotion & Deploy Runbook
 
+Spanish mirror: [docs/es/softos-pr-promotion-runbook.es.md](./es/softos-pr-promotion-runbook.es.md)
+
+Source: `docs/softos-pr-promotion-runbook.md`  
+Last updated: 2026-05-06
+
 Usa este patrón cuando un repo de implementación promueve cambios por Pull Request entre ramas de entorno
 (`release|integration -> staging`, `staging -> main`, u otra política equivalente donde `main` sea terminal) y SoftOS debe disparar la promoción
 desde `flow release promote` usando el provider `github-actions`.

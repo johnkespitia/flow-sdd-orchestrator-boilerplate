@@ -1,13 +1,18 @@
-# Ajuste de `flow secrets scan` (T21)
+# `flow secrets scan` Tuning (T21)
 
-## Falsos positivos
+Spanish mirror: [docs/es/secret-scan-tuning.es.md](./es/secret-scan-tuning.es.md)
 
-- Variable de entorno `FLOW_SECRET_SCAN_EXTRA_PLACEHOLDER_SUBSTRINGS`: lista separada por comas de subcadenas que deben tratarse como **placeholder** en valores candidatos (reduce FP en código de UI o docs).
+Source: `docs/secret-scan-tuning.md`  
+Last updated: 2026-05-07
 
-## Heurística
+## False positives
 
-- `secret_value_looks_placeholder` marca valores que parecen código, JSX, placeholders o tokens listados.
+- Environment variable `FLOW_SECRET_SCAN_EXTRA_PLACEHOLDER_SUBSTRINGS`: comma-separated list of substrings to treat as **placeholders** in candidate values (reduces false positives in UI code or docs).
 
-## Pruebas
+## Heuristic
 
-- Ver `flowctl/test_secret_scan_ola_d.py` para casos controlados.
+- `secret_value_looks_placeholder` marks values that look like code, JSX, placeholders, or listed token patterns.
+
+## Tests
+
+- See `flowctl/test_secret_scan_ola_d.py` for controlled cases.

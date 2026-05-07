@@ -1,5 +1,10 @@
 # Registro de trazabilidad de olas (programa SoftOS)
 
+Spanish mirror: [docs/es/program-wave-log.es.md](./es/program-wave-log.es.md)
+
+Source: `docs/program-wave-log.md`  
+Last updated: 2026-05-06
+
 Notas de gobernanza y numeración; no sustituye `specs/features/softos-program-master-plan.spec.md`.
 
 ## 2026-03-27 — Corrección de numeración (sin cambio funcional)

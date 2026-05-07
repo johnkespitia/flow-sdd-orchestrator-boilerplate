@@ -1,5 +1,10 @@
 # Process And Integrations Runbook
 
+Spanish mirror: [docs/es/process-and-integrations-runbook.es.md](./es/process-and-integrations-runbook.es.md)
+
+Source: `docs/process-and-integrations-runbook.md`  
+Last updated: 2026-05-06
+
 ## Payloads canónicos (copy/paste)
 
 Para ejemplos mínimos alineados con fixtures y validación del gateway, ver:

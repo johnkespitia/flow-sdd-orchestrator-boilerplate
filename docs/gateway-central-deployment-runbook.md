@@ -1,5 +1,10 @@
 # Runbook: despliegue portable del gateway (Ola B / T05)
 
+Spanish mirror: [docs/es/gateway-central-deployment-runbook.es.md](./es/gateway-central-deployment-runbook.es.md)
+
+Source: `docs/gateway-central-deployment-runbook.md`  
+Last updated: 2026-05-06
+
 ## Objetivo
 
 Operar un único gateway SoftOS compartido por el equipo sin romper el modo local (workspace en máquina de desarrollo con SQLite y secretos relajados).

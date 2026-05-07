@@ -1,5 +1,10 @@
 # Playbook: rollback de workflows e integraciones (T24)
 
+Spanish mirror: [docs/es/playbook-workflow-rollback.es.md](./es/playbook-workflow-rollback.es.md)
+
+Source: `docs/playbook-workflow-rollback.md`  
+Last updated: 2026-05-06
+
 ## Objetivo
 
 Restaurar un estado estable cuando un cambio en workflows (`flow workflow run`, integraciones CI o gateway) introduce regresiones.
