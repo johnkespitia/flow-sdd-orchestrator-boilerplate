@@ -1,7 +1,5 @@
 # SoftOS SDD Orchestrator Boilerplate
 
-Language: [English](./README.en.md) | [Español](./README.es.md)
-
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](#)
 [![CI](https://img.shields.io/badge/ci-root--ci-brightgreen.svg)](#)
