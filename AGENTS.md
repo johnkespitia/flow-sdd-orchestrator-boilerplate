@@ -52,6 +52,44 @@ Usa el skill `workspace/skills-discover` cuando necesites buscar skills en tessl
 - Do not modify files outside active spec `targets` unless the spec is updated first.
 - Do not mark work complete without relevant `flow ci` evidence.
 
+## BMAD multi-agent contract
+
+### 1) Role model
+
+- `orchestrator`: owns intake/plan/routing, slice definition, gate verification, and promote-readiness decisions.
+- `implementation agents`: execute slices with explicit write ownership.
+- `verification agent`: validates evidence and regression risk without expanding functional scope.
+
+### 2) Ownership rules
+
+- Each agent must receive explicit write ownership by file paths/patterns before execution starts.
+- Ownership overlap between agents in the same wave is prohibited.
+- Shared files (`specs/**`, release manifests, workflow YAML) remain under `orchestrator` ownership unless a slice explicitly grants an exception.
+
+### 3) Handoff contract
+
+Every handoff must include:
+
+- completed scope
+- modified files
+- commands/tests executed
+- pending risks/blockers
+- next expected gate
+
+### 4) Gate contract
+
+Required gates:
+
+- `G0` intake captured
+- `G1` research/cluster resolved
+- `G2` planning/spec consistent
+- `G3` implementation review artifact
+- `G4` validation evidence
+- `G5` PR/commit readiness
+- `G6` closeout evidence/state consistency
+
+Rule: if a gate is not satisfied, do not advance to the next one.
+
 ## SoftOS operating playbooks
 
 For any AI agent working in this workspace, the following local playbooks are the preferred source of operational guidance:
