@@ -1,0 +1,42 @@
+{
+  "schema_version": "harness-profile/v1",
+  "profile_id": "example-api-ticket",
+  "display_name": "Example API Ticket Delivery",
+  "extends": "policies/harness-core",
+  "visibility": "open-source-example",
+  "description": "Generic API ticket profile demonstrating how projects bind Harness Core to local conventions.",
+  "work_item": {
+    "systems": ["issue-tracker"],
+    "key_patterns": ["PROJ-[0-9]+"],
+    "required_links": ["work item", "spec", "PR"]
+  },
+  "repo_mirror": {
+    "enabled": true,
+    "path_template": ".planning/{ticket}/spec.md",
+    "format": "project-native"
+  },
+  "pull_request": {
+    "title_pattern": "<type>: <ticket> - <summary>",
+    "required_body_sections": ["Summary", "Work Item", "Planning", "Validation", "Risks"],
+    "label_discovery": "query_target_repo",
+    "required_labels": ["automation-assisted"],
+    "forbidden_manual_labels": ["do not merge", "security", "autorelease:*"],
+    "default_state": "draft_until_gates_pass"
+  },
+  "reviews": {
+    "required_gates": ["R1", "R2", "R3", "R4", "R5"]
+  },
+  "validation": {
+    "e2e_default": "profile-defined",
+    "exact_revision_required": true,
+    "non_applicability_requires_reason": true
+  },
+  "communication": {
+    "surfaces": ["PR", "work item", "owner thread", "planning artifact", "evidence registry"],
+    "ledger_required": true
+  },
+  "automation": {
+    "dry_run_first": true,
+    "external_writes_default": "draft_only"
+  }
+}
