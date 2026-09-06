@@ -448,14 +448,14 @@ def _extract_model_ids_from_probe_output(raw: str) -> list[str]:
         candidate = line.strip()
         if not candidate or candidate.startswith("#"):
             continue
-        token = candidate.split()[0].strip()
-        if not token:
+        candidate_id = candidate.split()[0].strip()
+        if not candidate_id:
             continue
-        if token.lower() in {"model", "models", "id", "name", "provider", "providers"}:
+        if candidate_id.lower() in {"model", "models", "id", "name", "provider", "providers"}:
             continue
-        if _FORBIDDEN_OVERLAY_ENV_KEY_RE.search(token):
+        if _FORBIDDEN_OVERLAY_ENV_KEY_RE.search(candidate_id):
             continue
-        ids.append(token)
+        ids.append(candidate_id)
     return ids
 
 
