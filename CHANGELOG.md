@@ -2,6 +2,80 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.12.0 - 2026-09-07
+
+### Added
+
+- implement coding execution runtime resource pools
+- harden deterministic repository verification (#14)
+- add agent executor adapters
+- add bounded agent process execution
+- add agent registry and diagnostics
+- add usage cost harness
+
+### Changed
+
+- Merge pull request #27 from johnkespitia/docs/execution-runtime-compatibility-boundary
+- Fix OpenCode Go auth detection
+- Merge pull request #26 from johnkespitia/docs/execution-runtime-compatibility-boundary
+- Merge pull request #22 from johnkespitia/feat/coding-runtime-resource-pools-v1
+- Merge remote-tracking branch 'origin/main' into feat/coding-runtime-resource-pools-v1
+- Merge pull request #25 from johnkespitia/fix/spec-guard-approved-base-coverage
+- Merge remote-tracking branch 'origin/main' into feat/coding-runtime-resource-pools-v1
+- Merge pull request #24 from johnkespitia/fix/spec-guard-approved-base-coverage
+- Merge remote-tracking branch 'origin/main' into feat/coding-runtime-resource-pools-v1
+- Merge pull request #23 from johnkespitia/fix/spec-guard-approved-base-coverage
+- Merge pull request #21 from johnkespitia/chore/coding-execution-runtime-v1-governance-clean
+- Merge pull request #20 from johnkespitia/chore/coding-execution-runtime-v1-spec-clean
+- Merge pull request #19 from johnkespitia/feat/host-repo-exec-routing-alignment-clean
+- align host repo exec routing
+- Merge pull request #18 from johnkespitia/fix/slice-start-runtime-path-rebase-clean
+- Merge pull request #17 from johnkespitia/fix/staged-spec-guard-approved-coverage
+- preserve staged spec guard coverage before reinstall
+- wire SoftOS OpenCode worker wrapper (#15)
+- Merge pull request #13 from johnkespitia/chore/orchestration-v0-governance
+- defer specs with unresolved targets
+- Merge pull request #12 from johnkespitia/fix/runtime-user-ownership
+- Merge pull request #11 from johnkespitia/feat/opencode-workdir-isolation
+- Merge pull request #10 from johnkespitia/feat/agent-executors-mainline
+- approve agent executors
+- Merge pull request #9 from johnkespitia/chore/upstream-workspace-harness
+- enforce workspace-only host execution
+- Merge pull request #8 from johnkespitia/codex/usage-cost-harness
+- sanitize private leak terms
+- Merge pull request #7 from johnkespitia/chore/bmad-multiagent-contract-upstream
+- enforce multi-agent ownership handoff and gates
+
+### Fixed
+
+- route dynamic OpenCode models through process args
+- cover approved specs in drift check
+- allow shared approved spec coverage
+- allow approved base specs for changed guard
+- avoid false positive in secret scan
+- rebase slice start runtime paths
+- rebase slice start runtime paths
+- run workspace operations as development user
+- enforce agent worktree isolation
+- run workspace commands as workspace user
+- allow host execution on CI runners
+
+### Docs
+
+- document execution runtime compatibility boundary
+- document execution runtime compatibility boundary
+- add Spanish execution resources mirror
+- align coding runtime prospective target ownership
+- align coding runtime approval and verification wording
+- refine coding execution runtime v1 boundary
+- refine coding execution runtime boundary
+- add coding execution runtime v1 spec
+- add deterministic repository verification hardening spec (#16)
+- add Spanish OpenCode executor mirror
+- add orchestration v0 governance and opencode executor notes
+- link Spanish agent executors mirror
+- add Spanish agent executors mirror
+
 ## v0.11.0 - 2026-04-29
 
 ### Added
