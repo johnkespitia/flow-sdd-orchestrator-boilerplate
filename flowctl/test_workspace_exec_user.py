@@ -298,6 +298,15 @@ def test_workspace_entrypoint_drops_to_development_user() -> None:
     entrypoint = ENTRYPOINT_PATH.read_text(encoding="utf-8")
 
     assert 'workspace_user="${FLOW_WORKSPACE_USER:-vscode}"' in entrypoint
+    assert "prepare_runtime_user_dirs()" in entrypoint
+    assert 'workspace_home="$(getent passwd "$workspace_user" | cut -d: -f6 || true)"' in entrypoint
+    assert '"$workspace_home/.local"' in entrypoint
+    assert '"$workspace_home/.local/share"' in entrypoint
+    assert '"$workspace_home/.local/share/tessl"' in entrypoint
+    assert '"$workspace_home/.local/share/pnpm/store"' in entrypoint
+    assert '"$workspace_home/.config"' in entrypoint
+    assert '"$workspace_home/.cache"' in entrypoint
+    assert 'chown "$target_uid:$target_gid" "${runtime_dirs[@]}"' in entrypoint
     assert "groupadd" in entrypoint
     assert "usermod" in entrypoint
     assert 'target_uid="$(id -u "$workspace_user")"' in entrypoint

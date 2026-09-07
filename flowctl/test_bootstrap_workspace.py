@@ -15,6 +15,38 @@ SPEC.loader.exec_module(BOOTSTRAP)
 
 
 class BootstrapWorkspaceTests(unittest.TestCase):
+    def test_copy_template_preserves_workspace_entrypoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_root = Path(tmp_dir)
+            source_root = tmp_root / "source"
+            destination = tmp_root / "destination"
+            entrypoint = source_root / ".devcontainer" / "workspace-entrypoint.sh"
+            entrypoint.parent.mkdir(parents=True, exist_ok=True)
+            entrypoint.write_text("#!/usr/bin/env bash\nsentinel=1\n", encoding="utf-8")
+
+            source_config = {
+                "project": {
+                    "display_name": "Flow SDD Orchestrator Boilerplate",
+                    "root_repo": "root-repo",
+                },
+                "repos": {
+                    "root-repo": {
+                        "path": ".",
+                        "kind": "root",
+                    }
+                },
+            }
+
+            original_root = BOOTSTRAP.ROOT
+            try:
+                BOOTSTRAP.ROOT = source_root
+                BOOTSTRAP.copy_template(source_config, destination, profile="master")
+            finally:
+                BOOTSTRAP.ROOT = original_root
+
+            copied = (destination / ".devcontainer" / "workspace-entrypoint.sh").read_text(encoding="utf-8")
+            self.assertIn("sentinel=1", copied)
+
     def test_rewrite_project_texts_updates_agent_context_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             destination = Path(tmp_dir)
