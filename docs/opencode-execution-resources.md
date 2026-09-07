@@ -1,5 +1,7 @@
 # OpenCode Execution Resources (SoftOS V1)
 
+> Español: [OpenCode Execution Resources](es/opencode-execution-resources.es.md)
+
 This document is the repository-owned product contract for SoftOS logical OpenCode
 resources. It distinguishes portable repository configuration from machine-local
 OpenCode state, and local worker/profile execution from direct cloud execution.
