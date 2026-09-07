@@ -192,13 +192,12 @@ def _resolve_changed_approved_spec_fallback(
         if set(covered_changes) == set(sensitive_changes):
             qualifying.append(candidate)
 
-    if len(qualifying) == 1:
-        return qualifying, []
-    if len(qualifying) > 1:
-        return [], [
-            "Ambiguedad: multiples specs aprobadas cubren los cambios changed: "
-            + ", ".join(sorted(rel(spec_path).replace("\\", "/") for spec_path in qualifying))
-        ]
+    if qualifying:
+        # Multiple approved specs may intentionally share a stable surface. Each
+        # candidate has already been required to cover the complete sensitive
+        # change set, so retaining all exact matches preserves coverage without
+        # inventing a single governing spec.
+        return sorted(qualifying), []
     return [], []
 
 
