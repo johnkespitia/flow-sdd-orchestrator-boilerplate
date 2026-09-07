@@ -162,10 +162,62 @@
         "executable": "agent",
         "argv": []
       },
+      "opencode": {
+        "adapter": "opencode",
+        "executable": "opencode",
+        "argv": []
+      },
       "opencode-local": {
         "adapter": "opencode",
         "executable": "opencode-softos",
         "argv": []
+      }
+    }
+  },
+  "agent_resources": {
+    "schema_version": 1,
+    "resources": {
+      "opencode-local": {
+        "executor": "opencode-local",
+        "capabilities": [
+          "tool_calling",
+          "write",
+          "local_execution"
+        ],
+        "capacity": 1,
+        "cost_tier": "local",
+        "selection_priority": 10,
+        "model_resolution": "worker_profile",
+        "data_sensitivity": "local-only"
+      },
+      "opencode-free": {
+        "executor": "opencode",
+        "capabilities": [
+          "tool_calling",
+          "write",
+          "cloud_execution"
+        ],
+        "capacity": 1,
+        "cost_tier": "cloud/free",
+        "selection_priority": 20,
+        "model_resolution": "dynamic_free",
+        "data_sensitivity": "cloud-eligible",
+        "candidate_tie_break": "lexical"
+      },
+      "opencode-go": {
+        "executor": "opencode",
+        "capabilities": [
+          "tool_calling",
+          "write",
+          "cloud_execution",
+          "architecture"
+        ],
+        "capacity": 1,
+        "cost_tier": "cloud/paid-low",
+        "selection_priority": 30,
+        "model_resolution": "dynamic_go",
+        "data_sensitivity": "cloud-eligible",
+        "candidate_tie_break": "lexical"
       }
     }
   }

@@ -242,11 +242,16 @@ def command_agent_run(
     repo_names: list[str],
     shutil_which: Callable[[str], Optional[str]],
     subprocess_run: Callable[..., object],
+    discover_free=None,
+    discover_go=None,
+    auth_evidence: object = None,
 ) -> int:
+    # discover_free/discover_go default to None so production uses the OpenCode
+    # probe boundary in agent_process_execution; tests may inject fixtures.
     from flowctl.agent_process_execution import AgentRunError, prepare_agent_run, run_agent_process
 
     try:
-        executor, repo, workdir, targets, prompt = prepare_agent_run(
+        prepared = prepare_agent_run(
             executor_id=str(getattr(args, "executor", "")),
             repo_raw=str(getattr(args, "repo", "")),
             workdir_raw=str(getattr(args, "workdir", "")),
@@ -258,14 +263,19 @@ def command_agent_run(
             root_repo=root_repo,
         )
         exit_code, _metadata = run_agent_process(
-            executor=executor,
-            repo=repo,
+            executor=prepared.executor,
+            repo=prepared.repo,
             workspace_root=workspace_root,
-            workdir=workdir,
-            targets=targets,
-            prompt=prompt,
+            workdir=prepared.workdir,
+            targets=prepared.targets,
+            prompt=prepared.prompt,
             shutil_which=shutil_which,
             subprocess_run=subprocess_run,
+            resource_id=prepared.resource_id,
+            resource=prepared.resource,
+            discover_free=discover_free,
+            discover_go=discover_go,
+            auth_evidence=auth_evidence,
         )
     except AgentRunError as exc:
         raise SystemExit(exc.message) from exc
