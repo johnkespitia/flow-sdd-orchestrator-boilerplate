@@ -21,6 +21,7 @@ auth payloads, or workstation-specific absolute paths as SoftOS product truth.
 
 `docs/opencode-local-executor.md` remains historical workstation diagnostic notes.
 This document is the V1 resource contract.
+See also `docs/execution-runtime-compatibility.md` for the validated supervisor sandbox baseline and runtime/platform capability boundary.
 
 ## 2. Logical resources
 
