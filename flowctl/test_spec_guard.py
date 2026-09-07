@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from flowctl.contracts_ops import command_spec_guard
+from flowctl.contracts_ops import command_drift_check, command_spec_guard
 
 
 def _args(*, all_specs: bool = False, changed: bool = False, staged: bool = False, spec: str | None = None) -> argparse.Namespace:
@@ -215,6 +215,52 @@ def test_spec_guard_changed_preserves_non_sensitive_behavior(tmp_path: Path, cap
     )
     assert rc == 0
     assert json.loads(capsys.readouterr().out)["findings"] == []
+
+
+def test_drift_check_changed_fallback_passes_with_approved_base_spec(tmp_path: Path, capsys) -> None:
+    spec_path = tmp_path / "specs" / "features" / "demo.spec.md"
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text("demo", encoding="utf-8")
+
+    args = _args(changed=True)
+    rc = command_drift_check(
+        args,
+        require_dirs=lambda: None,
+        select_spec_paths=lambda *_args, **kwargs: [spec_path] if kwargs.get("all_specs") else [],
+        root=tmp_path,
+        root_repo="root",
+        implementation_repos=lambda: [],
+        repo_root=lambda _repo: tmp_path,
+        analyze_spec=lambda _path: {
+            "frontmatter": {"status": "approved"},
+            "target_errors": [],
+            "test_errors": [],
+            "target_index": {"root": [{"raw": "opencode.json", "relative": "opencode.json"}]},
+            "text": "",
+        },
+        test_reference_findings=lambda _analysis: [],
+        git_diff_name_only=lambda _root, base=None, head=None: (["opencode.json"], None),
+        repo_paths_changed_under_roots=lambda _repo, paths: paths,
+        matches_any_pattern=lambda path, patterns: path in patterns,
+        extract_contract_declarations=lambda _text: ([], []),
+        validate_contract_declaration=lambda _declaration: ({}, None),
+        contract_match_files=lambda _repo, _patterns: [],
+        rel=_rel_to_root(tmp_path),
+        utc_now=lambda: "2026-01-01T00:00:00+00:00",
+        slugify=lambda value: value.replace("/", "-"),
+        write_json=lambda _path, _payload: None,
+        drift_report_root=tmp_path,
+        json_dumps=lambda obj: json.dumps(obj),
+        wants_json=lambda _args: True,
+        path_exists_in_revision_fn=lambda _root, path, revision: (
+            path == "specs/features/demo.spec.md" and revision == "BASE"
+        ),
+    )
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["findings"] == []
+    assert payload["items"][0]["spec"] == "specs/features/demo.spec.md"
 
 
 def test_spec_guard_staged_uses_staged_files_for_guard(tmp_path: Path, capsys) -> None:
