@@ -174,7 +174,7 @@ def test_spec_guard_changed_fallback_rejects_zero_and_partial_coverage(tmp_path:
     assert any("superficies estables sin cambios de spec" in str(item) for item in payload["findings"])
 
 
-def test_spec_guard_changed_fallback_rejects_ambiguous_approved_specs(tmp_path: Path, capsys) -> None:
+def test_spec_guard_changed_fallback_accepts_multiple_exact_approved_specs(tmp_path: Path, capsys) -> None:
     spec_a = tmp_path / "specs" / "features" / "alpha.spec.md"
     spec_b = tmp_path / "specs" / "features" / "beta.spec.md"
     spec_a.parent.mkdir(parents=True, exist_ok=True)
@@ -194,9 +194,13 @@ def test_spec_guard_changed_fallback_rejects_ambiguous_approved_specs(tmp_path: 
         matches_any_pattern=lambda path, patterns: path in patterns,
         path_exists_in_revision_fn=lambda _root, path, revision: True,
     )
-    assert rc == 1
+    assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert any("Ambiguedad: multiples specs aprobadas cubren los cambios changed" in str(item) for item in payload["findings"])
+    assert payload["findings"] == []
+    assert [item["spec"] for item in payload["items"]] == [
+        "specs/features/alpha.spec.md",
+        "specs/features/beta.spec.md",
+    ]
 
 
 def test_spec_guard_changed_preserves_non_sensitive_behavior(tmp_path: Path, capsys) -> None:
