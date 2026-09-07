@@ -23,6 +23,7 @@ producto de SoftOS.
 
 `docs/opencode-local-executor.md` conserva notas históricas de diagnóstico de estaciones
 de trabajo. Este documento es el contrato de recursos V1.
+Vea tambien `docs/execution-runtime-compatibility.md` para la base validada del sandbox del supervisor y el limite de capacidades runtime/plataforma.
 
 ## 2. Recursos lógicos
 

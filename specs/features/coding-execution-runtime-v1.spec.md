@@ -24,6 +24,7 @@ targets:
   - ../../workspace.config.json
   - ../../opencode.json
   - ../../flowctl/agent_*.py
+  - ../../flowctl/parser.py
   - ../../flowctl/tests/test_agent_*.py
   - ../../policies/**
   - ../../flowctl/*policy*.py
@@ -70,6 +71,7 @@ The S1 refinement initially returned this spec to `draft` and invalidated the pr
 - `workspace.config.json` already owns the versioned, model-agnostic executor registry. `flowctl/agent_executors.py` and `flowctl/agent_executor_adapters.py` keep invocation behind adapter contracts and reject generic model/provider flags. `flowctl/agent_process_execution.py` owns subprocess launch and must remain the process-environment boundary for resource overlays.
 - `opencode.json` is the existing repository-owned OpenCode configuration distributed with the workspace. It is the canonical portable source for the `softos-local-worker` definition; its worker/profile configuration owns local model and provider selection. `~/.config/opencode/**`, wrapper scripts, authentication stores, and environment overrides are machine-local materialized state only.
 - `.agents/skills/**` plus `workspace.skills.json` are the existing portable skill convention.
+- `docs/execution-runtime-compatibility.md` records the validated supervisor sandbox baseline and runtime/platform capability boundary. It constrains compatibility assumptions but does not introduce a runtime implementation.
 - `policies/**` contains versioned machine-readable or documented harness policy. `.flow/**` remains derived operational state and evidence, never product truth.
 - `flow agent doctor` currently proves executable presence only. This feature may add resource-aware diagnostics but must preserve that existing meaning for executor diagnostics.
 - `deterministic-repository-verification-hardening` is approved and defines the pending `git-scope-ignore-hygiene` slice with disjoint targets, focused tests, and independent review requirements.
@@ -97,7 +99,9 @@ SoftOS can invoke host-native executors but cannot yet describe logical OpenCode
 - Durable run database, full or parallel scheduler, leases, failover, background workers, advanced observability, automatic merge, release, or publication.
 - Installing or authenticating OpenCode, Codex, or Cursor; storing any token or secret; inventing `OPENCODE_GO_TOKEN` or another authentication interface.
 - Hardcoding a temporary OpenCode free model or a permanent OpenCode Go model.
-- Adding model/provider flags to generic `flow agent run` invocation.
+- Adding provider flags or model flags to generic non-Codex resource routing. The Codex
+  executor may accept explicit process-local `-m/--model` and `-s/--sandbox` controls;
+  these do not participate in logical-resource selection and are never persisted.
 - Routing supervision/orchestration to local models by default.
 - Modifying or consuming the preserved historical worktrees `host-repo-exec-routing-alignment-host-repo-exec-routing` and `orchestration-v0-spike-render-status-fixture`.
 - Implementing `git-scope-ignore-hygiene` during spec, planning, or review of this feature.
@@ -428,7 +432,7 @@ The parser-level target surfaces are existing globs required by current drift go
 ## Acceptance criteria
 
 1. Exactly four slices preserve the four product outcomes and have pairwise-disjoint write ownership.
-2. Core and generic adapter invocation contain no model/provider-specific routing branch or model flag; `flowctl/agent_executor_adapters.py` is not modified unless later evidence proves unavoidable.
+2. Core and non-Codex adapter invocation contain no model/provider-specific routing branch. Codex-only process-local `-m/--model` and `-s/--sandbox` options are forwarded after validation, are not persisted, and do not affect logical-resource selection.
 3. `opencode-local` launches through the repository-owned `softos-local-worker` wrapper/profile, has logical capacity `1`, and uses the model/provider configured by that worker/profile without Core branching on model or provider identity.
 4. `opencode-free` discovers currently available free models dynamically, executes through a generic/direct OpenCode cloud executor without inheriting local worker/profile configuration, and applies the resolved model to the spawned process via a validated environment overlay; no specific free model is a permanent contract.
 5. `opencode-go` is representable, begins `AUTH_UNCONFIGURED`, cannot launch until supported auth evidence exists, and after valid evidence applies the dynamically resolved model to the spawned process; no token name, token value, or fake auth implementation is added.

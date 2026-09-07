@@ -142,6 +142,8 @@ class AgentRunRequest:
     targets: tuple[str, ...]
     user_prompt: str
     contract_body: str
+    model: str | None = None
+    sandbox: str | None = None
 
 
 @dataclass(frozen=True)
@@ -184,10 +186,24 @@ class CodexAdapter:
 
     def build_invocation(self, request: AgentRunRequest) -> AgentAdapterInvocation:
         prompt = build_delivered_prompt(request)
+        if request.model is not None or request.sandbox is not None:
+            if request.model is not None and not request.model.strip():
+                raise ValueError("El modelo Codex no puede estar vacio.")
+            if request.sandbox is not None and request.sandbox not in {
+                "read-only",
+                "workspace-write",
+                "danger-full-access",
+            }:
+                raise ValueError("El sandbox Codex debe ser read-only, workspace-write o danger-full-access.")
+        codex_options: tuple[str, ...] = ()
+        if request.model is not None:
+            codex_options += ("-m", request.model.strip())
+        if request.sandbox is not None:
+            codex_options += ("-s", request.sandbox)
         argv = _build_positional_prompt_argv(
             request,
             adapter_name=self.adapter_name,
-            tail=("exec", "--approve-for-me"),
+            tail=("exec", "--approve-for-me", *codex_options),
             prompt=prompt,
         )
         return AgentAdapterInvocation(argv=argv)
