@@ -42,6 +42,7 @@ def _run_spec_guard(
     implementation_repos=None,
     repo_paths_changed_under_roots=None,
     path_exists_in_head_fn=None,
+    path_exists_in_revision_fn=None,
 ):
     return command_spec_guard(
         _args(changed=changed, staged=staged),
@@ -60,6 +61,7 @@ def _run_spec_guard(
         utc_now=lambda: "2026-01-01T00:00:00+00:00",
         json_dumps=lambda obj: json.dumps(obj),
         path_exists_in_head_fn=path_exists_in_head_fn,
+        path_exists_in_revision_fn=path_exists_in_revision_fn,
     )
 
 
@@ -117,6 +119,98 @@ def test_spec_guard_passes_when_selected_spec_covers_stable_change(tmp_path: Pat
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["findings"] == []
+
+
+def test_spec_guard_changed_fallback_passes_with_approved_base_spec(tmp_path: Path, capsys) -> None:
+    spec_path = tmp_path / "specs" / "features" / "demo.spec.md"
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text("demo", encoding="utf-8")
+
+    rc = _run_spec_guard(
+        tmp_path,
+        changed=True,
+        select_spec_paths=lambda *_args, **kwargs: [spec_path] if kwargs.get("all_specs") else [],
+        analyze_spec=lambda _path: {
+            "frontmatter": {"status": "approved"},
+            "target_index": {"root": [{"relative": "opencode.json"}]},
+        },
+        git_diff_name_only=lambda _root, base=None, head=None: (["opencode.json"], None),
+        staged_repo_files_fn=lambda _root: ([], None),
+        matches_any_pattern=lambda path, patterns: path == "opencode.json" and "opencode.json" in patterns,
+        path_exists_in_revision_fn=lambda _root, path, revision: path == "specs/features/demo.spec.md" and revision == "BASE",
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["findings"] == []
+    assert payload["items"][0]["spec"] == "specs/features/demo.spec.md"
+
+
+def test_spec_guard_changed_fallback_rejects_zero_and_partial_coverage(tmp_path: Path, capsys) -> None:
+    spec_path = tmp_path / "specs" / "features" / "demo.spec.md"
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text("demo", encoding="utf-8")
+
+    def run(changes: list[str]) -> dict[str, object]:
+        rc = _run_spec_guard(
+            tmp_path,
+            changed=True,
+            select_spec_paths=lambda *_args, **kwargs: [spec_path] if kwargs.get("all_specs") else [],
+            analyze_spec=lambda _path: {
+                "frontmatter": {"status": "approved"},
+                "target_index": {"root": [{"relative": "opencode.json"}]},
+            },
+            git_diff_name_only=lambda _root, base=None, head=None: (changes, None),
+            staged_repo_files_fn=lambda _root: ([], None),
+            matches_any_pattern=lambda path, patterns: path in patterns,
+            path_exists_in_revision_fn=lambda _root, path, revision: True,
+        )
+        assert rc == 1
+        return json.loads(capsys.readouterr().out)
+
+    payload = run(["other.json"])
+    assert any("superficies estables sin cambios de spec" in str(item) for item in payload["findings"])
+
+    payload = run(["opencode.json", "other.json"])
+    assert any("superficies estables sin cambios de spec" in str(item) for item in payload["findings"])
+
+
+def test_spec_guard_changed_fallback_rejects_ambiguous_approved_specs(tmp_path: Path, capsys) -> None:
+    spec_a = tmp_path / "specs" / "features" / "alpha.spec.md"
+    spec_b = tmp_path / "specs" / "features" / "beta.spec.md"
+    spec_a.parent.mkdir(parents=True, exist_ok=True)
+    spec_a.write_text("alpha", encoding="utf-8")
+    spec_b.write_text("beta", encoding="utf-8")
+
+    rc = _run_spec_guard(
+        tmp_path,
+        changed=True,
+        select_spec_paths=lambda *_args, **kwargs: [spec_a, spec_b] if kwargs.get("all_specs") else [],
+        analyze_spec=lambda _path: {
+            "frontmatter": {"status": "approved"},
+            "target_index": {"root": [{"relative": "opencode.json"}]},
+        },
+        git_diff_name_only=lambda _root, base=None, head=None: (["opencode.json"], None),
+        staged_repo_files_fn=lambda _root: ([], None),
+        matches_any_pattern=lambda path, patterns: path in patterns,
+        path_exists_in_revision_fn=lambda _root, path, revision: True,
+    )
+    assert rc == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert any("Ambiguedad: multiples specs aprobadas cubren los cambios changed" in str(item) for item in payload["findings"])
+
+
+def test_spec_guard_changed_preserves_non_sensitive_behavior(tmp_path: Path, capsys) -> None:
+    rc = _run_spec_guard(
+        tmp_path,
+        changed=True,
+        select_spec_paths=lambda *_args, **_kwargs: [],
+        analyze_spec=lambda _path: {},
+        git_diff_name_only=lambda _root, base=None, head=None: (["docs/example.md"], None),
+        staged_repo_files_fn=lambda _root: ([], None),
+        matches_any_pattern=lambda _path, _patterns: False,
+    )
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["findings"] == []
 
 
 def test_spec_guard_staged_uses_staged_files_for_guard(tmp_path: Path, capsys) -> None:
