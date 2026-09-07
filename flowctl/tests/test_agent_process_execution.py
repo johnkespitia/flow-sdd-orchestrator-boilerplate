@@ -1062,23 +1062,27 @@ class ResourceProcessOverlayTests(unittest.TestCase):
             "flowctl.agent_process_execution.resolve_adapter",
             return_value=self.test_adapter,
         ):
-            with self.assertRaisesRegex(AgentRunError, "AUTH_UNCONFIGURED"):
-                run_agent_process(
-                    executor=prepared.executor,
-                    repo=prepared.repo,
-                    workspace_root=self.root,
-                    workdir=prepared.workdir,
-                    targets=prepared.targets,
-                    prompt=prepared.prompt,
-                    shutil_which=lambda _: str(self.fake),
-                    subprocess_run=subprocess.run,
-                    resource_id=prepared.resource_id,
-                    resource=prepared.resource,
-                    discover_go=lambda: ["go-model-b", "go-model-a"],
-                    auth_evidence=None,
-                )
+            with mock.patch(
+                "flowctl.agent_process_execution.probe_opencode_auth",
+                return_value="AUTH_UNCONFIGURED",
+            ) as probe_auth:
+                with self.assertRaisesRegex(AgentRunError, "AUTH_UNCONFIGURED"):
+                    run_agent_process(
+                        executor=prepared.executor,
+                        repo=prepared.repo,
+                        workspace_root=self.root,
+                        workdir=prepared.workdir,
+                        targets=prepared.targets,
+                        prompt=prepared.prompt,
+                        shutil_which=lambda _: str(self.fake),
+                        subprocess_run=subprocess.run,
+                        resource_id=prepared.resource_id,
+                        resource=prepared.resource,
+                        discover_go=lambda: ["go-model-b", "go-model-a"],
+                    )
+        probe_auth.assert_called_once()
 
-    def test_authenticated_go_fixture_uses_resolved_model_in_overlay(self) -> None:
+    def test_go_provider_available_and_models_present_launches_without_explicit_auth_evidence(self) -> None:
         prepared = prepare_agent_run(
             executor_id="opencode-go",
             repo_raw="workspace-root",
@@ -1100,33 +1104,73 @@ class ResourceProcessOverlayTests(unittest.TestCase):
             "flowctl.agent_process_execution.resolve_adapter",
             return_value=self.test_adapter,
         ):
-            exit_code, metadata = run_agent_process(
-                executor=prepared.executor,
-                repo=prepared.repo,
-                workspace_root=self.root,
-                workdir=prepared.workdir,
-                targets=prepared.targets,
-                prompt=prepared.prompt,
-                shutil_which=lambda _: str(self.fake),
-                subprocess_run=fake_run,
-                resource_id=prepared.resource_id,
-                resource=prepared.resource,
-                discover_go=lambda: ["go-model-b", "go-model-a"],
-                auth_evidence="AVAILABLE",
-                inherited_env={
-                    "PATH": "/usr/bin",
-                    OPENCODE_CONFIG_CONTENT_ENV: json.dumps(
-                        {"default_agent": "softos-local-worker"}
-                    ),
-                },
-            )
+            with mock.patch(
+                "flowctl.agent_process_execution.probe_opencode_auth",
+                return_value="AVAILABLE",
+            ) as probe_auth:
+                exit_code, metadata = run_agent_process(
+                    executor=prepared.executor,
+                    repo=prepared.repo,
+                    workspace_root=self.root,
+                    workdir=prepared.workdir,
+                    targets=prepared.targets,
+                    prompt=prepared.prompt,
+                    shutil_which=lambda _: str(self.fake),
+                    subprocess_run=fake_run,
+                    resource_id=prepared.resource_id,
+                    resource=prepared.resource,
+                    discover_go=lambda: ["go-model-b", "go-model-a"],
+                    inherited_env={
+                        "PATH": "/usr/bin",
+                        OPENCODE_CONFIG_CONTENT_ENV: json.dumps(
+                            {"default_agent": "softos-local-worker"}
+                        ),
+                    },
+                )
         self.assertEqual(0, exit_code)
         self.assertEqual("opencode-go", metadata.resource_id)
+        probe_auth.assert_called_once()
         env = captured["env"]
         assert isinstance(env, dict)
         content = json.loads(env[OPENCODE_CONFIG_CONTENT_ENV])
         self.assertEqual({"model": "go-model-a"}, content)
         self.assertNotIn("default_agent", content)
+
+    def test_go_provider_available_but_no_candidates_is_model_unavailable(self) -> None:
+        prepared = prepare_agent_run(
+            executor_id="opencode-go",
+            repo_raw="workspace-root",
+            workdir_raw=str(self.root),
+            prompt_raw="prompt",
+            target_raws=["target.txt"],
+            workspace_root=self.root,
+            workspace_config_file=self.config,
+            workspace_config=self.workspace_config,
+            root_repo="softos-agentic",
+        )
+        with mock.patch(
+            "flowctl.agent_process_execution.probe_opencode_auth",
+            return_value="AVAILABLE",
+        ) as probe_auth:
+            with mock.patch(
+                "flowctl.agent_process_execution.resolve_adapter",
+                return_value=self.test_adapter,
+            ):
+                with self.assertRaisesRegex(AgentRunError, "MODEL_UNAVAILABLE"):
+                    run_agent_process(
+                        executor=prepared.executor,
+                        repo=prepared.repo,
+                        workspace_root=self.root,
+                        workdir=prepared.workdir,
+                        targets=prepared.targets,
+                        prompt=prepared.prompt,
+                        shutil_which=lambda _: str(self.fake),
+                        subprocess_run=subprocess.run,
+                        resource_id=prepared.resource_id,
+                        resource=prepared.resource,
+                        discover_go=lambda: [],
+                    )
+        probe_auth.assert_called_once()
 
     def test_overlay_merge_preserves_inherited_env_and_never_replaces_wholesale(self) -> None:
         inherited = {"PATH": "/bin", "SAFE": "yes", "OPENCODE_CONFIG": "/local.json"}
@@ -1306,20 +1350,25 @@ class ResourceProcessOverlayTests(unittest.TestCase):
                 "flowctl.agent_process_execution.resolve_adapter",
                 return_value=self.test_adapter,
             ):
-                with self.assertRaisesRegex(AgentRunError, "AUTH_UNCONFIGURED"):
-                    run_agent_process(
-                        executor=prepared.executor,
-                        repo=prepared.repo,
-                        workspace_root=self.root,
-                        workdir=prepared.workdir,
-                        targets=prepared.targets,
-                        prompt=prepared.prompt,
-                        shutil_which=lambda _: str(self.fake),
-                        subprocess_run=subprocess.run,
-                        resource_id=prepared.resource_id,
-                        resource=prepared.resource,
-                        auth_evidence=None,
-                    )
+                with mock.patch(
+                    "flowctl.agent_process_execution.probe_opencode_auth",
+                    return_value="AUTH_UNCONFIGURED",
+                ) as probe_auth:
+                    with self.assertRaisesRegex(AgentRunError, "AUTH_UNCONFIGURED"):
+                        run_agent_process(
+                            executor=prepared.executor,
+                            repo=prepared.repo,
+                            workspace_root=self.root,
+                            workdir=prepared.workdir,
+                            targets=prepared.targets,
+                            prompt=prepared.prompt,
+                            shutil_which=lambda _: str(self.fake),
+                            subprocess_run=subprocess.run,
+                            resource_id=prepared.resource_id,
+                            resource=prepared.resource,
+                            auth_evidence=None,
+                        )
+        probe_auth.assert_called_once()
         probe.assert_not_called()
 
     def test_authenticated_go_uses_default_discovery_and_overlay(self) -> None:

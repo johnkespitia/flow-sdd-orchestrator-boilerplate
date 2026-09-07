@@ -216,6 +216,33 @@ class AdapterContractTests(unittest.TestCase):
             invocation.argv,
         )
 
+    def test_codex_argv_forwards_process_local_model_and_sandbox(self) -> None:
+        request = _sample_request(adapter="codex", executable="codex")
+        request = AgentRunRequest(
+            **{**request.__dict__, "model": "gpt-6-astra", "sandbox": "workspace-write"}
+        )
+        invocation = CodexAdapter().build_invocation(request)
+        delivered_prompt = build_delivered_prompt(request)
+        self.assertEqual(
+            (
+                "codex",
+                "exec",
+                "-m",
+                "gpt-6-astra",
+                "-s",
+                "workspace-write",
+                "--",
+                delivered_prompt,
+            ),
+            invocation.argv,
+        )
+
+    def test_codex_rejects_invalid_process_local_sandbox(self) -> None:
+        request = _sample_request(adapter="codex", executable="codex")
+        request = AgentRunRequest(**{**request.__dict__, "sandbox": "invalid"})
+        with self.assertRaisesRegex(ValueError, "sandbox Codex"):
+            CodexAdapter().build_invocation(request)
+
     def test_cursor_argv_shape_without_static_argv(self) -> None:
         request = _sample_request(adapter="cursor", executable="agent")
         invocation = CursorAdapter().build_invocation(request)

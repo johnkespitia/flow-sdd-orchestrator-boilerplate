@@ -72,6 +72,8 @@ LOCAL_WORKER_AGENT = "softos-local-worker"
 # Production Free/Go discovery uses a bounded OpenCode CLI probe. Injectable in tests.
 OPENCODE_MODELS_PROBE_ARGV = ("models",)
 OPENCODE_MODELS_PROBE_TIMEOUT_SECONDS = 20.0
+OPENCODE_AUTH_PROBE_ARGV = ("auth", "list")
+OPENCODE_AUTH_PROBE_TIMEOUT_SECONDS = 20.0
 _DEFAULT_OPENCODE_EXECUTABLE = "opencode"
 
 
@@ -493,6 +495,52 @@ def probe_opencode_models(
     return _extract_model_ids_from_probe_output(str(stdout))
 
 
+def _auth_probe_output_has_go_credential(raw: str) -> bool:
+    text = (raw or "").splitlines()
+    for line in text:
+        normalized = " ".join(line.strip().split())
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if ("opencode go" in lowered or "opencode-go" in lowered) and "api" in lowered:
+            return True
+    return False
+
+
+def probe_opencode_auth(
+    *,
+    executable: str = _DEFAULT_OPENCODE_EXECUTABLE,
+    subprocess_run: Callable[..., object] = subprocess.run,
+    timeout_seconds: float = OPENCODE_AUTH_PROBE_TIMEOUT_SECONDS,
+) -> str:
+    """Bounded OpenCode auth probe for Go availability evidence.
+
+    Returns normalized availability only. No credential contents are persisted or
+    exposed.
+    """
+    exe = executable.strip() if isinstance(executable, str) else ""
+    if not exe:
+        return "UNKNOWN"
+    try:
+        completed = subprocess_run(
+            [exe, *OPENCODE_AUTH_PROBE_ARGV],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except Exception:  # noqa: BLE001 - probe failure becomes conservative unavailability
+        return "UNKNOWN"
+
+    if int(getattr(completed, "returncode", 1)) != 0:
+        return "UNKNOWN"
+
+    stdout = getattr(completed, "stdout", "") or ""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8", errors="replace")
+    return "AVAILABLE" if _auth_probe_output_has_go_credential(str(stdout)) else "AUTH_UNCONFIGURED"
+
+
 def default_opencode_model_discovery() -> list[str]:
     """Production default DiscoverModelsFn for Free/Go when callers omit hooks."""
     return probe_opencode_models()
@@ -503,6 +551,7 @@ def resolve_resource_model(
     *,
     discover_free: Optional[DiscoverModelsFn] = None,
     discover_go: Optional[DiscoverModelsFn] = None,
+    auth_discover: Optional[Callable[[], object]] = None,
     auth_evidence: object = None,
     default_discover: Optional[DiscoverModelsFn] = None,
 ) -> Optional[str]:
@@ -532,6 +581,7 @@ def resolve_resource_model(
         result = resolve_go_model(
             discover=discover,
             auth_evidence=auth_evidence,
+            auth_discover=auth_discover,
             tie_break=resource.candidate_tie_break,
         )
         if result.availability == "AUTH_UNCONFIGURED":
@@ -644,6 +694,7 @@ def run_agent_process(
     resource: Optional[AgentResource] = None,
     discover_free: Optional[DiscoverModelsFn] = None,
     discover_go: Optional[DiscoverModelsFn] = None,
+    auth_discover: Optional[Callable[[], object]] = None,
     auth_evidence: object = None,
     inherited_env: Mapping[str, str] | None = None,
     model: Optional[str] = None,
@@ -696,10 +747,12 @@ def run_agent_process(
     effective_resource_id = resource_id
     if resource is not None:
         effective_resource_id = resource.resource_id
+        effective_auth_discover = auth_discover or probe_opencode_auth
         model_id = resolve_resource_model(
             resource,
             discover_free=discover_free,
             discover_go=discover_go,
+            auth_discover=effective_auth_discover,
             auth_evidence=auth_evidence,
         )
         built_overlay, scrub_env_keys = build_resource_process_overlay(

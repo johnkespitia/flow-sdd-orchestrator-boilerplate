@@ -408,7 +408,7 @@ def resolve_free_model(
     if not candidates:
         return ModelResolutionResult(
             availability="MODEL_UNAVAILABLE",
-            reason="no_free_candidates",
+            reason="MODEL_UNAVAILABLE",
         )
 
     if tie_break == "lexical":
@@ -422,12 +422,20 @@ def resolve_go_model(
     *,
     discover: DiscoverModelsFn,
     auth_evidence: object = None,
+    auth_discover: Optional[Callable[[], object]] = None,
     tie_break: str = "lexical",
 ) -> ModelResolutionResult:
     """Dynamically resolve a Go-tier model after supported auth evidence exists."""
-    auth_state = (
-        "AUTH_UNCONFIGURED" if auth_evidence is None else normalize_availability(auth_evidence)
-    )
+    if auth_evidence is None and auth_discover is not None:
+        try:
+            auth_evidence = auth_discover()
+        except Exception as exc:  # noqa: BLE001 - discovery boundary maps failures to availability
+            return ModelResolutionResult(
+                availability="UNKNOWN",
+                reason=f"auth_discovery_error:{exc.__class__.__name__}",
+            )
+
+    auth_state = "AUTH_UNCONFIGURED" if auth_evidence is None else normalize_availability(auth_evidence)
     if auth_state == "AUTH_UNCONFIGURED":
         return ModelResolutionResult(availability="AUTH_UNCONFIGURED", reason="auth_unconfigured")
     if auth_state != "AVAILABLE":
@@ -454,7 +462,7 @@ def resolve_go_model(
     if not candidates:
         return ModelResolutionResult(
             availability="MODEL_UNAVAILABLE",
-            reason="no_go_candidates",
+            reason="MODEL_UNAVAILABLE",
         )
 
     ordered = sorted(set(candidates))
