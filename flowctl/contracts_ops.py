@@ -485,6 +485,7 @@ def command_drift_check(
     drift_report_root: Path,
     json_dumps: Callable[[object], str],
     wants_json: Callable[[object], bool],
+    path_exists_in_revision_fn: Callable[[Path, str, str], bool] | None = None,
 ) -> int:
     require_dirs()
     spec_paths = select_spec_paths(args.spec, all_specs=args.all, changed=args.changed, base=args.base, head=args.head)
@@ -496,6 +497,8 @@ def command_drift_check(
     changed_repo_files: dict[str, list[str]] = {}
     relevant_changed_root_files: list[str] = []
     relevant_changed_repo_files: dict[str, list[str]] = {}
+    sensitive_changes: list[str] = []
+    fallback_findings: list[str] = []
     if args.changed:
         changed_root_files, _ = git_diff_name_only(root, base=args.base, head=args.head)
         for repo in implementation_repos():
@@ -513,14 +516,33 @@ def command_drift_check(
                 if not is_non_spec_drift_change(repo, root_repo, path)
             ]
 
-        if not changed_specs:
-            sensitive_changes: list[str] = []
-            for repo, paths in relevant_changed_repo_files.items():
-                sensitive_changes.extend(f"{repo}:{path}" for path in paths)
-            sensitive_changes.extend(f"{root_repo}:{path}" for path in relevant_changed_root_files)
-            if sensitive_changes:
+        for repo, paths in relevant_changed_repo_files.items():
+            sensitive_changes.extend(f"{repo}:{path}" for path in paths)
+        sensitive_changes.extend(f"{root_repo}:{path}" for path in relevant_changed_root_files)
+
+        if not changed_specs and sensitive_changes:
+            changed_spec_relative_paths = {
+                path.replace("\\", "/") for path in changed_root_files if _is_spec_relative_path(path)
+            }
+            spec_paths, fallback_findings = _resolve_changed_approved_spec_fallback(
+                select_spec_paths=select_spec_paths,
+                args=args,
+                root=root,
+                root_repo=root_repo,
+                changed_spec_relative_paths=changed_spec_relative_paths,
+                analyze_spec=analyze_spec,
+                relevant_changed_repo_files=relevant_changed_repo_files,
+                relevant_changed_root_files=relevant_changed_root_files,
+                matches_any_pattern=matches_any_pattern,
+                rel=rel,
+                sensitive_changes=sensitive_changes,
+                path_exists_in_revision_fn=path_exists_in_revision_fn,
+            )
+            findings.extend(fallback_findings)
+            if not spec_paths and not fallback_findings:
                 findings.append(
-                    "Se detectaron cambios en superficies estables sin cambios de spec: " + ", ".join(sorted(sensitive_changes))
+                    "Se detectaron cambios en superficies estables sin cambios de spec: "
+                    + ", ".join(sorted(sensitive_changes))
                 )
 
     for spec_path in spec_paths:
