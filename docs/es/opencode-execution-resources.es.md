@@ -18,7 +18,7 @@ producto de SoftOS.
 | SoftOS Core / política / adapters | IDs de recursos lógicos, capacidades, disponibilidad, capacidad, nivel de coste, prioridad de selección, semántica de fallos, invocación agnóstica al modelo | Ramas por identidad de proveedor/modelo, flags CLI `--model` / `--provider` / `--resource`, credenciales |
 | Registro de executors + recursos de `workspace.config.json` | IDs de harness executor, ejecutables subyacentes, metadatos de recursos lógicos (incluida la capacidad local `1`) | Tokens, nombres de modelos Free/Go permanentes, cuerpo del prompt/profile del worker local |
 | `opencode.json` del repositorio | Profile portable `softos-local-worker` (configuración acotada del worker local) | Secretos, rutas absolutas específicas de máquina, contratos de producto con proveedor/modelo concreto |
-| Harness de ejecución de procesos | Selección de recursos antes del lanzamiento, propagación del ID de recurso lógico, merge validado del overlay de entorno local al proceso | Reemplazo completo del entorno, serialización de credenciales, flags de modelo en argv del adapter |
+| Harness de ejecución de procesos | Selección de recursos antes del lanzamiento, propagación del ID de recurso lógico, merge validado del overlay de entorno local al proceso, argumento local `--model` de OpenCode derivado de la resolución dinámica | Reemplazo completo del entorno, serialización de credenciales, flags de modelo estáticos/configurados en argv del adapter |
 | `~/.config/opencode/**`, wrappers, almacenes de auth, overrides de env | Materialización local de máquina (auth, inventario temporal de modelos, endpoints locales, wrappers opcionales de estación de trabajo) | Política canónica de producto de SoftOS |
 
 `docs/opencode-local-executor.md` conserva notas históricas de diagnóstico de estaciones
@@ -80,7 +80,7 @@ Ruta de ejecución en la nube:
 SoftOS selecciona el recurso lógico opencode-free u opencode-go
   -> executor genérico subyacente opencode (ejecutable: opencode)
   -> resolución dinámica del modelo para ese recurso de nube
-  -> overlay validado OPENCODE_CONFIG_CONTENT, local al proceso, transporta solo el modelo resuelto
+  -> control local al proceso con `--model` de OpenCode y overlay validado OPENCODE_CONFIG_CONTENT cuando se necesita
   -> lanzamiento del subproceso (sin herencia de softos-local-worker / wrapper local)
 ```
 
@@ -91,8 +91,9 @@ Contrato:
   configuración de modelo/proveedor/profile del worker local salvo que el mismo
   modelo/proveedor haya sido resuelto independientemente para ese recurso de nube.
 - Los modelos Free/Go resueltos deben afectar al **proceso OpenCode generado**, no solo
-  a diagnósticos. El harness aplica un overlay validado de entorno local al proceso
-  (normalmente `OPENCODE_CONFIG_CONTENT` con el objeto de modelo resuelto).
+  a diagnósticos. El harness aplica el modelo resuelto como argumento local `--model`
+  de OpenCode cuando esa es la vía fiable y mantiene la configuración fuera del
+  repositorio.
 - El overlay es solo local al proceso: nunca se persiste en Git ni en evidencia; no
   contiene credenciales; no persiste payloads de proveedor/auth sin procesar; hace merge
   sobre una copia del entorno heredado en lugar de reemplazarlo por completo; y limpia

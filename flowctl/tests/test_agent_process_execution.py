@@ -1042,7 +1042,9 @@ class ResourceProcessOverlayTests(unittest.TestCase):
         self.assertEqual({"model": "alpha-free"}, content)
         self.assertNotIn("default_agent", content)
         argv = list(captured["args"])
-        self.assertNotIn("--model", argv)
+        model_index = argv.index("--model")
+        self.assertEqual("alpha-free", argv[model_index + 1])
+        self.assertEqual(len(argv) - 2, model_index)
         self.assertNotIn("--provider", argv)
         self.assertNotIn("--resource", argv)
 
@@ -1135,6 +1137,12 @@ class ResourceProcessOverlayTests(unittest.TestCase):
         content = json.loads(env[OPENCODE_CONFIG_CONTENT_ENV])
         self.assertEqual({"model": "go-model-a"}, content)
         self.assertNotIn("default_agent", content)
+        argv = list(captured["args"])
+        model_index = argv.index("--model")
+        self.assertEqual("go-model-a", argv[model_index + 1])
+        self.assertEqual(len(argv) - 2, model_index)
+        self.assertNotIn("--provider", argv)
+        self.assertNotIn("--resource", argv)
 
     def test_go_provider_available_but_no_candidates_is_model_unavailable(self) -> None:
         prepared = prepare_agent_run(
@@ -1281,7 +1289,9 @@ class ResourceProcessOverlayTests(unittest.TestCase):
         self.assertEqual("1", env["SAFE_FLAG"])
         self.assertEqual({"model": "alpha-free"}, json.loads(env[OPENCODE_CONFIG_CONTENT_ENV]))
         argv = list(captured["args"])
-        self.assertNotIn("--model", argv)
+        model_index = argv.index("--model")
+        self.assertEqual("alpha-free", argv[model_index + 1])
+        self.assertEqual(len(argv) - 2, model_index)
         self.assertNotIn("--provider", argv)
 
     def test_injected_discovery_still_overrides_production_default(self) -> None:
@@ -1329,6 +1339,11 @@ class ResourceProcessOverlayTests(unittest.TestCase):
         env = captured["env"]
         assert isinstance(env, dict)
         self.assertEqual({"model": "injected-a-free"}, json.loads(env[OPENCODE_CONFIG_CONTENT_ENV]))
+        argv = list(captured["args"])
+        model_index = argv.index("--model")
+        self.assertEqual("injected-a-free", argv[model_index + 1])
+        self.assertEqual(len(argv) - 2, model_index)
+        self.assertNotIn("--provider", argv)
 
     def test_go_without_auth_stays_unconfigured_even_with_default_discovery(self) -> None:
         prepared = prepare_agent_run(
@@ -1425,6 +1440,11 @@ class ResourceProcessOverlayTests(unittest.TestCase):
         self.assertNotIn("OPENCODE_CONFIG", env)
         self.assertEqual({"model": "go-model-a"}, json.loads(env[OPENCODE_CONFIG_CONTENT_ENV]))
         self.assertNotIn("default_agent", json.loads(env[OPENCODE_CONFIG_CONTENT_ENV]))
+        argv = list(captured["args"])
+        model_index = argv.index("--model")
+        self.assertEqual("go-model-a", argv[model_index + 1])
+        self.assertEqual(len(argv) - 2, model_index)
+        self.assertNotIn("--provider", argv)
 
     def test_default_discovery_failure_maps_to_normalized_failure(self) -> None:
         prepared = prepare_agent_run(

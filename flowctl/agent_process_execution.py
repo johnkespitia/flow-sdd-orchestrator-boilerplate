@@ -464,6 +464,7 @@ def _extract_model_ids_from_probe_output(raw: str) -> list[str]:
 def probe_opencode_models(
     *,
     executable: str = _DEFAULT_OPENCODE_EXECUTABLE,
+    provider: Optional[str] = None,
     subprocess_run: Callable[..., object] = subprocess.run,
     timeout_seconds: float = OPENCODE_MODELS_PROBE_TIMEOUT_SECONDS,
 ) -> list[str]:
@@ -475,9 +476,12 @@ def probe_opencode_models(
     exe = executable.strip() if isinstance(executable, str) else ""
     if not exe:
         raise RuntimeError("opencode_models_probe_missing_executable")
+    argv = [exe, *OPENCODE_MODELS_PROBE_ARGV]
+    if isinstance(provider, str) and provider.strip():
+        argv.append(provider.strip())
     try:
         completed = subprocess_run(
-            [exe, *OPENCODE_MODELS_PROBE_ARGV],
+            argv,
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
@@ -546,6 +550,11 @@ def default_opencode_model_discovery() -> list[str]:
     return probe_opencode_models()
 
 
+def default_opencode_go_model_discovery() -> list[str]:
+    """Production default DiscoverModelsFn for the Go resource pool."""
+    return probe_opencode_models(provider="opencode-go")
+
+
 def resolve_resource_model(
     resource: AgentResource,
     *,
@@ -559,14 +568,14 @@ def resolve_resource_model(
 
     When callers omit ``discover_free`` / ``discover_go``, the production default
     OpenCode probe is used. Tests may inject either hook or ``default_discover``.
-    Go remains AUTH_UNCONFIGURED without valid auth evidence (checked before discover).
+    Go auth defaults to a supported OpenCode auth probe when callers omit explicit
+    evidence.
     """
     if resource.model_resolution == "worker_profile":
         return None
 
-    production_discover = default_discover or default_opencode_model_discovery
-
     if resource.model_resolution == "dynamic_free":
+        production_discover = default_discover or default_opencode_model_discovery
         discover = discover_free if discover_free is not None else production_discover
         result = resolve_free_model(discover=discover, tie_break=resource.candidate_tie_break)
         if result.availability != "AVAILABLE" or not result.model_id:
@@ -577,6 +586,7 @@ def resolve_resource_model(
         return result.model_id
 
     if resource.model_resolution == "dynamic_go":
+        production_discover = default_discover or default_opencode_go_model_discovery
         discover = discover_go if discover_go is not None else production_discover
         result = resolve_go_model(
             discover=discover,
@@ -679,6 +689,30 @@ def execute_subprocess(
     )
 
 
+def _with_opencode_model_arg(
+    invocation: AgentAdapterInvocation,
+    *,
+    model_id: Optional[str],
+) -> AgentAdapterInvocation:
+    if not model_id:
+        return invocation
+    model = model_id.strip()
+    if not model:
+        return invocation
+
+    argv = list(invocation.argv)
+    if invocation.stdin is not None:
+        insert_at = 1 if argv else 0
+        argv[insert_at:insert_at] = ["--model", model]
+        return AgentAdapterInvocation(argv=tuple(argv), stdin=invocation.stdin)
+    try:
+        insert_at = argv.index("--")
+    except ValueError:
+        insert_at = max(len(argv) - 1, 0)
+    argv[insert_at:insert_at] = ["--model", model]
+    return AgentAdapterInvocation(argv=tuple(argv), stdin=invocation.stdin)
+
+
 def run_agent_process(
     *,
     executor: AgentExecutor,
@@ -759,6 +793,8 @@ def run_agent_process(
             resource,
             model_id=model_id,
         )
+        if executor.adapter == "opencode" and resource.model_resolution in {"dynamic_free", "dynamic_go"}:
+            invocation = _with_opencode_model_arg(invocation, model_id=model_id)
         # Local worker_profile returns an empty overlay: keep true env inheritance
         # (no env= kwarg) so operator-provided OPENCODE_CONFIG_CONTENT is preserved.
         if built_overlay or scrub_env_keys:

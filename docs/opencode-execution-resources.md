@@ -13,10 +13,10 @@ auth payloads, or workstation-specific absolute paths as SoftOS product truth.
 
 | Surface | Owns | Must not own |
 | --- | --- | --- |
-| SoftOS Core / policy / adapters | Logical resource IDs, capabilities, availability, capacity, cost tier, selection priority, failure semantics, model-agnostic invocation | Provider/model identity branches, `--model` / `--provider` / `--resource` CLI flags, credentials |
+| SoftOS Core / policy / adapters | Logical resource IDs, capabilities, availability, capacity, cost tier, selection priority, failure semantics, model-agnostic invocation | Provider/model identity branches, user/configured `--model` / `--provider` / `--resource` CLI flags, credentials |
 | `workspace.config.json` executor + resource registry | Executor harness IDs, underlying executables, logical resource metadata (including local capacity `1`) | Tokens, permanent free/Go model names, local worker prompt/profile body |
 | Repository `opencode.json` | Portable `softos-local-worker` profile (bounded local worker configuration) | Secrets, machine-specific absolute paths, concrete provider/model product contracts |
-| Process execution harness | Resource selection before launch, logical resource ID propagation, validated process-local environment overlay merge | Wholesale environment replacement, credential serialization, adapter argv model flags |
+| Process execution harness | Resource selection before launch, logical resource ID propagation, validated process-local environment overlay merge, process-local OpenCode model argument from dynamic discovery | Wholesale environment replacement, credential serialization, static/configured adapter argv model flags |
 | `~/.config/opencode/**`, wrappers, auth stores, env overrides | Machine-local materialization (auth, temporary model inventory, local endpoints, optional workstation wrappers) | Canonical SoftOS product policy |
 
 `docs/opencode-local-executor.md` remains historical workstation diagnostic notes.
@@ -35,7 +35,7 @@ underlying executor.
 | `opencode-free` | cloud/free | conservative | generic direct OpenCode (`opencode`) | Dynamically choose from currently available free candidates; no permanent free model name |
 | `opencode-go` | cloud/paid-low | conservative | same generic direct OpenCode when auth evidence exists | Dynamic after OpenCode-managed authentication; starts `AUTH_UNCONFIGURED`; no permanent Go model name |
 
-Core and generic adapters stay model/provider agnostic. SoftOS does not add
+Core and generic adapters stay model/provider agnostic. SoftOS does not expose
 `--resource`, `--model`, or `--provider` CLI flags for V1. Legacy
 `flow agent run <executor-id> ...` continues to work; a positional selector may
 resolve as a logical resource ID first, then its underlying executor.
@@ -77,7 +77,8 @@ Cloud execution path:
 SoftOS selects logical resource opencode-free or opencode-go
   -> underlying generic executor opencode (executable: opencode)
   -> dynamic model resolution for that cloud resource
-  -> validated process-local OPENCODE_CONFIG_CONTENT overlay carries only the resolved model
+  -> validated process-local OpenCode model argument carries the resolved model when needed
+  -> OPENCODE_CONFIG_CONTENT overlay remains credential-free and scrubs local config carriers
   -> subprocess launch (no softos-local-worker / local wrapper inheritance)
 ```
 
@@ -88,9 +89,10 @@ Contract:
   inherit local worker/profile model/provider/profile configuration unless the
   same model/provider was independently resolved for that cloud resource.
 - Resolved Free/Go models must affect the **spawned OpenCode process**, not
-  diagnostics alone. The harness applies a validated process-local environment
-  overlay (typically `OPENCODE_CONFIG_CONTENT` with the resolved model object).
-- The overlay is process-local only: never persisted to Git or evidence; contains
+  diagnostics alone. The harness applies the dynamically discovered model as a
+  process-local OpenCode `--model` argument when that is the reliable control
+  path and keeps it out of repository configuration.
+- Any overlay is process-local only: never persisted to Git or evidence; contains
   no credentials; does not persist raw provider/auth payloads; merges onto a copy
   of the inherited environment rather than replacing it wholesale; and scrubs
   local OpenCode config carriers so Free/Go do not pick up local worker/profile
@@ -123,5 +125,5 @@ commit credentials, tokens, auth payloads, or machine-specific absolute paths.
   merge, or release behavior changes are implied by this document.
 - No concrete vendor model or provider identity (including temporary workstation
   experiments) is a SoftOS product contract.
-- No SoftOS CLI expansion for `--resource`, `--model`, or `--provider`.
+- No SoftOS user/config CLI expansion for `--resource`, `--model`, or `--provider`.
 - Installing or authenticating OpenCode remains an operator concern outside Git.

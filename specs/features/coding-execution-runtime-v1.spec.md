@@ -144,7 +144,7 @@ These concepts remain separate and must not be collapsed into one registry field
 | OpenCode repository config | portable `softos-local-worker` profile and its local worker configuration | secrets or machine-specific absolute paths |
 | OpenCode machine-local state | authenticated providers, temporary model inventory, local endpoint/materialization | canonical product policy |
 
-The orchestration algorithm selects a logical resource before that resource resolves a model. Core branches may inspect resource metadata and normalized availability states, but never model or provider identity. `flowctl/agent_executor_adapters.py` remains model/provider agnostic; resource-specific OpenCode model selection is applied only through the harness process boundary and validated environment overlay, not adapter argv flags.
+The orchestration algorithm selects a logical resource before that resource resolves a model. Core branches may inspect resource metadata and normalized availability states, but never model or provider identity. `flowctl/agent_executor_adapters.py` remains model/provider agnostic; resource-specific OpenCode model selection is applied only through the harness process boundary as a process-local control path, not as adapter-owned routing or repo configuration.
 
 ### Execution harness boundary
 
@@ -155,7 +155,7 @@ requested logical resource ID
   -> generic resource lookup
   -> underlying executor lookup
   -> dynamic resource model resolution
-  -> safe OpenCode process environment/config overlay
+  -> safe OpenCode process environment/config overlay plus process-local OpenCode model argument when required
   -> subprocess execution
 ```
 
@@ -173,7 +173,7 @@ Legacy invocation `flow agent run <executor-id> ...` must continue working. The 
 
 ### Process environment overlay
 
-The process execution boundary may receive a safe resource-specific environment overlay. The OpenCode resource layer may build `OPENCODE_CONFIG_CONTENT` for the selected process using the resolved model.
+The process execution boundary may receive a safe resource-specific environment overlay. For OpenCode cloud resources, the harness may also inject the resolved model as a process-local OpenCode `--model` argument when that is the only reliable path for the selected runtime.
 
 Overlay rules:
 
@@ -434,8 +434,8 @@ The parser-level target surfaces are existing globs required by current drift go
 1. Exactly four slices preserve the four product outcomes and have pairwise-disjoint write ownership.
 2. Core and non-Codex adapter invocation contain no model/provider-specific routing branch. Codex-only process-local `-m/--model` and `-s/--sandbox` options are forwarded after validation, are not persisted, and do not affect logical-resource selection.
 3. `opencode-local` launches through the repository-owned `softos-local-worker` wrapper/profile, has logical capacity `1`, and uses the model/provider configured by that worker/profile without Core branching on model or provider identity.
-4. `opencode-free` discovers currently available free models dynamically, executes through a generic/direct OpenCode cloud executor without inheriting local worker/profile configuration, and applies the resolved model to the spawned process via a validated environment overlay; no specific free model is a permanent contract.
-5. `opencode-go` is representable, begins `AUTH_UNCONFIGURED`, cannot launch until supported auth evidence exists, and after valid evidence applies the dynamically resolved model to the spawned process; no token name, token value, or fake auth implementation is added.
+4. `opencode-free` discovers currently available free models dynamically, executes through a generic/direct OpenCode cloud executor without inheriting local worker/profile configuration, and applies the resolved model to the spawned process via a validated process-local control path; no specific free model is a permanent contract.
+5. `opencode-go` is representable, begins `AUTH_UNCONFIGURED`, cannot launch until supported auth evidence exists, and after valid evidence applies the dynamically resolved model to the spawned process via a validated process-local control path; no token name, token value, or fake auth implementation is added.
 6. The harness preserves logical resource ID through selection and subprocess launch even when Free and Go share one underlying executor.
 7. `execute_subprocess()` merges validated resource overlays with inherited environment without wholesale replacement or credential serialization.
 8. Legacy `flow agent run <executor-id> ...` continues working without a new `--resource` flag.
