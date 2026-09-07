@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.12.1 - 2026-09-07
+
+### Changed
+
+- Merge pull request #28 from johnkespitia/fix/workspace-user-tooling-home-ownership
+
+### Fixed
+
+- prepare workspace user tooling directories
+
+### Docs
+
+- align runtime ownership spec with tooling dirs
+
 ## v0.12.0 - 2026-09-07
 
 ### Added
