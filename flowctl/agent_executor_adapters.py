@@ -200,10 +200,11 @@ class CodexAdapter:
             codex_options += ("-m", request.model.strip())
         if request.sandbox is not None:
             codex_options += ("-s", request.sandbox)
+        approval_option = () if request.sandbox is not None else ("--approve-for-me",)
         argv = _build_positional_prompt_argv(
             request,
             adapter_name=self.adapter_name,
-            tail=("exec", "--approve-for-me", *codex_options),
+            tail=("exec", *approval_option, *codex_options),
             prompt=prompt,
         )
         return AgentAdapterInvocation(argv=argv)

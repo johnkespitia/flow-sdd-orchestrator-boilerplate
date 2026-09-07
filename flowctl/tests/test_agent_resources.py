@@ -371,12 +371,27 @@ class DynamicModelResolutionTests(unittest.TestCase):
         self.assertEqual("AUTH_UNCONFIGURED", unconfigured.availability)
         self.assertIsNone(unconfigured.model_id)
 
+        probed = resolve_go_model(
+            discover=lambda: ["go-model-b", "go-model-a"],
+            auth_discover=lambda: "AVAILABLE",
+        )
+        self.assertEqual("AVAILABLE", probed.availability)
+        self.assertEqual("go-model-a", probed.model_id)
+
         resolved = resolve_go_model(
             discover=lambda: ["go-model-b", "go-model-a"],
             auth_evidence="AVAILABLE",
         )
         self.assertEqual("AVAILABLE", resolved.availability)
         self.assertEqual("go-model-a", resolved.model_id)
+
+    def test_resolve_go_model_available_auth_with_no_candidates_is_model_unavailable(self) -> None:
+        result = resolve_go_model(
+            discover=lambda: [],
+            auth_discover=lambda: "AVAILABLE",
+        )
+        self.assertEqual("MODEL_UNAVAILABLE", result.availability)
+        self.assertIsNone(result.model_id)
 
     def test_no_persistent_concrete_model_policy_in_registry_metadata(self) -> None:
         resources = parse_resource_registry(_config())
