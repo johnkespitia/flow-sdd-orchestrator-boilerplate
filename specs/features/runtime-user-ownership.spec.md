@@ -100,6 +100,9 @@ confundía la frontera entre ejecución administrativa y desarrollo.
 
 - arrancar `workspace` y `gateway` como `root` solo durante preparación de arranque en
   `.devcontainer/workspace-entrypoint.sh`
+- preparar antes del `setpriv` las rutas exactas de estado del usuario de desarrollo
+  (`.local`, `.local/share`, `.local/share/tessl`, `.local/share/pnpm`,
+  `.local/share/pnpm/store`, `.config`, `.cache`) con ownership del usuario objetivo
 - después del bootstrap, re-ejecutar el comando del servicio como `FLOW_WORKSPACE_USER` (default
   `vscode`) vía `setpriv --reuid --regid --init-groups`
 - declarar `user: root` en compose únicamente para habilitar esa preparación inicial; el proceso
@@ -154,6 +157,8 @@ para:
 2. asegurar un grupo (`docker-host` o el grupo existente del socket) y añadir
    `FLOW_WORKSPACE_USER` a ese grupo
 3. calcular `target_uid`/`target_gid` del usuario de desarrollo
+4. crear y asignar ownership solo a las rutas exactas de estado del usuario de desarrollo
+   necesarias para Tessl, BMAD, pnpm, config y cache
 
 Ninguna otra operación rutinaria del servicio debe depender de permisos de `root` después de este
 bootstrap.
