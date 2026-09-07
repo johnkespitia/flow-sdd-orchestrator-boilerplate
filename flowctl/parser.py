@@ -925,6 +925,17 @@ def build_parser(
         required=True,
         help="Existing or prospective path inside the workdir. Repeatable.",
     )
+    agent_run.add_argument(
+        "-m",
+        "--model",
+        help="Codex model override for this process only; valid only with the codex executor.",
+    )
+    agent_run.add_argument(
+        "-s",
+        "--sandbox",
+        choices=("read-only", "workspace-write", "danger-full-access"),
+        help="Codex sandbox policy for this process only; valid only with the codex executor.",
+    )
     agent_run.set_defaults(func=commands["agent_run"])
 
     agent_handoff = agent_subparsers.add_parser("handoff", help="Write a self-contained handoff package for another agent.")

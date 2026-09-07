@@ -646,6 +646,8 @@ def run_agent_process(
     discover_go: Optional[DiscoverModelsFn] = None,
     auth_evidence: object = None,
     inherited_env: Mapping[str, str] | None = None,
+    model: Optional[str] = None,
+    sandbox: Optional[str] = None,
 ) -> tuple[int, AgentRunMetadata]:
     started_at = datetime.now(timezone.utc).isoformat()
     workdir_resolved = str(workdir.resolve())
@@ -659,6 +661,8 @@ def run_agent_process(
             targets=targets,
             user_prompt=prompt,
             contract_body="",
+            model=model,
+            sandbox=sandbox,
         )
     )
     request = AgentRunRequest(
@@ -669,9 +673,13 @@ def run_agent_process(
         targets=targets,
         user_prompt=prompt,
         contract_body=contract_body,
+        model=model,
+        sandbox=sandbox,
     )
 
     try:
+        if (model is not None or sandbox is not None) and executor.adapter != "codex":
+            raise AgentRunError("Las opciones -m/--model y -s/--sandbox solo son validas con el executor codex.")
         adapter = resolve_adapter(executor.adapter)
         invocation = adapter.build_invocation(request)
     except ValueError as exc:

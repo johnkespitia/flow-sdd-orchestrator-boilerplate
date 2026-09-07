@@ -276,6 +276,8 @@ def command_agent_run(
             discover_free=discover_free,
             discover_go=discover_go,
             auth_evidence=auth_evidence,
+            model=getattr(args, "model", None),
+            sandbox=getattr(args, "sandbox", None),
         )
     except AgentRunError as exc:
         raise SystemExit(exc.message) from exc
