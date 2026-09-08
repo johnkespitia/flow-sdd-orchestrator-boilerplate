@@ -101,14 +101,15 @@ class MemoryOpsTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            rc = command_memory_smoke(
-                Namespace(json=True, save=False),
-                root=root,
-                workspace_config={},
-                json_dumps=_json_dumps,
-                which=lambda _name: "/usr/local/bin/engram",
-                run_command=fake_run,
-            )
+            with patch.dict(os.environ, {}, clear=True):
+                rc = command_memory_smoke(
+                    Namespace(json=True, save=False),
+                    root=root,
+                    workspace_config={},
+                    json_dumps=_json_dumps,
+                    which=lambda _name: "/usr/local/bin/engram",
+                    run_command=fake_run,
+                )
 
         self.assertEqual(0, rc)
         self.assertEqual(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Callable, Optional
 
 
@@ -71,6 +72,45 @@ def command_doctor(
     for repo in repo_names:
         checks[f"repo_{slugify(repo).replace('-', '_')}"] = repo_root(repo).is_dir()
 
+    workspace_payload: dict[str, object] = {}
+    try:
+        loaded_payload = json.loads(workspace_config_file.read_text(encoding="utf-8"))
+        if isinstance(loaded_payload, dict):
+            workspace_payload = loaded_payload
+    except Exception:
+        pass
+    memory_payload = workspace_payload.get("memory", {})
+    memory_agent = memory_payload.get("agent", {}) if isinstance(memory_payload, dict) else {}
+    code_graph = workspace_payload.get("code_graph", {})
+    if not isinstance(memory_agent, dict):
+        memory_agent = {}
+    if not isinstance(code_graph, dict):
+        code_graph = {}
+    memory_data_dir = root / str(memory_agent.get("data_dir") or ".flow/memory/engram")
+    context_tools = {
+        "engram": {
+            "configured": str(memory_agent.get("provider") or "") == "engram",
+            "available": shutil_which("engram") is not None,
+            "binary": shutil_which("engram") or "",
+            "project": str(memory_agent.get("project") or project_name),
+            "data_dir": str(memory_data_dir.resolve()),
+            "data_dir_writable": memory_data_dir.is_dir() and os.access(memory_data_dir, os.W_OK),
+        },
+        "graphify": {
+            "configured": str(code_graph.get("provider") or "") == "graphify",
+            "available": shutil_which("graphify") is not None,
+            "mcp_available": shutil_which("graphify-mcp") is not None,
+            "binary": shutil_which("graphify") or "",
+            "version": str(code_graph.get("version") or ""),
+            "mode": str(code_graph.get("mode") or ""),
+            "output_dir": str(code_graph.get("output_dir") or "graphify-out"),
+        },
+        "runtime_user": {
+            "effective_uid": os.geteuid() if hasattr(os, "geteuid") else None,
+            "home": os.environ.get("HOME", ""),
+        },
+    }
+
     payload = {
         "project": project_name,
         "checks": checks,
@@ -86,11 +126,11 @@ def command_doctor(
         "bmad_command": bmad_command,
         "bmad_project": root.joinpath("_bmad").is_dir(),
         "tessl_runtime_local": bool(shutil_which("tessl")) if running_inside_workspace() else None,
+        "context_tools": context_tools,
     }
 
     missing_test_roots: list[str] = []
     try:
-        workspace_payload = json.loads(workspace_config_file.read_text(encoding="utf-8"))
         repos_payload = workspace_payload.get("repos", {})
         if isinstance(repos_payload, dict):
             for repo_name, repo_cfg in repos_payload.items():
@@ -144,6 +184,10 @@ def command_doctor(
     print(f"BMAD CLI: {'ok' if bmad_available else 'missing'}")
     print(f"BMAD command: {bmad_command}")
     print(f"BMAD project: {'ok' if root.joinpath('_bmad').is_dir() else 'missing'}")
+    print(f"Engram: {'ok' if context_tools['engram']['available'] else 'optional/missing'}")
+    print(f"Graphify: {'ok' if context_tools['graphify']['available'] else 'optional/missing'}")
+    print(f"Graphify MCP: {'ok' if context_tools['graphify']['mcp_available'] else 'optional/missing'}")
+    print(f"Runtime HOME: {context_tools['runtime_user']['home'] or 'unset'}")
     if running_inside_workspace():
         print(f"Tessl runtime local: {'ok' if shutil_which('tessl') else 'missing'}")
     return 0

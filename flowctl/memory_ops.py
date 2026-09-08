@@ -397,6 +397,7 @@ def command_memory_doctor(
 ) -> int:
     config = _memory_config(root=root, workspace_config=workspace_config)
     Path(config["data_dir"]).mkdir(parents=True, exist_ok=True)
+    data_dir_writable = os.access(config["data_dir"], os.W_OK)
     binary = which("engram")
     version: dict[str, object] | None = None
     if binary:
@@ -404,11 +405,14 @@ def command_memory_doctor(
 
     payload: dict[str, object] = {
         "ok": True,
-        "available": bool(binary and version and version["ok"]),
+        "available": bool(binary and version and version["ok"] and data_dir_writable),
         "binary": binary or "",
         "project": config["project"],
         "data_dir": config["data_dir"],
         "db_path": config["db_path"],
+        "data_dir_writable": data_dir_writable,
+        "effective_uid": os.geteuid() if hasattr(os, "geteuid") else None,
+        "home": os.environ.get("HOME", ""),
         "source_boundary": config["source_boundary"],
         "version": version["stdout"] if version and version["ok"] else "",
         "notes": "Engram is optional; missing Engram must not block SoftOS SDLC.",
@@ -725,7 +729,7 @@ def command_memory_prune(
             "older_than_days": older_than_days,
             "keep_latest": keep_latest,
         },
-        "notes": "Engram v1.11.0 exposes no safe granular delete; prune only reports candidates.",
+        "notes": "SoftOS keeps prune advisory-only; no delete is executed by this command.",
         "step": step,
     }
     output = getattr(args, "output", None)

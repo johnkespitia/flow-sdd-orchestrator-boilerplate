@@ -45,7 +45,18 @@ def copy_template(source_config: dict[str, object], destination: Path, *, profil
 
     def ignore(directory: str, names: list[str]) -> set[str]:
         current = Path(directory)
-        ignored = {".git", ".worktrees", "_bmad-output", "__pycache__", ".pytest_cache", "node_modules", "vendor"}
+        ignored = {
+            ".git",
+            ".worktrees",
+            "_bmad-output",
+            "__pycache__",
+            ".pytest_cache",
+            "graphify-out",
+            "node_modules",
+            "vendor",
+        }
+        if current.name == ".devcontainer":
+            ignored.add(".env.generated")
         if current.resolve() == ROOT.resolve():
             ignored.update(excluded_repo_paths)
             for legacy_path in ("backend", "frontend"):
@@ -164,6 +175,18 @@ def rewrite_workspace_config(
                 "source_boundary": "consultive",
             }
         },
+        "code_graph": dict(
+            source_config.get(
+                "code_graph",
+                {
+                    "provider": "graphify",
+                    "version": "0.9.56",
+                    "output_dir": "graphify-out",
+                    "mode": "code-only",
+                    "source_boundary": "derived",
+                },
+            )
+        ),
     }
 
     (destination / "workspace.config.json").write_text(

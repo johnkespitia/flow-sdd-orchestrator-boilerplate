@@ -55,7 +55,8 @@ RUN install -m 0755 -d /etc/apt/keyrings \
 ARG PNPM_VERSION=latest
 ARG TESSL_CLI_VERSION=latest
 ARG BMAD_METHOD_VERSION=latest
-ARG ENGRAM_VERSION=latest
+ARG ENGRAM_VERSION=v1.20.0
+ARG GRAPHIFY_VERSION=0.9.56
 
 # ── pnpm ─────────────────────────────────────────────────────────────
 RUN npm install -g "pnpm@${PNPM_VERSION}"
@@ -88,16 +89,34 @@ RUN if [ "$INSTALL_ENGRAM" = "true" ]; then \
       curl -fsSL "$release_url" -o /tmp/engram-release.json; \
       url="$(ENGRAM_ASSET_ARCH="$asset_arch" python3 -c 'import json, os; arch=os.environ["ENGRAM_ASSET_ARCH"]; data=json.load(open("/tmp/engram-release.json", encoding="utf-8")); aliases={arch, "x86_64" if arch=="amd64" else arch}; matches=[str(a.get("browser_download_url") or "") for a in data.get("assets", []) if "linux" in str(a.get("name") or "").lower() and any(alias in str(a.get("name") or "").lower() for alias in aliases) and (str(a.get("name") or "").lower().endswith(".tar.gz") or str(a.get("name") or "").lower().endswith(".tgz") or str(a.get("name") or "").lower().endswith(".zip"))]; print(matches[0] if matches else "")')"; \
       test -n "$url"; \
+      checksum_url="$(python3 -c 'import json; data=json.load(open("/tmp/engram-release.json", encoding="utf-8")); print(next((str(a.get("browser_download_url") or "") for a in data.get("assets", []) if str(a.get("name") or "") == "checksums.txt"), ""))')"; \
+      test -n "$checksum_url"; \
+      archive_name="$(basename "$url")"; \
       mkdir -p /tmp/engram-extract; \
-      curl -fsSL "$url" -o /tmp/engram-archive; \
+      curl -fsSL "$url" -o "/tmp/$archive_name"; \
+      curl -fsSL "$checksum_url" -o /tmp/engram-checksums.txt; \
+      expected="$(awk -v name="$archive_name" '$2 == name || $2 == "*" name {print $1; exit}' /tmp/engram-checksums.txt)"; \
+      test -n "$expected"; \
+      echo "$expected  /tmp/$archive_name" | sha256sum -c -; \
       case "$url" in \
-        *.zip) unzip -q /tmp/engram-archive -d /tmp/engram-extract ;; \
-        *) tar -xzf /tmp/engram-archive -C /tmp/engram-extract ;; \
+        *.zip) unzip -q "/tmp/$archive_name" -d /tmp/engram-extract ;; \
+        *) tar -xzf "/tmp/$archive_name" -C /tmp/engram-extract ;; \
       esac; \
       find /tmp/engram-extract -type f -name engram -exec install -m 0755 {} /usr/local/bin/engram \; -quit; \
       test -x /usr/local/bin/engram; \
       engram version; \
-      rm -rf /tmp/engram-release.json /tmp/engram-archive /tmp/engram-extract; \
+      rm -rf /tmp/engram-release.json /tmp/engram-checksums.txt "/tmp/$archive_name" /tmp/engram-extract; \
+    fi
+
+# ── Graphify code intelligence ───────────────────────────────────────
+# Code-only extraction is local/deterministic. The MCP extra provides the
+# project-scoped stdio server without adding a daemon or graph database.
+ARG INSTALL_GRAPHIFY=true
+RUN if [ "$INSTALL_GRAPHIFY" = "true" ]; then \
+      python3 -m pip install --no-cache-dir "graphifyy[mcp]==${GRAPHIFY_VERSION}"; \
+      GRAPHIFY_VERSION="$GRAPHIFY_VERSION" python3 -c 'import importlib.metadata, os; actual=importlib.metadata.version("graphifyy"); expected=os.environ["GRAPHIFY_VERSION"]; assert actual == expected, f"graphifyy {actual} != {expected}"'; \
+      graphify --help >/dev/null; \
+      graphify-mcp --help >/dev/null; \
     fi
 
 # ── Python tooling del control plane y gateway ───────────────────────

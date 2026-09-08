@@ -282,6 +282,76 @@ engram mcp --help
 scripts/install_codex_engram_mcp.sh
 ```
 
+### 7.2 Inteligencia estructural de código
+
+Graphify complementa Engram: Engram conserva aprendizajes; Graphify representa el código
+actual. SoftOS registra y enruta los proyectos. Ninguno reemplaza Git ni `specs/**`.
+
+```bash
+python3 ./flow code-graph doctor --json
+python3 ./flow code-graph status --json
+python3 ./flow code-graph refresh <repo> --json
+```
+
+- Los repos se descubren únicamente desde `workspace.config.json.repos`.
+- Cada repo mantiene su propio `graphify-out/`, derivado, ignorado y reconstruible.
+- `refresh` usa extracción local `--code-only` y actualiza el índice de forma atómica.
+- `status` comprueba frescura sin red ni LLM.
+- Cursor y OpenCode usan el MCP declarado en el proyecto; Codex se activa con
+  `scripts/install_codex_graphify_mcp.sh [repo-registrado] [nombre-servidor]`.
+- La ausencia de Graphify no bloquea comandos SoftOS no relacionados.
+
+### 7.3 Prueba end-to-end de Engram y Graphify
+
+Desde la raíz del workspace, iniciar el stack y validar identidad, memoria y herramientas:
+
+```bash
+python3 ./flow stack up
+python3 ./flow workspace exec -- python3 ./flow doctor --json
+python3 ./flow workspace exec -- python3 ./flow memory smoke --json
+```
+
+Crear o actualizar el grafo de un repo registrado y comprobar su frescura:
+
+```bash
+python3 ./flow workspace exec -- bash -lc '
+export PATH="/home/vscode/.local/bin:$PATH"
+python3 ./flow code-graph doctor --json
+python3 ./flow code-graph refresh sdd-workspace-boilerplate --json
+python3 ./flow code-graph status sdd-workspace-boilerplate --json
+'
+```
+
+El `PATH` explícito solo es necesario cuando Graphify se instaló con `pip --user` en un
+contenedor existente. Después de reconstruir la imagen, los binarios quedan en
+`/usr/local/bin`.
+
+Resultado esperado:
+
+- Engram disponible en v1.20.0, con `effective_uid=1000`, `HOME=/home/vscode` y storage escribible.
+- Graphify disponible en v0.9.56 y estado `current`.
+- `graph.json`, `manifest.json` y `.softos-index.json` bajo `<repo>/graphify-out/`.
+- Un refresh fallido conserva el índice anterior.
+
+Para probar MCP en Cursor, reiniciar la ventana y pedir:
+
+> Usa Graphify para mostrar las estadísticas del grafo y localizar `command_code_graph_refresh`.
+
+Cursor usa `.cursor/mcp.json`. OpenCode usa `opencode.json`; Codex se activa con
+`scripts/install_codex_graphify_mcp.sh`.
+
+Validación automatizada:
+
+```bash
+python3 ./flow workspace exec -- python3 -m unittest discover -s flowctl -p 'test*.py'
+python3 ./flow workspace exec -- python3 ./flow ci spec \
+  specs/features/softos-project-memory-and-code-intelligence.spec.md --json
+```
+
+Si la reconstrucción falla antes de ejecutar el Dockerfile al obtener credenciales para
+`composer:2`, resolver primero la integración Docker Desktop/WSL. Ese error no corresponde a
+Engram ni Graphify.
+
 Checklist mínimo antes de declarar “done”:
 
 - Spec en `approved`.

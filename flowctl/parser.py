@@ -200,6 +200,33 @@ def build_parser(
     memory_save.add_argument("--json", action="store_true", help="Print the result as JSON.")
     memory_save.set_defaults(func=commands["memory_save"])
 
+    code_graph = subparsers.add_parser("code-graph", help="Operate per-repo code intelligence through Graphify.")
+    code_graph_subparsers = code_graph.add_subparsers(dest="code_graph_command", required=True)
+
+    code_graph_doctor = code_graph_subparsers.add_parser(
+        "doctor",
+        help="Inspect Graphify CLI/MCP availability and managed project coverage.",
+    )
+    code_graph_doctor.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    code_graph_doctor.set_defaults(func=commands["code_graph_doctor"])
+
+    code_graph_status = code_graph_subparsers.add_parser(
+        "status",
+        help="List current Graphify index status for managed projects.",
+    )
+    code_graph_status.add_argument("repo", nargs="?", choices=repo_names, help="Optional registered repo id.")
+    code_graph_status.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    code_graph_status.set_defaults(func=commands["code_graph_status"])
+
+    code_graph_refresh = code_graph_subparsers.add_parser(
+        "refresh",
+        help="Initialize or incrementally refresh Graphify for a managed project.",
+    )
+    code_graph_refresh.add_argument("repo", nargs="?", choices=repo_names, help="Registered repo id.")
+    code_graph_refresh.add_argument("--all", action="store_true", help="Refresh every registered repo independently.")
+    code_graph_refresh.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    code_graph_refresh.set_defaults(func=commands["code_graph_refresh"])
+
     stack = subparsers.add_parser("stack", help="Operate the devcontainer stack from the control plane.")
     stack_subparsers = stack.add_subparsers(dest="stack_command", required=True)
     for name, help_text in [("doctor", "Show resolved Docker Compose context."), ("ps", "Show stack services.")]:

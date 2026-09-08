@@ -1,0 +1,44 @@
+{
+  "title": "Agent Code Intelligence With Graphify",
+  "summary": "Expone un indice de codigo local, derivado y reconstruible por cada repo registrado en SoftOS mediante Graphify CLI y MCP, sin convertir el grafo en memoria ni fuente de verdad.",
+  "target_roots": [
+    ".devcontainer",
+    ".cursor",
+    "capabilities",
+    "docs",
+    "flowctl",
+    "flow",
+    "scripts",
+    "workspace.config.json"
+  ],
+  "foundation_specs": [
+    {
+      "path": "specs/000-foundation/generated/agent-code-intelligence-graphify-foundation.spec.md",
+      "name": "Agent Code Intelligence With Graphify Foundation",
+      "description": "Foundation para indices Graphify locales por repo gestionado en `{primary_project}`.",
+      "owner": "platform",
+      "body": [
+        "## Scope",
+        "",
+        "- Descubrir proyectos exclusivamente desde `workspace.config.json.repos`.",
+        "- Mantener un indice Graphify independiente por repo registrado.",
+        "- Exponer consultas estructurales mediante CLI y MCP stdio.",
+        "",
+        "## Requirements",
+        "",
+        "- Git/codigo y `specs/**` permanecen autoritativos.",
+        "- El grafo es derivado, local y reconstruible; no almacena memoria historica SoftOS.",
+        "- El modo por defecto es `--code-only`; no se sube codigo ni se requieren API keys.",
+        "- Un repo ausente, vacio o no soportado no debe bloquear los demas.",
+        "- No se agregan daemon, watcher, hooks, vector DB ni grafo global.",
+        "",
+        "## Routing hints",
+        "",
+        "- `../../flowctl/code_graph_ops.py`",
+        "- `../../.cursor/mcp.json`",
+        "- `../../opencode.json`",
+        "- `../../workspace.config.json`"
+      ]
+    }
+  ]
+}

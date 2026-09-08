@@ -62,13 +62,19 @@ class AgentMemoryCapabilityTests(unittest.TestCase):
         gitignore = (root / ".gitignore").read_text(encoding="utf-8")
         workspace = json.loads((root / "workspace.config.json").read_text(encoding="utf-8"))
 
-        self.assertIn("Gentleman-Programming/engram/releases/latest", dockerfile)
+        self.assertIn("ARG ENGRAM_VERSION=v1.20.0", dockerfile)
+        self.assertIn("checksums.txt", dockerfile)
+        self.assertIn("sha256sum -c", dockerfile)
         self.assertIn("/usr/local/bin/engram", dockerfile)
+        self.assertIn('ARG GRAPHIFY_VERSION=0.9.56', dockerfile)
+        self.assertIn('"graphifyy[mcp]==${GRAPHIFY_VERSION}"', dockerfile)
         self.assertIn("ENGRAM_PROJECT", compose)
         self.assertIn("ENGRAM_DATA_DIR: /workspace/.flow/memory/engram", compose)
         self.assertIn(".flow/memory/*", gitignore)
         self.assertEqual("engram", workspace["memory"]["agent"]["provider"])
         self.assertEqual(".flow/memory/engram", workspace["memory"]["agent"]["data_dir"])
+        self.assertEqual("graphify", workspace["code_graph"]["provider"])
+        self.assertEqual("0.9.56", workspace["code_graph"]["version"])
 
     def test_agent_memory_spec_targets_capability_manifest_and_skill(self) -> None:
         root = self._root()

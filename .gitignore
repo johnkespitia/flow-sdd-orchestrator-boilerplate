@@ -41,6 +41,7 @@ gateway/data/secrets.json
 
 .worktrees/
 _bmad-output/
+graphify-out/
 .secrets/
 .devcontainer/.env.generated
 backend/.env.local.generated

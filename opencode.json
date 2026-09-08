@@ -12,6 +12,14 @@
         "ENGRAM_PROJECT": "softos-sdd-orchestrator",
         "ENGRAM_DATA_DIR": "/workspace/.flow/memory/engram"
       }
+    },
+    "graphify": {
+      "type": "local",
+      "command": [
+        "graphify-mcp",
+        "/workspace/graphify-out/graph.json"
+      ],
+      "enabled": true
     }
   },
   "agent": {

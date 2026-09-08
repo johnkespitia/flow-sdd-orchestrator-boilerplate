@@ -96,6 +96,13 @@
       "save_after_release_publish": false
     }
   },
+  "code_graph": {
+    "provider": "graphify",
+    "version": "0.9.56",
+    "output_dir": "graphify-out",
+    "mode": "code-only",
+    "source_boundary": "derived"
+  },
   "examples": {
     "project_release_deploy": {
       "legacy-api": {

@@ -77,7 +77,7 @@ Minimum profile responsibilities:
 
 ## What Is Included
 
-- `flow`: workspace CLI for `stack`, `tessl`, `skills`, `bmad`, `memory`, `workflow`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `submodule`, `secrets`, `drift`, `status`.
+- `flow`: workspace CLI for `stack`, `tessl`, `skills`, `bmad`, `memory`, `code-graph`, `workflow`, `add-project`, `spec`, `plan`, `slice`, `ci`, `release`, `infra`, `submodule`, `secrets`, `drift`, `status`.
 - `workspace.config.json`: configurable routing for repos, targets, and test runners.
 - `flowctl/`: internal control-plane modules.
 - `workspace.skills.json`: agent capabilities.
@@ -87,6 +87,21 @@ Minimum profile responsibilities:
 - `.tessl/**`: local SDD tile.
 - `_bmad/`: project BMAD runtime.
 - `.flow/**`: local SDLC operational state.
+
+## Project context primitives
+
+Engram remembers durable project knowledge. Graphify represents the current code structure.
+Git/code and `specs/**` remain the source of truth.
+
+```bash
+python3 ./flow memory doctor --json
+python3 ./flow code-graph doctor --json
+python3 ./flow code-graph status --json
+python3 ./flow code-graph refresh <registered-repo> --json
+```
+
+Graphify discovers projects only from `workspace.config.json.repos`, keeps one rebuildable
+`graphify-out/` per repo, and uses local `--code-only` extraction by default.
 
 ## Recommended Usage
 

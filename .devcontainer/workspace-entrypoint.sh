@@ -11,6 +11,8 @@ prepare_runtime_user_dirs() {
     local target_gid="$3"
     local runtime_dirs=(
         "$workspace_home/.local"
+        "$workspace_home/.local/bin"
+        "$workspace_home/.local/lib"
         "$workspace_home/.local/share"
         "$workspace_home/.local/share/tessl"
         "$workspace_home/.local/share/pnpm"
@@ -43,6 +45,9 @@ if [ "$(id -u)" -eq 0 ] && [ "$workspace_user" != "root" ] && id "$workspace_use
         workspace_home="/home/$workspace_user"
     fi
     prepare_runtime_user_dirs "$workspace_home" "$target_uid" "$target_gid"
+    export HOME="$workspace_home"
+    export USER="$workspace_user"
+    export LOGNAME="$workspace_user"
     exec setpriv --reuid="$target_uid" --regid="$target_gid" --init-groups -- "$@"
 fi
 

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from flowctl import agent_handoff as flow_agent_handoff
+from flowctl import code_graph_ops as flow_code_graph_ops
 from flowctl import features as flow_features
 from flowctl import evidence as flow_evidence
 from flowctl import gateway_ops as flow_gateway_ops
@@ -3091,6 +3092,33 @@ def command_memory_save(args: argparse.Namespace) -> int:
     )
 
 
+def command_code_graph_doctor(args: argparse.Namespace) -> int:
+    return flow_code_graph_ops.command_code_graph_doctor(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        json_dumps=json_dumps,
+    )
+
+
+def command_code_graph_status(args: argparse.Namespace) -> int:
+    return flow_code_graph_ops.command_code_graph_status(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        json_dumps=json_dumps,
+    )
+
+
+def command_code_graph_refresh(args: argparse.Namespace) -> int:
+    return flow_code_graph_ops.command_code_graph_refresh(
+        args,
+        root=ROOT,
+        workspace_config=WORKSPACE_CONFIG,
+        json_dumps=json_dumps,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     commands = {
         "doctor": command_doctor,
@@ -3118,6 +3146,9 @@ def build_parser() -> argparse.ArgumentParser:
         "memory_import": command_memory_import,
         "memory_prune": command_memory_prune,
         "memory_save": command_memory_save,
+        "code_graph_doctor": command_code_graph_doctor,
+        "code_graph_status": command_code_graph_status,
+        "code_graph_refresh": command_code_graph_refresh,
         "stack_doctor": command_stack_doctor,
         "stack_ps": command_stack_ps,
         "stack_up": command_stack_up,

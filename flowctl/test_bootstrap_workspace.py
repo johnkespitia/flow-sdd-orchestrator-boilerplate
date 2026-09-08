@@ -23,6 +23,10 @@ class BootstrapWorkspaceTests(unittest.TestCase):
             entrypoint = source_root / ".devcontainer" / "workspace-entrypoint.sh"
             entrypoint.parent.mkdir(parents=True, exist_ok=True)
             entrypoint.write_text("#!/usr/bin/env bash\nsentinel=1\n", encoding="utf-8")
+            (source_root / ".devcontainer" / ".env.generated").write_text("SECRET=value\n", encoding="utf-8")
+            graph = source_root / "graphify-out" / "graph.json"
+            graph.parent.mkdir(parents=True, exist_ok=True)
+            graph.write_text("{}\n", encoding="utf-8")
 
             source_config = {
                 "project": {
@@ -46,6 +50,8 @@ class BootstrapWorkspaceTests(unittest.TestCase):
 
             copied = (destination / ".devcontainer" / "workspace-entrypoint.sh").read_text(encoding="utf-8")
             self.assertIn("sentinel=1", copied)
+            self.assertFalse((destination / ".devcontainer" / ".env.generated").exists())
+            self.assertFalse((destination / "graphify-out").exists())
 
     def test_rewrite_project_texts_updates_agent_context_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -109,6 +115,9 @@ class BootstrapWorkspaceTests(unittest.TestCase):
             payload = json.loads((destination / "workspace.config.json").read_text(encoding="utf-8"))
             self.assertEqual("nuevo-root-repo", payload["memory"]["agent"]["project"])
             self.assertEqual(".flow/memory/engram", payload["memory"]["agent"]["data_dir"])
+            self.assertEqual("graphify", payload["code_graph"]["provider"])
+            self.assertEqual("0.9.56", payload["code_graph"]["version"])
+            self.assertEqual("graphify-out", payload["code_graph"]["output_dir"])
             target_roots = payload["repos"]["nuevo-root-repo"]["target_roots"]
             self.assertIn(".devcontainer", target_roots)
             self.assertIn(".flow/memory", target_roots)

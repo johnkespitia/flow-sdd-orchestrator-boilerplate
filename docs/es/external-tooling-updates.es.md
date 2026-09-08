@@ -3,7 +3,7 @@
 English source: [docs/external-tooling-updates.md](../external-tooling-updates.md)
 
 Source: `docs/external-tooling-updates.md`  
-Last updated: 2026-05-06
+Last updated: 2026-09-08
 
 Nota: Este espejo en espanol fue creado para cerrar el backlog de i18n. Se recomienda refinar la traduccion en una iteracion posterior.
 
@@ -16,9 +16,9 @@ Last updated: 2026-05-06
 
 SoftOS uses external tooling in three separate layers:
 
-- container-installed binaries: pnpm, Tessl CLI, BMAD CLI and Engram
+- binarios instalados en el contenedor: pnpm, Tessl CLI, BMAD CLI, Engram y Graphify
 - versioned workspace assets: `.tessl/**`, `_bmad/**`, `.agents/skills/**`, `workspace.skills.json`
-- local operational state: `.flow/memory/engram`, `.flow/reports/**`, `.flow/state/**`
+- estado operativo local: `.flow/memory/engram`, `graphify-out/` por repo, `.flow/reports/**`, `.flow/state/**`
 
 Keep these layers separate. Updating a binary is not the same as accepting generated assets, and updating memory state is never a source-of-truth change.
 
@@ -29,7 +29,8 @@ The workspace image defaults to the latest upstream tool versions at build time:
 - `PNPM_VERSION=latest`
 - `TESSL_CLI_VERSION=latest`
 - `BMAD_METHOD_VERSION=latest`
-- `ENGRAM_VERSION=latest`
+- `ENGRAM_VERSION=v1.20.0`
+- `GRAPHIFY_VERSION=0.9.56`
 
 This keeps development workspaces current when the image is rebuilt. For staging, production, demos, or release branches, override the build args with explicit versions so the toolchain is reproducible.
 
@@ -45,6 +46,8 @@ python3 ./flow workflow doctor --json
 python3 ./flow skills doctor --json
 python3 ./flow memory doctor --json
 python3 ./flow memory smoke --json
+python3 ./flow code-graph doctor --json
+python3 ./flow code-graph status --json
 ```
 
 If the stack is already running, rebuild first and then recreate the `workspace` service through the normal stack flow.
@@ -61,6 +64,7 @@ docker compose \
   --build-arg TESSL_CLI_VERSION=<version> \
   --build-arg BMAD_METHOD_VERSION=<version> \
   --build-arg ENGRAM_VERSION=<tag> \
+  --build-arg GRAPHIFY_VERSION=<version> \
   workspace
 ```
 
@@ -68,8 +72,8 @@ Examples:
 
 - `TESSL_CLI_VERSION=latest` installs `@tessl/cli@latest`.
 - `BMAD_METHOD_VERSION=latest` installs `bmad-method@latest`.
-- `ENGRAM_VERSION=latest` resolves the latest GitHub release.
-- `ENGRAM_VERSION=v1.11.0` resolves the matching GitHub release tag.
+- `ENGRAM_VERSION=v1.20.0` resuelve la release fijada y verifica su checksum.
+- `GRAPHIFY_VERSION=0.9.56` instala el paquete fijado `graphifyy[mcp]`.
 
 Do not pin Engram to a tag unless that tag exists in `Gentleman-Programming/engram` releases and provides a Linux asset for the container architecture.
 
@@ -131,6 +135,29 @@ python3 ./flow memory import .flow/memory/backups/<file>.json --confirm --json
 ```
 
 Engram memory is consultive. It must not override specs, approvals, plans, CI evidence, release manifests, or human gates.
+
+## Graphify
+
+Graphify indexa la estructura actual del codigo; no almacena memoria del proyecto. SoftOS
+descubre proyectos solo desde `workspace.config.json.repos` y mantiene un `graphify-out/`
+reconstruible dentro de cada repo registrado. La extraccion local `--code-only` es el valor
+por defecto y no requiere API key, subida a cloud, daemon, watcher ni base de datos de grafos.
+
+```bash
+python3 ./flow code-graph doctor --json
+python3 ./flow code-graph status --json
+python3 ./flow code-graph refresh <repo> --json
+python3 ./flow code-graph refresh --all --json
+```
+
+`status` informa `current`, `stale`, `missing`, `unsupported` o `error`. Un repo fallido o no
+soportado no bloquea los demas. Cursor y OpenCode usan la configuracion MCP del proyecto; otros
+clientes compatibles pueden adaptar `.mcp.example.json`. Para Codex:
+
+```bash
+scripts/install_codex_graphify_mcp.sh
+scripts/install_codex_graphify_mcp.sh <repo-registrado> [nombre-servidor]
+```
 
 ## Skills
 
