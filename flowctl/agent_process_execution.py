@@ -14,8 +14,10 @@ from flowctl.agent_executor_adapters import (
     AgentAdapterInvocation,
     AgentRunRequest,
     build_execution_contract,
+    build_delivered_prompt,
     resolve_adapter,
 )
+from flowctl.acp_transport import ACPTransport, ACPTransportError
 from flowctl.agent_executors import AgentExecutor, AgentRegistryError, load_agent_registry
 from flowctl.agent_resources import (
     AgentResource,
@@ -78,9 +80,10 @@ _DEFAULT_OPENCODE_EXECUTABLE = "opencode"
 
 
 class AgentRunError(Exception):
-    def __init__(self, message: str, *, exit_code: int = 1) -> None:
+    def __init__(self, message: str, *, exit_code: int = 1, failure_class: str | None = None) -> None:
         self.message = message
         self.exit_code = exit_code
+        self.failure_class = failure_class
         super().__init__(message)
 
 
@@ -94,6 +97,14 @@ class AgentRunMetadata:
     finished_at: str
     exit_code: int
     resource_id: Optional[str] = None
+    transport_requested: str = "cli"
+    transport_used: str = "cli"
+    acp_session_id: Optional[str] = None
+    result: str = "success"
+    cancellation: bool = False
+    permission_requests: tuple[dict[str, object], ...] = ()
+    fallback_reason: Optional[str] = None
+    failure_class: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -733,8 +744,13 @@ def run_agent_process(
     inherited_env: Mapping[str, str] | None = None,
     model: Optional[str] = None,
     sandbox: Optional[str] = None,
+    transport: Optional[str] = None,
+    cancel_event=None,
+    permission_handler=None,
 ) -> tuple[int, AgentRunMetadata]:
     started_at = datetime.now(timezone.utc).isoformat()
+    using_default_writer = stream_writer is None
+    writer = stream_writer or _default_stream_writer
     workdir_resolved = str(workdir.resolve())
     workspace_resolved = str(workspace_root.resolve())
     contract_body = build_execution_contract(
@@ -770,12 +786,6 @@ def run_agent_process(
     except ValueError as exc:
         raise AgentRunError(str(exc)) from exc
 
-    if not executable_is_ready(executor.executable, shutil_which=shutil_which):
-        raise AgentRunError(
-            f"No pude lanzar el executor `{executor.executor_id}`: "
-            f"el ejecutable no esta disponible."
-        )
-
     env_overlay: dict[str, str] | None = None
     scrub_env_keys: frozenset[str] = frozenset()
     effective_resource_id = resource_id
@@ -800,15 +810,108 @@ def run_agent_process(
         if built_overlay or scrub_env_keys:
             env_overlay = built_overlay
 
-    exit_code, stdout, stderr = execute_subprocess(
-        invocation,
-        cwd=workdir,
-        subprocess_run=subprocess_run,
-        env_overlay=env_overlay,
-        scrub_env_keys=scrub_env_keys,
-        inherited_env=inherited_env,
-    )
-    writer = stream_writer or _default_stream_writer
+    requested_transport = transport or executor.transport
+    if requested_transport not in {"cli", "acp", "auto"}:
+        raise AgentRunError(f"Transport no soportado: `{requested_transport}`.")
+    effective_env = None
+    if env_overlay is not None or scrub_env_keys:
+        effective_env = merge_process_environment(
+            dict(os.environ if inherited_env is None else inherited_env),
+            env_overlay or {},
+            scrub_keys=scrub_env_keys,
+        )
+    transport_used = "cli"
+    fallback_reason: Optional[str] = None
+    acp_session_id: Optional[str] = None
+    permission_requests: tuple[dict[str, object], ...] = ()
+    cancellation = False
+    failure_class: Optional[str] = None
+    result_status = "success"
+
+    def run_cli() -> tuple[int, bytes, bytes]:
+        if not executable_is_ready(executor.executable, shutil_which=shutil_which):
+            raise AgentRunError(
+                f"No pude lanzar el executor `{executor.executor_id}`: "
+                f"el ejecutable no esta disponible."
+            )
+        return execute_subprocess(
+            invocation,
+            cwd=workdir,
+            subprocess_run=subprocess_run,
+            env_overlay=env_overlay,
+            scrub_env_keys=scrub_env_keys,
+            inherited_env=inherited_env,
+        )
+
+    if requested_transport in {"acp", "auto"}:
+        acp_executable = executor.acp_executable
+        acp_argv = executor.acp_argv
+        if acp_executable is None and executor.adapter in {"cursor", "opencode"}:
+            acp_executable, acp_argv = executor.executable, ("acp",)
+        if acp_executable is None:
+            acp_error = ACPTransportError("ACP adapter executable is not configured.", phase="probe")
+        else:
+            acp = ACPTransport(
+                executable=acp_executable,
+                argv=acp_argv,
+                auth_method=executor.acp_auth_method,
+                permission_policy=executor.permission_policy,
+            )
+            ready, reason = acp.probe(shutil_which=shutil_which)
+            acp_error = None if ready else ACPTransportError(reason or "ACP unavailable.", phase="probe")
+        if acp_error is None:
+            try:
+                acp_result = acp.run(
+                    cwd=workdir,
+                    prompt=build_delivered_prompt(request),
+                    env=effective_env,
+                    permission_handler=permission_handler,
+                    cancel_event=cancel_event,
+                    stream_writer=writer,
+                )
+                exit_code = acp_result.exit_code
+                stdout = b""
+                stderr = b""
+                transport_used = "acp"
+                acp_session_id = acp_result.session_id
+                permission_requests = acp_result.permission_requests
+                cancellation = acp_result.cancelled
+                failure_class = acp_result.failure_class
+                if cancellation:
+                    result_status = "cancelled"
+                elif exit_code != 0:
+                    result_status = "failure"
+                    failure_class = "task_failure"
+                final_result_text = acp_result.final_result or ""
+                final_result_is_output = final_result_text.lower() not in {
+                    "end_turn",
+                    "completed",
+                    "cancelled",
+                    "canceled",
+                }
+                if final_result_text and not acp_result.streamed_text and final_result_is_output:
+                    writer("stdout", final_result_text.encode("utf-8"))
+                emitted_text = acp_result.streamed_text or (
+                    final_result_text if final_result_is_output else ""
+                )
+                if using_default_writer and emitted_text and not emitted_text.endswith("\n"):
+                    writer("stdout", b"\n")
+            except ACPTransportError as exc:
+                acp_error = exc
+                if requested_transport == "acp" or exc.submitted or not executor.allow_cli_fallback:
+                    failure_class = "runtime_failure"
+                    raise AgentRunError(str(exc), failure_class="runtime_failure") from exc
+        if acp_error is not None:
+            if requested_transport == "acp" or not executor.allow_cli_fallback:
+                failure_class = "runtime_failure"
+                raise AgentRunError(str(acp_error), failure_class="runtime_failure") from acp_error
+            fallback_reason = f"{acp_error.phase}:{acp_error}"
+            print(f"SOFTOS ACP fallback: {fallback_reason}", file=sys.stderr)
+            exit_code, stdout, stderr = run_cli()
+        else:
+            transport_used = "acp"
+    else:
+        exit_code, stdout, stderr = run_cli()
     if stdout:
         writer("stdout", stdout)
     if stderr:
@@ -824,6 +927,14 @@ def run_agent_process(
         finished_at=finished_at,
         exit_code=exit_code,
         resource_id=effective_resource_id,
+        transport_requested=requested_transport,
+        transport_used=transport_used,
+        acp_session_id=acp_session_id,
+        result=result_status if result_status != "success" or exit_code == 0 else "failure",
+        cancellation=cancellation,
+        permission_requests=permission_requests,
+        fallback_reason=fallback_reason,
+        failure_class=failure_class or ("task_failure" if exit_code != 0 else None),
     )
     return exit_code, metadata
 
@@ -833,14 +944,18 @@ def _default_stream_writer(stream: str, payload: bytes) -> None:
         target = getattr(sys.stdout, "buffer", None)
         if target is not None:
             target.write(payload)
+            target.flush()
             return
         sys.stdout.write(payload.decode("utf-8", errors="surrogateescape"))
+        sys.stdout.flush()
         return
     target = getattr(sys.stderr, "buffer", None)
     if target is not None:
         target.write(payload)
+        target.flush()
         return
     sys.stderr.write(payload.decode("utf-8", errors="surrogateescape"))
+    sys.stderr.flush()
 
 
 def prepare_agent_run(

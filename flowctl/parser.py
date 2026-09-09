@@ -963,6 +963,11 @@ def build_parser(
         choices=("read-only", "workspace-write", "danger-full-access"),
         help="Codex sandbox policy for this process only; valid only with the codex executor.",
     )
+    agent_run.add_argument(
+        "--transport",
+        choices=("auto", "acp", "cli"),
+        help="Execution transport override. Defaults to the executor configuration.",
+    )
     agent_run.set_defaults(func=commands["agent_run"])
 
     agent_handoff = agent_subparsers.add_parser("handoff", help="Write a self-contained handoff package for another agent.")

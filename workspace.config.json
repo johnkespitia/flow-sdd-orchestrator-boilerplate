@@ -162,22 +162,38 @@
       "codex": {
         "adapter": "codex",
         "executable": "codex",
-        "argv": []
+        "argv": [],
+        "transport": "auto",
+        "allow_cli_fallback": true,
+        "permission_policy": "reject",
+        "acp": {"executable": "codex-acp", "argv": []}
       },
       "cursor": {
         "adapter": "cursor",
         "executable": "agent",
-        "argv": []
+        "argv": [],
+        "transport": "auto",
+        "allow_cli_fallback": true,
+        "permission_policy": "reject",
+        "acp": {"executable": "agent", "argv": ["acp"], "auth_method": "cursor_login"}
       },
       "opencode": {
         "adapter": "opencode",
         "executable": "opencode",
-        "argv": []
+        "argv": [],
+        "transport": "auto",
+        "allow_cli_fallback": true,
+        "permission_policy": "reject",
+        "acp": {"executable": "opencode", "argv": ["acp"]}
       },
       "opencode-local": {
         "adapter": "opencode",
         "executable": "opencode-softos",
-        "argv": []
+        "argv": [],
+        "transport": "auto",
+        "allow_cli_fallback": true,
+        "permission_policy": "reject",
+        "acp": {"executable": "opencode-softos", "argv": ["acp"]}
       }
     }
   },
