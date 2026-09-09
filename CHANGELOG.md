@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.14.0 - 2026-09-09
+
+### Added
+
+- add ACP-first executor transport
+
 ## v0.13.0 - 2026-09-08
 
 ### Added
